@@ -1,0 +1,31 @@
+20/08/20
+a body only model was trained using old and new (tsvi) datasets; probably missing frames do to test set fraction >0.
+best body only model saved to :
+'ed3d_leaplikes_atrous2_mean_squared_errorloss_64filter_30epoch_4batchsize_500batchesperepoch_merged_rot15_amsgradFalse_upsampling_layers=True'
+
+
+20/10/20
+generating datasets for wing only network (14*3=42 points)
+
+used old annotated data 'clustered_s80_m300_c7.h5' and removed body points during generate dataset. dataset was created with sigma=2, scale=1, no shuffle, LR mirroring, and 0 test set fraction. saved to 'clustered_s80_m300_c7_2sigma_100labels_wing_only'.
+
+used new (tsvi) annotated data 'clustered_20spv_1200pc_7c_140spc'. dataset was created with sigma=2, scale=1, no shuffle, LR mirroring, and 0 test set fraction. saved to 'clustered_20spv_1200pc_7c_140spc_2sigma_100labels_wing_only'.
+
+merged the old and new datasets into file 'merged1'. has 200 labeled images (400 with mirror).
+
+trained in the merged dataset: model saved to 'ed3d_leaplike_atrous2_wings_only_merged'
+used leaplike ed3d, with 4 blocks, 64 filters - this failed due to OOM.
+
+next used 3 blocks with batch size=2.- this seemed to progress slowly if at all
+
+next used ed3d with all 3 cameras data (not average);
+
+resulting losses were not good
+
+16/11/20
+combined body +wings(2pts) old and new datasets, creating 8 points per camera 200 label set.(dataset was created with sigma=2, scale=1, no shuffle, LR mirroring, and 0 test set fraction.)
+ trying to test training for a simpler network without wing edges.
+
+first try with 64 filters, 3 blocks, ed3d with average - loss turned to nan
+trying with 2 blocks- loss turned to nan
+trying the same with ed3d_singles

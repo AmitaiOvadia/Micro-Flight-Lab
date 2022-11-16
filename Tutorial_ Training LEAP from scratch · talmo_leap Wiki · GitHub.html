@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<!-- saved from url=(0071)https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+  <link rel="dns-prefetch" href="https://github.githubassets.com/">
+  <link rel="dns-prefetch" href="https://avatars0.githubusercontent.com/">
+  <link rel="dns-prefetch" href="https://avatars1.githubusercontent.com/">
+  <link rel="dns-prefetch" href="https://avatars2.githubusercontent.com/">
+  <link rel="dns-prefetch" href="https://avatars3.githubusercontent.com/">
+  <link rel="dns-prefetch" href="https://github-cloud.s3.amazonaws.com/">
+  <link rel="dns-prefetch" href="https://user-images.githubusercontent.com/">
+
+
+
+  <link crossorigin="anonymous" media="all" integrity="sha512-jFUBCdWOA1Ov3xo3oFMBwsdP4Up2K1bRnP4QYI5WqvpaIYxWVek89k2M0oyTbNhYMViGtxJB3Vdwcw8ln8hGQw==" rel="stylesheet" href="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/frameworks-8c550109d58e0353afdf1a37a05301c2.css">
+  <link crossorigin="anonymous" media="all" integrity="sha512-YS1sIHD/qpWT3sO2WmN33oIhfhxVa+EqML3H7S+Q6k3gf7mcOQepxYqRZQnZLZfi04bzGs2L+l4xxV59hLcvcg==" rel="stylesheet" href="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/site-612d6c2070ffaa9593dec3b65a6377de.css">
+    <link crossorigin="anonymous" media="all" integrity="sha512-O1IJMyBVp2Cojf3HfhUjtNAQgE4xjlsNaToZzVMHfGkujqOnsh6PWxlsFhZFBD3gTmIGwZhRE6CKB2vyWgoZCA==" rel="stylesheet" href="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/github-3b5209332055a760a88dfdc77e1523b4.css">
+    
+    
+    
+    
+
+
+  <meta name="viewport" content="width=device-width">
+  
+  <title>Tutorial: Training LEAP from scratch · talmo/leap Wiki · GitHub</title>
+    <meta name="description" content="LEAP is now deprecated -- check out its successor SLEAP! - talmo/leap">
+    <link rel="search" type="application/opensearchdescription+xml" href="https://github.com/opensearch.xml" title="GitHub">
+  <link rel="fluid-icon" href="https://github.com/fluidicon.png" title="GitHub">
+  <meta property="fb:app_id" content="1401488693436528">
+  <meta name="apple-itunes-app" content="app-id=1477376905">
+
+    <meta name="twitter:image:src" content="https://avatars3.githubusercontent.com/u/3187454?s=400&amp;v=4"><meta name="twitter:site" content="@github"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="talmo/leap"><meta name="twitter:description" content="LEAP is now deprecated -- check out its successor SLEAP! - talmo/leap">
+    <meta property="og:image" content="https://avatars3.githubusercontent.com/u/3187454?s=400&amp;v=4"><meta property="og:site_name" content="GitHub"><meta property="og:type" content="object"><meta property="og:title" content="talmo/leap"><meta property="og:url" content="https://github.com/talmo/leap"><meta property="og:description" content="LEAP is now deprecated -- check out its successor SLEAP! - talmo/leap">
+
+  <link rel="assets" href="https://github.githubassets.com/">
+  
+
+  <meta name="request-id" content="E073:A7CD:B28C12D:106D898E:5F3B87EE" data-pjax-transient="true"><meta name="html-safe-nonce" content="9e2332ab43c1bcd2a083103f9773c83fb19959f0" data-pjax-transient="true"><meta name="visitor-payload" content="eyJyZWZlcnJlciI6Imh0dHBzOi8vZ2l0aHViLmNvbS90YWxtby9sZWFwIiwicmVxdWVzdF9pZCI6IkUwNzM6QTdDRDpCMjhDMTJEOjEwNkQ4OThFOjVGM0I4N0VFIiwidmlzaXRvcl9pZCI6IjYzNTAyNjkzOTM5NjM1NTA2OTkiLCJyZWdpb25fZWRnZSI6ImFtcyIsInJlZ2lvbl9yZW5kZXIiOiJhbXMifQ==" data-pjax-transient="true"><meta name="visitor-hmac" content="6b897cb5c94f3622a550a076f9232261f9001500605df534be90dbc572fc2417" data-pjax-transient="true">
+
+    <meta name="hovercard-subject-tag" content="repository:134791672" data-pjax-transient="">
+
+
+  <meta name="github-keyboard-shortcuts" content="repository" data-pjax-transient="true">
+
+  
+
+  <meta name="selected-link" value="repo_wiki" data-pjax-transient="">
+
+    <meta name="google-site-verification" content="c1kuD-K2HIVF635lypcsWPoD4kilo5-jA_wBFyT4uMY">
+  <meta name="google-site-verification" content="KT5gs8h0wvaagLKAVWq8bbeNwnZZK1r1XQysX3xurLU">
+  <meta name="google-site-verification" content="ZzhVyEFwb7w3e0-uOTltm8Jsck2F5StVihD0exw2fsA">
+  <meta name="google-site-verification" content="GXs5KoUUkNCoaAZn7wPN-t01Pywp9M3sEjnt_3_ZWPc">
+
+  <meta name="octolytics-host" content="collector.githubapp.com"><meta name="octolytics-app-id" content="github"><meta name="octolytics-event-url" content="https://collector.githubapp.com/github-external/browser_event"><meta name="octolytics-dimension-ga_id" content="1870840235.1597733494" class="js-octo-ga-id">
+
+  <meta name="analytics-location" content="/&lt;user-name&gt;/&lt;repo-name&gt;/wiki/show" data-pjax-transient="true">
+
+  
+
+
+
+
+    <meta name="google-analytics" content="UA-3769691-2">
+
+
+<meta class="js-ga-set" name="dimension10" content="Responsive" data-pjax-transient="">
+
+<meta class="js-ga-set" name="dimension1" content="Logged Out">
+
+
+
+  
+
+      <meta name="hostname" content="github.com">
+    <meta name="user-login" content="">
+
+
+      <meta name="expected-hostname" content="github.com">
+
+
+    <meta name="enabled-features" content="MARKETPLACE_PENDING_INSTALLATIONS">
+
+  <meta http-equiv="x-pjax-version" content="0f0bddf49f88ae5030de22ad865a8556">
+  
+
+      <link href="https://github.com/talmo/leap/commits/master.atom" rel="alternate" title="Recent Commits to leap:master" type="application/atom+xml">
+
+  <meta name="go-import" content="github.com/talmo/leap git https://github.com/talmo/leap.git">
+
+  <meta name="octolytics-dimension-user_id" content="3187454"><meta name="octolytics-dimension-user_login" content="talmo"><meta name="octolytics-dimension-repository_id" content="134791672"><meta name="octolytics-dimension-repository_nwo" content="talmo/leap"><meta name="octolytics-dimension-repository_public" content="true"><meta name="octolytics-dimension-repository_is_fork" content="false"><meta name="octolytics-dimension-repository_network_root_id" content="134791672"><meta name="octolytics-dimension-repository_network_root_nwo" content="talmo/leap"><meta name="octolytics-dimension-repository_explore_github_marketplace_ci_cta_shown" content="false">
+
+
+
+
+  <meta name="browser-stats-url" content="https://api.github.com/_private/browser/stats">
+
+  <meta name="browser-errors-url" content="https://api.github.com/_private/browser/errors">
+
+  <link rel="mask-icon" href="https://github.githubassets.com/pinned-octocat.svg" color="#000000">
+  <link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://github.githubassets.com/favicons/favicon.png">
+  <link rel="icon" class="js-site-favicon" type="image/svg+xml" href="https://github.githubassets.com/favicons/favicon.svg">
+
+<meta name="theme-color" content="#1e2327">
+
+
+  <link rel="manifest" href="https://github.com/manifest.json" crossorigin="use-credentials">
+
+  </head>
+
+  <body class="logged-out env-production page-responsive">
+    
+
+
+    <div class="position-relative js-header-wrapper ">
+      <a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#start-of-content" class="px-2 py-4 bg-blue text-white show-on-focus js-skip-to-content">Skip to content</a>
+      <span class="progress-pjax-loader width-full js-pjax-loader-bar Progress position-fixed">
+    <span style="background-color: #79b8ff;width: 0%;" class="Progress-item progress-pjax-loader-bar "></span>
+</span>      
+      
+
+
+
+          <header class="Header-old header-logged-out js-details-container Details position-relative f4 py-2" role="banner">
+  <div class="container-xl d-lg-flex flex-items-center p-responsive">
+    <div class="d-flex flex-justify-between flex-items-center">
+        <a class="mr-4" href="https://github.com/" aria-label="Homepage" data-ga-click="(Logged out) Header, go to homepage, icon:logo-wordmark">
+          <svg height="32" class="octicon octicon-mark-github text-white" viewBox="0 0 16 16" version="1.1" width="32" aria-hidden="true"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+        </a>
+
+          <div class="d-lg-none css-truncate css-truncate-target width-fit p-2">
+            
+
+          </div>
+
+        <div class="d-flex flex-items-center">
+              <a href="https://github.com/join?ref_cta=Sign+up&amp;ref_loc=header+logged+out&amp;ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E%2Fwiki%2Fshow&amp;source=header-repo" class="d-inline-block d-lg-none f5 text-white no-underline border border-gray-dark rounded-2 px-2 py-1 mr-3 mr-sm-5" data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="4b18db590ac2f2fd6f663e601c83069bca563c2c6e65066c5e1d9fbc28dd622c" data-ga-click="Sign up, click to sign up for account, ref_page:/&lt;user-name&gt;/&lt;repo-name&gt;/wiki/show;ref_cta:Sign up;ref_loc:header logged out">
+                Sign&nbsp;up
+              </a>
+
+          <button class="btn-link d-lg-none mt-1 js-details-target" type="button" aria-label="Toggle navigation" aria-expanded="false">
+            <svg height="24" class="octicon octicon-three-bars text-white" viewBox="0 0 16 16" version="1.1" width="24" aria-hidden="true"><path fill-rule="evenodd" d="M1 2.75A.75.75 0 011.75 2h12.5a.75.75 0 110 1.5H1.75A.75.75 0 011 2.75zm0 5A.75.75 0 011.75 7h12.5a.75.75 0 110 1.5H1.75A.75.75 0 011 7.75zM1.75 12a.75.75 0 100 1.5h12.5a.75.75 0 100-1.5H1.75z"></path></svg>
+          </button>
+        </div>
+    </div>
+
+    <div class="HeaderMenu HeaderMenu--logged-out position-fixed top-0 right-0 bottom-0 height-fit position-lg-relative d-lg-flex flex-justify-between flex-items-center flex-auto">
+      <div class="d-flex d-lg-none flex-justify-end border-bottom bg-gray-light p-3">
+        <button class="btn-link js-details-target" type="button" aria-label="Toggle navigation" aria-expanded="false">
+          <svg height="24" class="octicon octicon-x text-gray" viewBox="0 0 24 24" version="1.1" width="24" aria-hidden="true"><path fill-rule="evenodd" d="M5.72 5.72a.75.75 0 011.06 0L12 10.94l5.22-5.22a.75.75 0 111.06 1.06L13.06 12l5.22 5.22a.75.75 0 11-1.06 1.06L12 13.06l-5.22 5.22a.75.75 0 01-1.06-1.06L10.94 12 5.72 6.78a.75.75 0 010-1.06z"></path></svg>
+        </button>
+      </div>
+
+        <nav class="mt-0 px-3 px-lg-0 mb-5 mb-lg-0" aria-label="Global">
+          <ul class="d-lg-flex list-style-none">
+              <li class="d-block d-lg-flex flex-lg-nowrap flex-lg-items-center border-bottom border-lg-bottom-0 mr-0 mr-lg-3 edge-item-fix position-relative flex-wrap flex-justify-between d-flex flex-items-center ">
+                <details class="HeaderMenu-details details-overlay details-reset width-full">
+                  <summary class="HeaderMenu-summary HeaderMenu-link px-0 py-3 border-0 no-wrap d-block d-lg-inline-block">
+                    Why GitHub?
+                    <svg x="0px" y="0px" viewBox="0 0 14 8" xml:space="preserve" fill="none" class="icon-chevon-down-mktg position-absolute position-lg-relative">
+                      <path d="M1,1l6.2,6L13,1"></path>
+                    </svg>
+                  </summary>
+                  <div class="dropdown-menu flex-auto rounded-1 bg-white px-0 mt-0 pb-4 p-lg-4 position-relative position-lg-absolute left-0 left-lg-n4">
+                    <a href="https://github.com/features" class="py-2 lh-condensed-ultra d-block link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Features">Features <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a>
+                    <ul class="list-style-none f5 pb-3">
+                      <li class="edge-item-fix"><a href="https://github.com/features/code-review/" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Code review">Code review</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features/project-management/" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Project management">Project management</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features/integrations" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Integrations">Integrations</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features/actions" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Actions">Actions</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features/packages" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to GitHub Packages">Packages</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features/security" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Security">Security</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features#team-management" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Team management">Team management</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/features#hosting" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Code hosting">Hosting</a></li>
+                      <li class="edge-item-fix hide-xl"><a href="https://github.com/mobile" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Mobile">Mobile</a></li>
+                    </ul>
+
+                    <ul class="list-style-none mb-0 border-lg-top pt-lg-3">
+                      <li class="edge-item-fix"><a href="https://github.com/customer-stories" class="py-2 lh-condensed-ultra d-block no-underline link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Customer stories">Customer stories <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/security" class="py-2 lh-condensed-ultra d-block no-underline link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Security">Security <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a></li>
+                    </ul>
+                  </div>
+                </details>
+              </li>
+              <li class="border-bottom border-lg-bottom-0 mr-0 mr-lg-3">
+                <a href="https://github.com/team" class="HeaderMenu-link no-underline py-3 d-block d-lg-inline-block" data-ga-click="(Logged out) Header, go to Team">Team</a>
+              </li>
+              <li class="border-bottom border-lg-bottom-0 mr-0 mr-lg-3">
+                <a href="https://github.com/enterprise" class="HeaderMenu-link no-underline py-3 d-block d-lg-inline-block" data-ga-click="(Logged out) Header, go to Enterprise">Enterprise</a>
+              </li>
+
+              <li class="d-block d-lg-flex flex-lg-nowrap flex-lg-items-center border-bottom border-lg-bottom-0 mr-0 mr-lg-3 edge-item-fix position-relative flex-wrap flex-justify-between d-flex flex-items-center ">
+                <details class="HeaderMenu-details details-overlay details-reset width-full">
+                  <summary class="HeaderMenu-summary HeaderMenu-link px-0 py-3 border-0 no-wrap d-block d-lg-inline-block">
+                    Explore
+                    <svg x="0px" y="0px" viewBox="0 0 14 8" xml:space="preserve" fill="none" class="icon-chevon-down-mktg position-absolute position-lg-relative">
+                      <path d="M1,1l6.2,6L13,1"></path>
+                    </svg>
+                  </summary>
+
+                  <div class="dropdown-menu flex-auto rounded-1 bg-white px-0 pt-2 pb-0 mt-0 pb-4 p-lg-4 position-relative position-lg-absolute left-0 left-lg-n4">
+                    <ul class="list-style-none mb-3">
+                      <li class="edge-item-fix"><a href="https://github.com/explore" class="py-2 lh-condensed-ultra d-block link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Explore">Explore GitHub <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a></li>
+                    </ul>
+
+                    <h4 class="text-gray-light text-normal text-mono f5 mb-2 border-lg-top pt-lg-3">Learn &amp; contribute</h4>
+                    <ul class="list-style-none mb-3">
+                      <li class="edge-item-fix"><a href="https://github.com/topics" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Topics">Topics</a></li>
+                        <li class="edge-item-fix"><a href="https://github.com/collections" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Collections">Collections</a></li>
+                      <li class="edge-item-fix"><a href="https://github.com/trending" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Trending">Trending</a></li>
+                      <li class="edge-item-fix"><a href="https://lab.github.com/" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Learning lab">Learning Lab</a></li>
+                      <li class="edge-item-fix"><a href="https://opensource.guide/" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Open source guides">Open source guides</a></li>
+                    </ul>
+
+                    <h4 class="text-gray-light text-normal text-mono f5 mb-2 border-lg-top pt-lg-3">Connect with others</h4>
+                    <ul class="list-style-none mb-0">
+                      <li class="edge-item-fix"><a href="https://github.com/events" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Events">Events</a></li>
+                      <li class="edge-item-fix"><a href="https://github.community/" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Community forum">Community forum</a></li>
+                      <li class="edge-item-fix"><a href="https://education.github.com/" class="py-2 pb-0 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to GitHub Education">GitHub Education</a></li>
+                    </ul>
+                  </div>
+                </details>
+              </li>
+
+              <li class="border-bottom border-lg-bottom-0 mr-0 mr-lg-3">
+                <a href="https://github.com/marketplace" class="HeaderMenu-link no-underline py-3 d-block d-lg-inline-block" data-ga-click="(Logged out) Header, go to Marketplace">Marketplace</a>
+              </li>
+
+              <li class="d-block d-lg-flex flex-lg-nowrap flex-lg-items-center border-bottom border-lg-bottom-0 mr-0 mr-lg-3 edge-item-fix position-relative flex-wrap flex-justify-between d-flex flex-items-center ">
+                <details class="HeaderMenu-details details-overlay details-reset width-full">
+                  <summary class="HeaderMenu-summary HeaderMenu-link px-0 py-3 border-0 no-wrap d-block d-lg-inline-block">
+                    Pricing
+                    <svg x="0px" y="0px" viewBox="0 0 14 8" xml:space="preserve" fill="none" class="icon-chevon-down-mktg position-absolute position-lg-relative">
+                       <path d="M1,1l6.2,6L13,1"></path>
+                    </svg>
+                  </summary>
+
+                  <div class="dropdown-menu flex-auto rounded-1 bg-white px-0 pt-2 pb-4 mt-0 p-lg-4 position-relative position-lg-absolute left-0 left-lg-n4">
+                    <a href="https://github.com/pricing" class="pb-2 lh-condensed-ultra d-block link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Pricing">Plans <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a>
+
+                    <ul class="list-style-none mb-3">
+                      <li class="edge-item-fix"><a href="https://github.com/pricing#feature-comparison" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Compare plans">Compare plans</a></li>
+                      <li class="edge-item-fix"><a href="https://enterprise.github.com/contact" class="py-2 lh-condensed-ultra d-block link-gray no-underline f5" data-ga-click="(Logged out) Header, go to Contact Sales">Contact Sales</a></li>
+                    </ul>
+
+                    <ul class="list-style-none mb-0 border-lg-top pt-lg-3">
+                      <li class="edge-item-fix"><a href="https://github.com/nonprofit" class="py-2 lh-condensed-ultra d-block no-underline link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Nonprofits">Nonprofit <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a></li>
+                      <li class="edge-item-fix"><a href="https://education.github.com/" class="py-2 pb-0 lh-condensed-ultra d-block no-underline link-gray-dark no-underline h5 Bump-link--hover" data-ga-click="(Logged out) Header, go to Education">Education <span class="Bump-link-symbol float-right text-normal text-gray-light">→</span></a></li>
+                    </ul>
+                  </div>
+                </details>
+              </li>
+          </ul>
+        </nav>
+
+      <div class="d-lg-flex flex-items-center px-3 px-lg-0 text-center text-lg-left">
+          <div class="d-lg-flex mb-3 mb-lg-0">
+            <div class="header-search header-search-current js-header-search-current flex-auto  flex-self-stretch flex-md-self-auto mr-0 mr-md-3 mb-3 mb-md-0 scoped-search site-scoped-search js-site-search position-relative js-jump-to js-header-search-current-jump-to" role="combobox" aria-owns="jump-to-results" aria-label="Search or jump to" aria-haspopup="listbox" aria-expanded="false">
+  <div class="position-relative">
+    <!-- '"` --><!-- </textarea></xmp> --><form class="js-site-search-form" role="search" aria-label="Site" data-scope-type="Repository" data-scope-id="134791672" data-scoped-search-url="/talmo/leap/search" data-unscoped-search-url="/search" action="https://github.com/talmo/leap/search" accept-charset="UTF-8" method="get">
+      <label class="form-control input-sm header-search-wrapper p-0 header-search-wrapper-jump-to position-relative d-flex flex-justify-between flex-items-center js-chromeless-input-container">
+        <input type="text" class="form-control input-sm header-search-input jump-to-field js-jump-to-field js-site-search-focus js-site-search-field is-clearable" data-hotkey="s,/" name="q" value="" placeholder="Search" data-unscoped-placeholder="Search GitHub" data-scoped-placeholder="Search" autocapitalize="off" aria-autocomplete="list" aria-controls="jump-to-results" aria-label="Search" data-jump-to-suggestions-path="/_graphql/GetSuggestedNavigationDestinations" spellcheck="false" autocomplete="off">
+          <input type="hidden" data-csrf="true" class="js-data-jump-to-suggestions-path-csrf" value="h8W0v7RcfCrj+qZvrMcKv5DnMk9O9wRpfMdXajDyhEDSdwYRTOYvTFm5SAMvRuosHDCW8OumqBKFFhKfribF8w==">
+          <input type="hidden" class="js-site-search-type-field" name="type">
+            <img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/search-key-slash.svg" alt="" class="mr-2 header-search-key-slash">
+
+            <div class="Box position-absolute overflow-hidden d-none jump-to-suggestions js-jump-to-suggestions-container">
+              
+<ul class="d-none js-jump-to-suggestions-template-container">
+  
+
+<li class="d-flex flex-justify-start flex-items-center p-0 f5 navigation-item js-navigation-item js-jump-to-suggestion" role="option">
+  <a tabindex="-1" class="no-underline d-flex flex-auto flex-items-center jump-to-suggestions-path js-jump-to-suggestion-path js-navigation-open p-2" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch">
+    <div class="jump-to-octicon js-jump-to-octicon flex-shrink-0 mr-2 text-center d-none">
+      <svg height="16" width="16" class="octicon octicon-repo flex-shrink-0 js-jump-to-octicon-repo d-none" title="Repository" aria-label="Repository" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1V9h-8c-.356 0-.694.074-1 .208V2.5a1 1 0 011-1h8zM5 12.25v3.25a.25.25 0 00.4.2l1.45-1.087a.25.25 0 01.3 0L8.6 15.7a.25.25 0 00.4-.2v-3.25a.25.25 0 00-.25-.25h-3.5a.25.25 0 00-.25.25z"></path></svg>
+      <svg height="16" width="16" class="octicon octicon-project flex-shrink-0 js-jump-to-octicon-project d-none" title="Project" aria-label="Project" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M1.75 0A1.75 1.75 0 000 1.75v12.5C0 15.216.784 16 1.75 16h12.5A1.75 1.75 0 0016 14.25V1.75A1.75 1.75 0 0014.25 0H1.75zM1.5 1.75a.25.25 0 01.25-.25h12.5a.25.25 0 01.25.25v12.5a.25.25 0 01-.25.25H1.75a.25.25 0 01-.25-.25V1.75zM11.75 3a.75.75 0 00-.75.75v7.5a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75zm-8.25.75a.75.75 0 011.5 0v5.5a.75.75 0 01-1.5 0v-5.5zM8 3a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 3z"></path></svg>
+      <svg height="16" width="16" class="octicon octicon-search flex-shrink-0 js-jump-to-octicon-search d-none" title="Search" aria-label="Search" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M11.5 7a4.499 4.499 0 11-8.998 0A4.499 4.499 0 0111.5 7zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"></path></svg>
+    </div>
+
+    <img class="avatar mr-2 flex-shrink-0 js-jump-to-suggestion-avatar d-none" alt="" aria-label="Team" src="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch" width="28" height="28">
+
+    <div class="jump-to-suggestion-name js-jump-to-suggestion-name flex-auto overflow-hidden text-left no-wrap css-truncate css-truncate-target">
+    </div>
+
+    <div class="border rounded-1 flex-shrink-0 bg-gray px-1 text-gray-light ml-1 f6 d-none js-jump-to-badge-search">
+      <span class="js-jump-to-badge-search-text-default d-none" aria-label="in this repository">
+        In this repository
+      </span>
+      <span class="js-jump-to-badge-search-text-global d-none" aria-label="in all of GitHub">
+        All GitHub
+      </span>
+      <span aria-hidden="true" class="d-inline-block ml-1 v-align-middle">↵</span>
+    </div>
+
+    <div aria-hidden="true" class="border rounded-1 flex-shrink-0 bg-gray px-1 text-gray-light ml-1 f6 d-none d-on-nav-focus js-jump-to-badge-jump">
+      Jump to
+      <span class="d-inline-block ml-1 v-align-middle">↵</span>
+    </div>
+  </a>
+</li>
+
+</ul>
+
+<ul class="d-none js-jump-to-no-results-template-container">
+  <li class="d-flex flex-justify-center flex-items-center f5 d-none js-jump-to-suggestion p-2">
+    <span class="text-gray">No suggested jump to results</span>
+  </li>
+</ul>
+
+<ul id="jump-to-results" role="listbox" class="p-0 m-0 js-navigation-container jump-to-suggestions-results-container js-jump-to-suggestions-results-container">
+  
+
+<li class="d-flex flex-justify-start flex-items-center p-0 f5 navigation-item js-navigation-item js-jump-to-scoped-search d-none" role="option">
+  <a tabindex="-1" class="no-underline d-flex flex-auto flex-items-center jump-to-suggestions-path js-jump-to-suggestion-path js-navigation-open p-2" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch">
+    <div class="jump-to-octicon js-jump-to-octicon flex-shrink-0 mr-2 text-center d-none">
+      <svg height="16" width="16" class="octicon octicon-repo flex-shrink-0 js-jump-to-octicon-repo d-none" title="Repository" aria-label="Repository" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1V9h-8c-.356 0-.694.074-1 .208V2.5a1 1 0 011-1h8zM5 12.25v3.25a.25.25 0 00.4.2l1.45-1.087a.25.25 0 01.3 0L8.6 15.7a.25.25 0 00.4-.2v-3.25a.25.25 0 00-.25-.25h-3.5a.25.25 0 00-.25.25z"></path></svg>
+      <svg height="16" width="16" class="octicon octicon-project flex-shrink-0 js-jump-to-octicon-project d-none" title="Project" aria-label="Project" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M1.75 0A1.75 1.75 0 000 1.75v12.5C0 15.216.784 16 1.75 16h12.5A1.75 1.75 0 0016 14.25V1.75A1.75 1.75 0 0014.25 0H1.75zM1.5 1.75a.25.25 0 01.25-.25h12.5a.25.25 0 01.25.25v12.5a.25.25 0 01-.25.25H1.75a.25.25 0 01-.25-.25V1.75zM11.75 3a.75.75 0 00-.75.75v7.5a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75zm-8.25.75a.75.75 0 011.5 0v5.5a.75.75 0 01-1.5 0v-5.5zM8 3a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 3z"></path></svg>
+      <svg height="16" width="16" class="octicon octicon-search flex-shrink-0 js-jump-to-octicon-search d-none" title="Search" aria-label="Search" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M11.5 7a4.499 4.499 0 11-8.998 0A4.499 4.499 0 0111.5 7zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"></path></svg>
+    </div>
+
+    <img class="avatar mr-2 flex-shrink-0 js-jump-to-suggestion-avatar d-none" alt="" aria-label="Team" src="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch" width="28" height="28">
+
+    <div class="jump-to-suggestion-name js-jump-to-suggestion-name flex-auto overflow-hidden text-left no-wrap css-truncate css-truncate-target">
+    </div>
+
+    <div class="border rounded-1 flex-shrink-0 bg-gray px-1 text-gray-light ml-1 f6 d-none js-jump-to-badge-search">
+      <span class="js-jump-to-badge-search-text-default d-none" aria-label="in this repository">
+        In this repository
+      </span>
+      <span class="js-jump-to-badge-search-text-global d-none" aria-label="in all of GitHub">
+        All GitHub
+      </span>
+      <span aria-hidden="true" class="d-inline-block ml-1 v-align-middle">↵</span>
+    </div>
+
+    <div aria-hidden="true" class="border rounded-1 flex-shrink-0 bg-gray px-1 text-gray-light ml-1 f6 d-none d-on-nav-focus js-jump-to-badge-jump">
+      Jump to
+      <span class="d-inline-block ml-1 v-align-middle">↵</span>
+    </div>
+  </a>
+</li>
+
+  
+
+<li class="d-flex flex-justify-start flex-items-center p-0 f5 navigation-item js-navigation-item js-jump-to-global-search d-none" role="option">
+  <a tabindex="-1" class="no-underline d-flex flex-auto flex-items-center jump-to-suggestions-path js-jump-to-suggestion-path js-navigation-open p-2" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch">
+    <div class="jump-to-octicon js-jump-to-octicon flex-shrink-0 mr-2 text-center d-none">
+      <svg height="16" width="16" class="octicon octicon-repo flex-shrink-0 js-jump-to-octicon-repo d-none" title="Repository" aria-label="Repository" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1V9h-8c-.356 0-.694.074-1 .208V2.5a1 1 0 011-1h8zM5 12.25v3.25a.25.25 0 00.4.2l1.45-1.087a.25.25 0 01.3 0L8.6 15.7a.25.25 0 00.4-.2v-3.25a.25.25 0 00-.25-.25h-3.5a.25.25 0 00-.25.25z"></path></svg>
+      <svg height="16" width="16" class="octicon octicon-project flex-shrink-0 js-jump-to-octicon-project d-none" title="Project" aria-label="Project" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M1.75 0A1.75 1.75 0 000 1.75v12.5C0 15.216.784 16 1.75 16h12.5A1.75 1.75 0 0016 14.25V1.75A1.75 1.75 0 0014.25 0H1.75zM1.5 1.75a.25.25 0 01.25-.25h12.5a.25.25 0 01.25.25v12.5a.25.25 0 01-.25.25H1.75a.25.25 0 01-.25-.25V1.75zM11.75 3a.75.75 0 00-.75.75v7.5a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75zm-8.25.75a.75.75 0 011.5 0v5.5a.75.75 0 01-1.5 0v-5.5zM8 3a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 3z"></path></svg>
+      <svg height="16" width="16" class="octicon octicon-search flex-shrink-0 js-jump-to-octicon-search d-none" title="Search" aria-label="Search" viewBox="0 0 16 16" version="1.1" role="img"><path fill-rule="evenodd" d="M11.5 7a4.499 4.499 0 11-8.998 0A4.499 4.499 0 0111.5 7zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"></path></svg>
+    </div>
+
+    <img class="avatar mr-2 flex-shrink-0 js-jump-to-suggestion-avatar d-none" alt="" aria-label="Team" src="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch" width="28" height="28">
+
+    <div class="jump-to-suggestion-name js-jump-to-suggestion-name flex-auto overflow-hidden text-left no-wrap css-truncate css-truncate-target">
+    </div>
+
+    <div class="border rounded-1 flex-shrink-0 bg-gray px-1 text-gray-light ml-1 f6 d-none js-jump-to-badge-search">
+      <span class="js-jump-to-badge-search-text-default d-none" aria-label="in this repository">
+        In this repository
+      </span>
+      <span class="js-jump-to-badge-search-text-global d-none" aria-label="in all of GitHub">
+        All GitHub
+      </span>
+      <span aria-hidden="true" class="d-inline-block ml-1 v-align-middle">↵</span>
+    </div>
+
+    <div aria-hidden="true" class="border rounded-1 flex-shrink-0 bg-gray px-1 text-gray-light ml-1 f6 d-none d-on-nav-focus js-jump-to-badge-jump">
+      Jump to
+      <span class="d-inline-block ml-1 v-align-middle">↵</span>
+    </div>
+  </a>
+</li>
+
+
+</ul>
+
+            </div>
+      </label>
+</form>  </div>
+</div>
+
+          </div>
+
+        <a href="https://github.com/login?return_to=%2Ftalmo%2Fleap%2Fwiki%2FTutorial%3A-Training-LEAP-from-scratch" class="HeaderMenu-link no-underline mr-3" data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="6f127481fa091deb9426f3bdc0876e50627108ad6f6e816d1a74228496d9a772" data-ga-click="(Logged out) Header, clicked Sign in, text:sign-in">
+          Sign&nbsp;in
+        </a>
+            <a href="https://github.com/join?ref_cta=Sign+up&amp;ref_loc=header+logged+out&amp;ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E%2Fwiki%2Fshow&amp;source=header-repo&amp;source_repo=talmo%2Fleap" class="HeaderMenu-link d-inline-block no-underline border border-gray-dark rounded-1 px-2 py-1" data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;site header menu&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;SIGN_UP&quot;,&quot;originating_url&quot;:&quot;https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="6f127481fa091deb9426f3bdc0876e50627108ad6f6e816d1a74228496d9a772" data-ga-click="Sign up, click to sign up for account, ref_page:/&lt;user-name&gt;/&lt;repo-name&gt;/wiki/show;ref_cta:Sign up;ref_loc:header logged out">
+              Sign&nbsp;up
+            </a>
+      </div>
+    </div>
+  </div>
+</header>
+
+    </div>
+
+  <div id="start-of-content" class="show-on-focus"></div>
+
+
+
+
+    <div id="js-flash-container">
+
+
+  <template class="js-flash-template"></template>
+</div>
+
+
+  
+
+  <include-fragment class="js-notification-shelf-include-fragment" data-base-src="https://github.com/notifications/beta/shelf"></include-fragment>
+
+
+
+  <div class="application-main " data-commit-hovercards-enabled="" data-discussion-hovercards-enabled="" data-issue-and-pr-hovercards-enabled="">
+        <div itemscope="" itemtype="http://schema.org/SoftwareSourceCode" class="">
+    <main>
+      
+  
+
+
+
+
+    <div class="flash flash-warn flash-full border-top-0 text-center text-bold py-2">
+    This repository has been archived by the owner. It is now read-only.
+  </div>
+
+
+
+
+
+
+
+  <div class="bg-gray-light pt-3 hide-full-screen mb-5">
+
+    <div class="d-flex mb-3 px-3 px-md-4 px-lg-5">
+
+      <div class="flex-auto min-width-0 width-fit mr-3">
+        <h1 class=" d-flex flex-wrap flex-items-center break-word f3 text-normal">
+    <svg class="octicon octicon-repo text-gray" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1V9h-8c-.356 0-.694.074-1 .208V2.5a1 1 0 011-1h8zM5 12.25v3.25a.25.25 0 00.4.2l1.45-1.087a.25.25 0 01.3 0L8.6 15.7a.25.25 0 00.4-.2v-3.25a.25.25 0 00-.25-.25h-3.5a.25.25 0 00-.25.25z"></path></svg>
+  <span class="author ml-2 flex-self-stretch" itemprop="author">
+    <a class="url fn" rel="author" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">talmo</a>
+  </span>
+  <span class="mx-1 flex-self-stretch">/</span>
+  <strong itemprop="name" class="mr-2 flex-self-stretch">
+    <a data-pjax="#js-repo-pjax-container" href="https://github.com/talmo/leap">leap</a>
+  </strong>
+  <span class="Label Label--outline v-align-middle ">Archived</span>
+</h1>
+
+
+      </div>
+
+      <ul class="pagehead-actions flex-shrink-0 d-none d-md-inline" style="padding: 2px 0;">
+
+  <li>
+      <a class="tooltipped tooltipped-s btn btn-sm btn-with-count" aria-label="You must be signed in to watch a repository" rel="nofollow" data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;notification subscription menu watch&quot;,&quot;repository_id&quot;:null,&quot;auth_type&quot;:&quot;LOG_IN&quot;,&quot;originating_url&quot;:&quot;https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="40fa5c9d32003787781ccf1f71aed0b40bf24de7a13f128b63e0dc9638993f30" href="https://github.com/login?return_to=%2Ftalmo%2Fleap">
+    <svg height="16" class="octicon octicon-eye" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M1.679 7.932c.412-.621 1.242-1.75 2.366-2.717C5.175 4.242 6.527 3.5 8 3.5c1.473 0 2.824.742 3.955 1.715 1.124.967 1.954 2.096 2.366 2.717a.119.119 0 010 .136c-.412.621-1.242 1.75-2.366 2.717C10.825 11.758 9.473 12.5 8 12.5c-1.473 0-2.824-.742-3.955-1.715C2.92 9.818 2.09 8.69 1.679 8.068a.119.119 0 010-.136zM8 2c-1.981 0-3.67.992-4.933 2.078C1.797 5.169.88 6.423.43 7.1a1.619 1.619 0 000 1.798c.45.678 1.367 1.932 2.637 3.024C4.329 13.008 6.019 14 8 14c1.981 0 3.67-.992 4.933-2.078 1.27-1.091 2.187-2.345 2.637-3.023a1.619 1.619 0 000-1.798c-.45-.678-1.367-1.932-2.637-3.023C11.671 2.992 9.981 2 8 2zm0 8a2 2 0 100-4 2 2 0 000 4z"></path></svg>
+    Watch
+</a>    <a class="social-count" href="https://github.com/talmo/leap/watchers" aria-label="29 users are watching this repository">
+      29
+    </a>
+
+  </li>
+
+  <li>
+        <a class="btn btn-sm btn-with-count  tooltipped tooltipped-s" aria-label="You must be signed in to star a repository" rel="nofollow" data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;star button&quot;,&quot;repository_id&quot;:134791672,&quot;auth_type&quot;:&quot;LOG_IN&quot;,&quot;originating_url&quot;:&quot;https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="3de6a42b3217c4935688f7091bcc6da688a3fd1d92851fbfa78781ccf9c75044" href="https://github.com/login?return_to=%2Ftalmo%2Fleap">
+      <svg vertical_align="text_bottom" height="16" class="octicon octicon-star v-align-text-bottom" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25zm0 2.445L6.615 5.5a.75.75 0 01-.564.41l-3.097.45 2.24 2.184a.75.75 0 01.216.664l-.528 3.084 2.769-1.456a.75.75 0 01.698 0l2.77 1.456-.53-3.084a.75.75 0 01.216-.664l2.24-2.183-3.096-.45a.75.75 0 01-.564-.41L8 2.694v.001z"></path></svg>
+      Star
+</a>
+    <a class="social-count js-social-count" href="https://github.com/talmo/leap/stargazers" aria-label="177 users starred this repository">
+      177
+    </a>
+
+  </li>
+
+  <li>
+      <a class="btn btn-sm btn-with-count tooltipped tooltipped-s" aria-label="You must be signed in to fork a repository" rel="nofollow" data-hydro-click="{&quot;event_type&quot;:&quot;authentication.click&quot;,&quot;payload&quot;:{&quot;location_in_page&quot;:&quot;repo details fork button&quot;,&quot;repository_id&quot;:134791672,&quot;auth_type&quot;:&quot;LOG_IN&quot;,&quot;originating_url&quot;:&quot;https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch&quot;,&quot;user_id&quot;:null}}" data-hydro-click-hmac="f48564db4d2ce0cbcb81eb5025c2ac9865ddb4dee9baee42728f3094e5491c2d" href="https://github.com/login?return_to=%2Ftalmo%2Fleap">
+        <svg class="octicon octicon-repo-forked" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.878A2.25 2.25 0 005.75 8.5h1.5v2.128a2.251 2.251 0 101.5 0V8.5h1.5a2.25 2.25 0 002.25-2.25v-.878a2.25 2.25 0 10-1.5 0v.878a.75.75 0 01-.75.75h-4.5A.75.75 0 015 6.25v-.878zm3.75 7.378a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm3-8.75a.75.75 0 100-1.5.75.75 0 000 1.5z"></path></svg>
+        Fork
+</a>
+    <a href="https://github.com/talmo/leap/network/members" class="social-count" aria-label="49 users forked this repository">
+      49
+    </a>
+  </li>
+</ul>
+
+    </div>
+    
+<nav aria-label="Repository" data-pjax="#js-repo-pjax-container" class="js-repo-nav js-sidenav-container-pjax js-responsive-underlinenav overflow-hidden UnderlineNav px-3 px-md-4 px-lg-5 bg-gray-light">
+  <ul class="UnderlineNav-body list-style-none ">
+          <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="code-tab" data-hotkey="g c" data-ga-click="Repository, Navigation click, Code tab" data-selected-links="repo_source repo_downloads repo_commits repo_releases repo_tags repo_branches repo_packages repo_deployments /talmo/leap" href="https://github.com/talmo/leap">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-code UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M4.72 3.22a.75.75 0 011.06 1.06L2.06 8l3.72 3.72a.75.75 0 11-1.06 1.06L.47 8.53a.75.75 0 010-1.06l4.25-4.25zm6.56 0a.75.75 0 10-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 101.06 1.06l4.25-4.25a.75.75 0 000-1.06l-4.25-4.25z"></path></svg>
+            <span data-content="Code">Code</span>
+              <span title="Not available" class="Counter "></span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="issues-tab" data-hotkey="g i" data-ga-click="Repository, Navigation click, Issues tab" data-selected-links="repo_issues repo_labels repo_milestones /talmo/leap/issues" href="https://github.com/talmo/leap/issues">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-issue-opened UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9 3a1 1 0 11-2 0 1 1 0 012 0zm-.25-6.25a.75.75 0 00-1.5 0v3.5a.75.75 0 001.5 0v-3.5z"></path></svg>
+            <span data-content="Issues">Issues</span>
+              <span title="8" class="Counter ">8</span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="pull-requests-tab" data-hotkey="g p" data-ga-click="Repository, Navigation click, Pull requests tab" data-selected-links="repo_pulls checks /talmo/leap/pulls" href="https://github.com/talmo/leap/pulls">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-git-pull-request UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"></path></svg>
+            <span data-content="Pull requests">Pull requests</span>
+              <span title="0" hidden="hidden" class="Counter ">0</span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="actions-tab" data-hotkey="g a" data-ga-click="Repository, Navigation click, Actions tab" data-selected-links="repo_actions /talmo/leap/actions" href="https://github.com/talmo/leap/actions">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-play UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M1.5 8a6.5 6.5 0 1113 0 6.5 6.5 0 01-13 0zM8 0a8 8 0 100 16A8 8 0 008 0zM6.379 5.227A.25.25 0 006 5.442v5.117a.25.25 0 00.379.214l4.264-2.559a.25.25 0 000-.428L6.379 5.227z"></path></svg>
+            <span data-content="Actions">Actions</span>
+              <span title="Not available" class="Counter "></span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="projects-tab" data-hotkey="g b" data-ga-click="Repository, Navigation click, Projects tab" data-selected-links="repo_projects new_repo_project repo_project /talmo/leap/projects" href="https://github.com/talmo/leap/projects">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-project UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M1.75 0A1.75 1.75 0 000 1.75v12.5C0 15.216.784 16 1.75 16h12.5A1.75 1.75 0 0016 14.25V1.75A1.75 1.75 0 0014.25 0H1.75zM1.5 1.75a.25.25 0 01.25-.25h12.5a.25.25 0 01.25.25v12.5a.25.25 0 01-.25.25H1.75a.25.25 0 01-.25-.25V1.75zM11.75 3a.75.75 0 00-.75.75v7.5a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75zm-8.25.75a.75.75 0 011.5 0v5.5a.75.75 0 01-1.5 0v-5.5zM8 3a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 3z"></path></svg>
+            <span data-content="Projects">Projects</span>
+              <span title="0" hidden="hidden" class="Counter ">0</span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item selected UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="wiki-tab" data-hotkey="g w" data-ga-click="Repository, Navigation click, Wikis tab" aria-current="page" data-selected-links="repo_wiki /talmo/leap/wiki" href="https://github.com/talmo/leap/wiki">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-book UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M0 1.75A.75.75 0 01.75 1h4.253c1.227 0 2.317.59 3 1.501A3.744 3.744 0 0111.006 1h4.245a.75.75 0 01.75.75v10.5a.75.75 0 01-.75.75h-4.507a2.25 2.25 0 00-1.591.659l-.622.621a.75.75 0 01-1.06 0l-.622-.621A2.25 2.25 0 005.258 13H.75a.75.75 0 01-.75-.75V1.75zm8.755 3a2.25 2.25 0 012.25-2.25H14.5v9h-3.757c-.71 0-1.4.201-1.992.572l.004-7.322zm-1.504 7.324l.004-5.073-.002-2.253A2.25 2.25 0 005.003 2.5H1.5v9h3.757a3.75 3.75 0 011.994.574z"></path></svg>
+            <span data-content="Wiki">Wiki</span>
+              <span title="Not available" class="Counter "></span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="security-tab" data-hotkey="g s" data-ga-click="Repository, Navigation click, Security tab" data-selected-links="security overview alerts policy token_scanning code_scanning /talmo/leap/security" href="https://github.com/talmo/leap/security">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-shield UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.467.133a1.75 1.75 0 011.066 0l5.25 1.68A1.75 1.75 0 0115 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.7 1.7 0 01-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 011.217-1.667l5.25-1.68zm.61 1.429a.25.25 0 00-.153 0l-5.25 1.68a.25.25 0 00-.174.238V7c0 1.358.275 2.666 1.057 3.86.784 1.194 2.121 2.34 4.366 3.297a.2.2 0 00.154 0c2.245-.956 3.582-2.104 4.366-3.298C13.225 9.666 13.5 8.36 13.5 7V3.48a.25.25 0 00-.174-.237l-5.25-1.68zM9 10.5a1 1 0 11-2 0 1 1 0 012 0zm-.25-5.75a.75.75 0 10-1.5 0v3a.75.75 0 001.5 0v-3z"></path></svg>
+            <span data-content="Security">Security</span>
+              <span data-url="/talmo/leap/security/overall-count" title="Not available" class="js-security-tab-count Counter "></span>
+</a>      </li>
+      <li class="d-flex">
+        <a class="js-selected-navigation-item UnderlineNav-item hx_underlinenav-item no-wrap js-responsive-underlinenav-item" data-tab-item="insights-tab" data-ga-click="Repository, Navigation click, Insights tab" data-selected-links="repo_graphs repo_contributors dependency_graph dependabot_updates pulse people /talmo/leap/pulse" href="https://github.com/talmo/leap/pulse">
+              <svg classes="UnderlineNav-octicon" display="none inline" height="16" class="octicon octicon-graph UnderlineNav-octicon d-none d-sm-inline" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true"><path fill-rule="evenodd" d="M1.5 1.75a.75.75 0 00-1.5 0v12.5c0 .414.336.75.75.75h14.5a.75.75 0 000-1.5H1.5V1.75zm14.28 2.53a.75.75 0 00-1.06-1.06L10 7.94 7.53 5.47a.75.75 0 00-1.06 0L3.22 8.72a.75.75 0 001.06 1.06L7 7.06l2.47 2.47a.75.75 0 001.06 0l5.25-5.25z"></path></svg>
+            <span data-content="Insights">Insights</span>
+              <span title="Not available" class="Counter "></span>
+</a>      </li>
+
+</ul>        <div class="position-absolute right-0 pr-3 pr-md-4 pr-lg-5 js-responsive-underlinenav-overflow" style="visibility:hidden;">
+      <details class="details-overlay details-reset position-relative">
+  <summary role="button" aria-haspopup="menu">
+              <div class="UnderlineNav-item mr-0 border-0">
+            <svg class="octicon octicon-kebab-horizontal" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path d="M8 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM1.5 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm13 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"></path></svg>
+            <span class="sr-only">More</span>
+          </div>
+
+</summary>            <details-menu role="menu" class="dropdown-menu dropdown-menu-sw ">
+  
+            <ul>
+                <li data-menu-item="code-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap" href="https://github.com/talmo/leap">
+                    Code
+</a>                </li>
+                <li data-menu-item="issues-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/issues" href="https://github.com/talmo/leap/issues">
+                    Issues
+</a>                </li>
+                <li data-menu-item="pull-requests-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/pulls" href="https://github.com/talmo/leap/pulls">
+                    Pull requests
+</a>                </li>
+                <li data-menu-item="actions-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/actions" href="https://github.com/talmo/leap/actions">
+                    Actions
+</a>                </li>
+                <li data-menu-item="projects-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/projects" href="https://github.com/talmo/leap/projects">
+                    Projects
+</a>                </li>
+                <li data-menu-item="wiki-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/wiki" href="https://github.com/talmo/leap/wiki">
+                    Wiki
+</a>                </li>
+                <li data-menu-item="security-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/security" href="https://github.com/talmo/leap/security">
+                    Security
+</a>                </li>
+                <li data-menu-item="insights-tab" hidden="">
+                  <a role="menuitem" class="js-selected-navigation-item dropdown-item" data-selected-links=" /talmo/leap/pulse" href="https://github.com/talmo/leap/pulse">
+                    Insights
+</a>                </li>
+            </ul>
+
+</details-menu>
+</details>    </div>
+
+</nav>
+  </div>
+
+<div class="container-xl clearfix new-discussion-timeline  px-3 px-md-4 px-lg-5">
+  <div class="repository-content ">
+
+    
+    
+  <div id="wiki-wrapper" class="page">
+    <div class="d-flex flex-column flex-md-row gh-header">
+      <h1 class="flex-auto min-width-0 mb-2 mb-md-0 mr-0 mr-md-2 gh-header-title">Tutorial: Training LEAP from scratch</h1>
+
+        <div class="mt-0 mt-lg-1 flex-shrink-0 gh-header-actions">
+          <a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#wiki-pages-box" class="d-md-none ">Jump to bottom</a>
+
+        </div>
+    </div>
+
+    <div class="mt-2 mt-md-1 pb-3 gh-header-meta">
+      Talmo Pereira edited this page <relative-time datetime="2018-06-07T05:24:00Z" class="no-wrap" title="Jun 7, 2018, 8:24 AM GMT+3">on Jun 7, 2018</relative-time>
+      ·
+      <a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch/_history" class="muted-link">
+        2 revisions
+      </a>
+    </div>
+
+  <div id="wiki-content" class="mt-4">
+    <div class="gutter-condensed gutter-lg flex-column flex-md-row d-flex">
+
+  <div class="flex-shrink-0 col-12 col-md-9 mb-4 mb-md-0">
+            <div id="wiki-body" class="gollum-markdown-content">
+            <div class="markdown-body">
+              <p>LEAP works by operating on images captured from any source. Here we'll be walking through how to use LEAP when you're starting from just a single video of an animal you want to track.</p>
+<p>Before starting, make sure you've installed all the requirements and downloaded this repository.</p>
+<blockquote>
+<p><strong>Note:</strong> LEAP and the documentation are a work in progress! We'll be updating this as development progresses.</p>
+</blockquote>
+<h1>
+<a id="user-content-overview" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#overview" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Overview</h1>
+<p>The main steps of the workflow are as follows:</p>
+<ol>
+<li>
+<strong><a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#creating-a-labeling-dataset">Create a dataset for labeling</a> via cluster sampling.</strong> This can be skipped if you want to work directly on your video frames or if your data are not egocentrically aligned (see <a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#the-data">The data</a> section).</li>
+<li>
+<strong><a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#creating-a-skeleton">Create a skeleton</a> defining the points we want to track.</strong> This step is mainly necessary for visualization.</li>
+<li>
+<strong><a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#labeling-and-training">Label a few frames and fast train</a>.</strong> This is repeated a few times until the predictions from LEAP are accurate enough.</li>
+<li><strong><a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#apply-the-trained-network">Apply the trained network</a> to new/unlabeled data.</strong></li>
+</ol>
+<h1>
+<a id="user-content-the-data" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#the-data" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>The data</h1>
+<p>In this example, we'll be starting from an aligned movie of our beautiful housecat, Tyson (named after Neil de Grasse, not Mike), captured as a depth map using a Microsoft Kinect (v2):</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/box.gif"></p>
+<p><em>Color corresponds to distance from the camera. Not visible in infrared: a dastardly laser point that seems to constantly elude capture by our protagonist.</em></p>
+<p><strong>Download:</strong> <a href="https://1drv.ms/u/s!AnmpIqqfwz3zgcJT7I6LWYvg3bqCxQ" rel="nofollow">box.h5 (105 MB)</a></p>
+<p>These data are stored in an <a href="https://portal.hdfgroup.org/display/HDF5/Introduction+to+HDF5" rel="nofollow">HDF5 file</a> which is the primary data format that LEAP uses both for inputting data and saving it out. You can think of these as MAT files if you're familiar with MATLAB or NPY files if you're coming from Python/numpy. We use this format because it's supported in every programming language and environment, in addition to being lossless (in contrast to MP4s, AVIs, etc.).</p>
+<blockquote>
+<p>We'll be providing code and instructions for converting your videos to this format in a coming guide on preprocessing. Some handy tools in the meanwhile: <a href="https://www.mathworks.com/help/matlab/ref/videoreader.html" rel="nofollow"><code>VideoReader</code></a>, <a href="https://www.mathworks.com/help/matlab/ref/h5create.html" rel="nofollow"><code>h5create</code></a>, <a href="https://www.mathworks.com/help/matlab/ref/h5write.html" rel="nofollow"><code>h5write</code></a>.</p>
+</blockquote>
+<p>Using the handy <a href="https://www.mathworks.com/help/matlab/high-level-functions.html" rel="nofollow">built-in MATLAB functions for working with HDF5 files</a> we can inspect the datasets contained in the file:</p>
+<pre><code>&gt;&gt; h5disp('box.h5')
+HDF5 box.h5 
+Group '/' 
+    Attributes:
+        'exptPath':  'D:\data\CatNect\20180217_225142'
+        'dataPath':  'D:\data\CatNect\20180217_225142\20180217_225142.mat'
+    Dataset 'box' 
+        Size:  192x192x1x2085
+        MaxSize:  192x192x1x2085
+        Datatype:   H5T_IEEE_F32LE (single)
+        ChunkSize:  192x192x1x2
+        Filters:  deflate(1)
+        FillValue:  0.000000
+        Attributes:
+            'dtype':  'single'
+...
+</code></pre>
+<p>What is important to note here is the shape of the input dataset, which is preserved when we read it into MATLAB:</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; box = h5read(<span class="pl-s"><span class="pl-pds">'</span>box.h5<span class="pl-pds">'</span></span>,<span class="pl-s"><span class="pl-pds">'</span>/box<span class="pl-pds">'</span></span>);
+&gt;&gt; size(box)
+ans =
+         <span class="pl-c1">192</span>         <span class="pl-c1">192</span>           <span class="pl-c1">1</span>        <span class="pl-c1">2085</span></pre></div>
+<p>The dimensions correspond to the height (192), width (192), channels (1), and frames (2085). <strong>Make sure your data are stored in this format!</strong> The image dimensions should be divisible by 4 or LEAP will not work! (This is because the network performs down- and upsampling steps.)</p>
+<p>The datatype here is single/float32 but note that uint8 formatted images should work perfectly fine with LEAP! Multi-channel (RGB) images are also supported but have not been thoroughly tested (try grayscale first to see if it works with your data -- it's faster!).</p>
+<p>You can inspect the first frame in the dataset in MATLAB by displaying it with a scaled colormap since the pixel values are normalized to be between [0, 1]:</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; imagesc(box(:,:,:,<span class="pl-c1">1</span>)), axis image, colorbar</pre></div>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/box_frame1.png"></p>
+<p>Another important note about data shape: MATLAB and Python differ in byte-ordering, which means that the shape of HDF5 datasets will be permuted in Python vs MATLAB. We can see this for our current dataset by opening it in Python:</p>
+<div class="highlight highlight-source-python"><pre><span class="pl-s1">λ</span> <span class="pl-s1">ipython</span>
+<span class="pl-v">Python</span> <span class="pl-c1">3.6</span>.<span class="pl-c1">4</span> <span class="pl-c1">|</span><span class="pl-v">Anaconda</span>, <span class="pl-v">Inc</span>.<span class="pl-s1"></span><span class="pl-c1">|</span> (<span class="pl-s1">default</span>, <span class="pl-v">Jan</span> <span class="pl-c1">16</span> <span class="pl-c1">2018</span>, <span class="pl-c1">10</span>:<span class="pl-c1">22</span>:<span class="pl-c1">32</span>) [<span class="pl-v">MSC</span> <span class="pl-s1">v</span>.<span class="pl-c1">1900</span> <span class="pl-c1">64</span> <span class="pl-en">bit</span> (<span class="pl-v">AMD64</span>)]
+<span class="pl-v">Type</span> <span class="pl-s">'copyright'</span>, <span class="pl-s">'credits'</span> <span class="pl-c1">or</span> <span class="pl-s">'license'</span> <span class="pl-k">for</span> <span class="pl-s1">more</span> <span class="pl-s1">information</span>
+<span class="pl-v">IPython</span> <span class="pl-c1">6.2</span>.<span class="pl-c1">1</span> <span class="pl-c1">-</span><span class="pl-c1">-</span> <span class="pl-v">An</span> <span class="pl-s1">enhanced</span> <span class="pl-v">Interactive</span> <span class="pl-v">Python</span>. <span class="pl-v">Type</span> <span class="pl-s">'?'</span> <span class="pl-k">for</span> <span class="pl-s1">help</span>.
+
+<span class="pl-v">In</span> [<span class="pl-c1">1</span>]: <span class="pl-k">import</span> <span class="pl-s1">h5py</span>
+
+<span class="pl-v">In</span> [<span class="pl-c1">2</span>]: <span class="pl-s1">f</span> <span class="pl-c1">=</span> <span class="pl-s1">h5py</span>.<span class="pl-v">File</span>(<span class="pl-s">"box.h5"</span>)
+
+<span class="pl-v">In</span> [<span class="pl-c1">3</span>]: <span class="pl-s1">f</span>[<span class="pl-s">"box"</span>]
+<span class="pl-v">Out</span>[<span class="pl-c1">3</span>]: <span class="pl-c1">&lt;</span><span class="pl-v">HDF5</span> <span class="pl-s1">dataset</span> <span class="pl-s">"box"</span>: <span class="pl-en">shape</span> (<span class="pl-c1">2085</span>, <span class="pl-c1">1</span>, <span class="pl-c1">192</span>, <span class="pl-c1">192</span>), <span class="pl-s1">type</span> <span class="pl-s">"&lt;f4"</span><span class="pl-c1">&gt;</span></pre></div>
+<h1>
+<a id="user-content-creating-a-labeling-dataset" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#creating-a-labeling-dataset" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Creating a labeling dataset</h1>
+<p>Once we have the data in a "box" dataset, we're ready to start labeling! Before we <em>leap</em> straight into it however, it is good to consider whether we can do any sort of sampling to ensure that the images we label are as diverse as possible.</p>
+<p>In a video, subsequent frames tend to be pretty similar so labeling these won't really be that instructive to the network as would two completely different frames.</p>
+<p>Although we could try to skip around the video and find examples that appear different, we could also use a simple statistical technique for accomplishing this step: <a href="https://en.wikipedia.org/wiki/Cluster_sampling" rel="nofollow"><strong>cluster sampling</strong></a>. In cluster sampling, the basic idea is to group the data by its intrinsic statistics, and then draw an equal number of samples from each group. This way, images that look unique but that are less common have a fair chance of appearing in the labeling set, allowing us to better prioritize our labeling efforts.</p>
+<p>We provide a GUI for doing this in LEAP, accessible via the MATLAB command <code>cluster_sample</code>. After typing it in the console, you'll see a window that looks like this:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui.png"></p>
+<h2>
+<a id="user-content-select-data" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#select-data" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Select data</h2>
+<p>We're going to start by clicking <strong>Add file...</strong> and selecting the box.h5 file containing our video. If you have multiple videos you can add them all here individually or by adding a whole folder. After a few moments, the GUI will update to display a few statistics about how many frames are in the dataset.</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-select_data.png"></p>
+<p>Note that all videos must share the same image shape!</p>
+<h2>
+<a id="user-content-load-the-data" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#load-the-data" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Load the data</h2>
+<p>Having added our video, we can now begin by loading some sample frames from each video. We set the <strong>Samples per video</strong> field (top-right panel) to a number that will total less than ~10,000 to ensure we don't run out of memory. Click <strong>Load samples</strong> and wait until a confirmation message is displayed below.</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-loading.png"></p>
+<p>The GUI will try to load as many images as possible with an even stride so we get a uniform sampling across time, reducing the problem mentioned above regarding self-similarity in temporally adjacent images.</p>
+<h2>
+<a id="user-content-pca" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#pca" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>PCA</h2>
+<p>Images are quite large, even at 192 x 192 that's 36864 numbers to describe a single frame! Since most of the pixels don't change much or are correlated when they do, we can use <a href="https://en.wikipedia.org/wiki/Principal_component_analysis" rel="nofollow">Principal component analysis</a> as a quick an easy way to reduce the dimensionality of the images. PCA can be a little tricky to wrap our heads around, but what we're basically doing is finding a set of common "image weights" that best resemble most of the data.</p>
+<p>Click <strong>Compute PCA</strong> and wait until a message is displayed to indicate it's finished processing. <em>Warning: This may take several minutes with large amounts of data!</em></p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-pca.png"></p>
+<p>After it's done, we can inspect some properties about our data to evaluate how many dimensions faithfully describe our images. Click <strong>Plot variance explained</strong> to first inspect how the data variance is spread out across the Principal Components:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-pca_explained.png"></p>
+<p>This plot describes how many dimensions are needed to explain increasing amounts of total variance in the dataset. The goal is to make sure that the blue line captures a reasonably large amount of variance in the data, while keeping the dimensionality low.</p>
+<p>It's hard to see the individual components, so let's zoom into the first 100:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-pca_explained_zoom.png"></p>
+<p>Now we see that nearly 90% of the variance is captured in the first 100 dimensions, with most of it being within the first 10. So let's stick with 100 and see how we do.</p>
+<p>Next, we can inspect "what" each PC is capturing by clicking <strong>Plot eigenmodes</strong>:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-pcs_coeffs.png"></p>
+<p>Each box here is a visualization of the weights that constitutes each PC. Similar colors mean those pixels are correlated. Zooming into the first row, we can see this a little more clearly:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-pcs_coeffs_zoom.png"></p>
+<p>Alright! Make sure the <strong>Use these projections for clustering</strong> box is checked before we go to the next step, otherwise the app will use the raw images for clustering.</p>
+<h2>
+<a id="user-content-clustering" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#clustering" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Clustering</h2>
+<p>Now that we have preprocessed our images into 100-dimensional vectors, we're ready to group them into clusters of similar appearance.</p>
+<p>The <strong>Number of clusters to use</strong> is an arbitrary choice and depends on the data. A good place to start is with 5 and see how well the data are separated. Start by clicking <strong>Compute clusters</strong> and waiting for the message to appear:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-clustering.png"></p>
+<p>After it's done, the next thing we want to do is to <strong>Plot cluster centroids</strong> to get a sense for the average image in each group:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/cluster_sample_gui-clustering_centroids.png"></p>
+<p>As we can see, the clusters do seem to capture a good variety of poses! If you think there is greater variability in your images that you want to separate out, try increasing the number of clusters and re-evaluating.</p>
+<p>Now we're ready to save our sampled dataset! Select the number of <strong>Samples per cluster</strong>, which should be at most the size of your smallest cluster. If the smallest cluster has too few images (&lt;10), try clustering with fewer groups.</p>
+<p>We recommend leaving the <strong>Sample order</strong> on the default <strong>Cluster order</strong> option, which basically saves the images in alternating group order, such that each consecutive sample comes from a different cluster. The <strong>Shuffle</strong> order performs a random shuffling after the images are sampled for truly unbiased data ordering (but may take more labeled samples to generalize to all images).</p>
+<p>After setting these parameters, click <strong>Preview</strong> or <strong>Save...</strong> to generate a sampled dataset and save it to a new file which we'll use for labeling.</p>
+<h1>
+<a id="user-content-creating-a-skeleton" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#creating-a-skeleton" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Creating a skeleton</h1>
+<p>In addition to the images we use for labeling, we also need to specify a "skeleton" file which describes the number of points that we'll be labeling for tracking. This file also allows us to specify connections between points for visualization and descriptive names that will be useful later to disambiguate which point is which during labeling and analysis.</p>
+<p>To get started, we first launch the GUI by typing <code>create_skeleton</code> in the MATLAB command window:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/create_skeleton-initial.png"></p>
+<p>We need to provide an example image before we can start defining the skeleton. Load up the first frame from the labeled dataset we generated previously:</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; I = h5readframes(<span class="pl-s"><span class="pl-pds">'</span>catnect_labeling.h5<span class="pl-pds">'</span></span>,<span class="pl-s"><span class="pl-pds">'</span>/box<span class="pl-pds">'</span></span>,<span class="pl-c1">1</span>);</pre></div>
+<p>On the left side of the GUI, click <strong>Refresh</strong> and you should see the variable containing the image we just loaded appear. Click <strong>Import from workspace</strong> to load it into the GUI:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/create_skeleton-select_img.png"></p>
+<p>The image will show up with the current skeleton overlaid:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/create_skeleton-loaded.png"></p>
+<p>The default skeleton is perhaps better suited to a hexapod, so we can just delete all of the body parts and fill out the table with the parts we'll be tracking on this data. Click <strong>Select all</strong> and then <strong>Delete selected</strong> to clear the table. Click <strong>Add new</strong> and edit the <em>name</em> and <em>parent</em> columns until all the parts and their connections are defined:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/create_skeleton-definition_table.png"></p>
+<blockquote>
+<p><strong>Reminder</strong>: The connections defined by the <em>parent</em> column are optional. They only serve to display the lines for ease of visualization.</p>
+</blockquote>
+<p>The last thing we want to define in our skeleton is the default position of each body part. These are the locations that the skeleton points will show up on any unlabeled image until they're initialized with network predictions. Specify these locations by clicking and dragging the points in the image:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/create_skeleton-default_locs.png"></p>
+<p>Great! Now just click <strong>Save skeleton to file...</strong> and we're ready to do some labeling!</p>
+<h1>
+<a id="user-content-labeling-and-training" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#labeling-and-training" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Labeling and training</h1>
+<p>This is the main step of the LEAP workflow. The goal is to label a few images, i.e., place the skeleton points in the correct location within the image, and then train the network to predict these locations on new frames. The predicted locations are displayed as the initial position of the points in unlabeled frames and we just have to correct the ones that are wrong rather than positioning every point from scratch.</p>
+<p>We'll start by opening the GUI from MATLAB: <code>label_joints</code></p>
+<p>We'll be prompted to select the sampled dataset from earlier, as well as the skeleton we created in the last step. You will not have to specify the skeleton again the next time we select the labeling dataset.</p>
+<p>Once loaded, the full GUI will appear:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-initial.png"></p>
+<p>There's a lot going on here! First, some basic controls:</p>
+<ul>
+<li>Click and drag the markers on the main image to place them in the correct location within the image</li>
+<li>Use the arrows keys (Right/Left) to move forward and backward within the dataset</li>
+</ul>
+<p>There are a few more utilities that this GUI provides for more advanced use, but for now let's just jump in and label some images! Move the points around until they are in their correct location:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-labeled_frame.png"></p>
+<p>After completing this frame, move to the next frame and you'll see that the status bar below should update with a green bar and several stats denoting how many images are labeled so far (only images where <strong>ALL points</strong> are labeled are counted). Each row of the status bar corresponds to a single part. The top bar fits the entire dataset, whereas the bottom one is a zoomed in version centered on the current image index.</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-status_bars.png"></p>
+<p>Our labels are automatically saved to a MAT file in the same folder as the labeling dataset every time we change frames, so don't worry about losing our work! Keep going until 10 or so frames are labeled.</p>
+<p>Now we're ready to do a round of fast training! Click <strong>Fast train network</strong> to bring up the parameters:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-fast_train.png"></p>
+<p>We'll leave all the parameters at their default for this dataset, but if your data differs, adjust these accordingly. The only thing we recommend changing is the <strong>Rotation</strong>, which you should set to 0 if your data are not egocentrically aligned!</p>
+<p>After clicking OK, you'll notice a whole lot of text begin to scroll up in the MATLAB Command Window:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-fast_train_text.png"></p>
+<p>This is the network training progress being reported as it chugs through the 15 epochs we specified. Everything is automated and the learned parameters and other data are saved into a folder created under <code>models/fast_train/</code> in the parent LEAP directory.</p>
+<p>It'll take about 5-20 minutes for LEAP to do its magic, so go grab a coffee while you wait. When you come back, you should see some text reporting the results of our fast training:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-fast_train_results.png"></p>
+<p>These are metrics based on the Euclidean distance error between the predicted and correct locations for all the images we've labeled so far. This gives us an overall idea of how well the network is doing so far so we can get an idea of whether we need to keep going.</p>
+<p>Switching back to the GUI, when we go to an unlabeled frame we see that the markers are now colored in yellow and are in different positions than the default ones we specified with our skeleton:</p>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/labeling-initialized.png"></p>
+<p>It looks like the network did pretty well, but it misplaced the tip of the tail (it likely got thrown off by the image artifacts). Reposition that point just as we did before by clicking and dragging, and then mark the remaining points as correctly positioned by pressing the <strong>F</strong> key on your keyboard. All the points will turn green and you'll see the labeled counter increase.</p>
+<p>That's it! Just repeat this process a few times until the predictions are accurate enough for analysis.</p>
+<h1>
+<a id="user-content-apply-the-trained-network" class="anchor" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch#apply-the-trained-network" aria-hidden="true"><svg class="octicon octicon-link" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z"></path></svg></a>Apply the trained network</h1>
+<p>After we've done sufficient labeling and training, we can easily use our trained network on new data by using one of the wrappers provided with LEAP.</p>
+<p>In MATLAB, let's load up our original movie and generate predicted locations for each frame:</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; modelPath = <span class="pl-s"><span class="pl-pds">'</span>D:\OneDrive\code\leap\models<span class="pl-cce">\f</span>ast_train\180603_220044-n=40<span class="pl-cce">\f</span>inal_model.h5<span class="pl-pds">'</span></span>;
+&gt;&gt; box = h5read(<span class="pl-s"><span class="pl-pds">'</span>box.h5<span class="pl-pds">'</span></span>,<span class="pl-s"><span class="pl-pds">'</span>/box<span class="pl-pds">'</span></span>);
+&gt;&gt; preds = predict_box(box, modelPath)
+<span class="pl-k">...</span>
+preds = 
+  <span class="pl-s"><span class="pl-smi">struct</span> with fields:</span>
+
+        Attributes: [<span class="pl-c1">1</span>×1 struct]
+         conf_pred: [<span class="pl-c1">6</span>×2085 single]
+    positions_pred: [<span class="pl-c1">6</span>×2×2085 single]</pre></div>
+<p>The resulting structure contains the predicted positions in the <code>preds.positions_pred</code> field. This array is of the shape <strong>(body parts) x (x,y) x (frames)</strong>, where each row is an image coordinate.</p>
+<p>We can quickly visualize these predictions by plotting them with our helper function:</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; skeleton = load(<span class="pl-s"><span class="pl-pds">'</span>cat-skeleton.mat<span class="pl-pds">'</span></span>);
+&gt;&gt; imagesc(box(:,:,:,<span class="pl-c1">1</span>)),axis image,hold <span class="pl-c1">on</span>,plot_joints_single(preds.positions_pred(:,:,<span class="pl-c1">1</span>),skeleton)</pre></div>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/applying-single_frame.png"></p>
+<p>Or you can use our built-in custom video player (scroll with Left/Right arrow keys):</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; vplay(box, @(~,idx)plot_joints_single(preds.positions_pred(:,:,idx),skeleton))</pre></div>
+<p>You can also plot the trajectory of a single part by pulling out a single row:</p>
+<div class="highlight highlight-source-matlab"><pre>&gt;&gt; figure,plot(squeeze(preds.positions_pred(<span class="pl-c1">3</span>,<span class="pl-c1">1</span>,:)),squeeze(preds.positions_pred(<span class="pl-c1">3</span>,<span class="pl-c1">2</span>,:)),<span class="pl-s"><span class="pl-pds">'</span>.-<span class="pl-pds">'</span></span>)</pre></div>
+<p><img src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/applying-traj.png"></p>
+<p>If you prefer to use Python, check out the documentation in <a href="https://github.com/talmo/leap/blob/master/leap/predict_box.py"><code>predict_box.py</code></a>:</p>
+<pre><code>&gt;&gt; python predict_box.py -h
+Usage: predict_box.py [OPTIONS] box-path model-path out-path 
+ 
+Predict and save peak coordinates for a box. 
+ 
+Arguments: 
+  box-path          path to HDF5 file with box dataset 
+  model-path        path to Keras weights file or run folder with weights 
+                    subfolder 
+  out-path          path to HDF5 file to save results to 
+ 
+Options: 
+  --box-dset=STR    name of HDF5 dataset containing box images (default: /box) 
+  --epoch=STR       epoch to use if run folder provided instead of Keras 
+                    weights file 
+  --verbose=BOOL    if True, prints some info and statistics during procesing 
+                    (default: True) 
+  --overwrite       if True and out_path exists, file will be overwritten 
+  --save-confmaps   if True, saves the full confidence maps as additional 
+                    datasets in the output file (very slow) 
+ 
+Other actions: 
+  -h, --help        Show the help 
+</code></pre>
+<p>Happy LEAPing!</p>
+
+            </div>
+
+        </div>
+
+</div>
+    <div class="flex-shrink-0 col-12 col-md-3">
+              <div class="wiki-rightbar">
+          <div id="wiki-pages-box" class="mb-4 wiki-pages-box js-wiki-pages-box" role="navigation">
+            
+<div class="Box Box--condensed box-shadow">
+  <div class="Box-header js-wiki-toggle-collapse" style="cursor: pointer">
+    <h3 class="Box-title">
+      <svg class="octicon octicon-triangle-down js-wiki-sidebar-toggle-display" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"></path></svg>
+      <svg class="octicon octicon-triangle-right js-wiki-sidebar-toggle-display d-none" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path d="M6.427 4.427l3.396 3.396a.25.25 0 010 .354l-3.396 3.396A.25.25 0 016 11.396V4.604a.25.25 0 01.427-.177z"></path></svg>
+      Pages <span title="3" class="Counter Counter--gray ">3</span>
+    </h3>
+  </div>
+  <div class=" js-wiki-sidebar-toggle-display">
+    <div class="filter-bar">
+      <input type="text" id="wiki-pages-filter" class="form-control input-sm input-block js-filterable-field" placeholder="Find a Page…" aria-label="Find a Page…" autocomplete="off">
+    </div>
+
+    <ul class="m-0 p-0 list-style-none" data-filterable-for="wiki-pages-filter" data-filterable-type="substring">
+        <li class="Box-row">
+          <strong><a class="d-block" href="https://github.com/talmo/leap/wiki">Home</a></strong>
+        </li>
+        <li class="Box-row">
+          <strong><a class="d-block" href="https://github.com/talmo/leap/wiki/CUDA-Troubleshooting">CUDA Troubleshooting</a></strong>
+        </li>
+        <li class="Box-row">
+          <strong><a class="d-block" href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch">Tutorial: Training LEAP from scratch</a></strong>
+        </li>
+    </ul>
+  </div>
+</div>
+
+          </div>
+
+
+          <h5 class="mt-0 mb-2">Clone this wiki locally</h5>
+          <div class="width-full input-group">
+            <input id="wiki-clone-url" type="text" data-autoselect="" class="form-control input-sm text-small text-gray input-monospace" aria-label="Clone URL for this wiki" value="https://github.com/talmo/leap.wiki.git" readonly="">
+            <span class="input-group-button">
+              <clipboard-copy for="wiki-clone-url" aria-label="Copy to clipboard" class="btn btn-sm zeroclipboard-button" tabindex="0" role="button">
+                <svg class="octicon octicon-clippy" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M5.75 1a.75.75 0 00-.75.75v3c0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75v-3a.75.75 0 00-.75-.75h-4.5zm.75 3V2.5h3V4h-3zm-2.874-.467a.75.75 0 00-.752-1.298A1.75 1.75 0 002 3.75v9.5c0 .966.784 1.75 1.75 1.75h8.5A1.75 1.75 0 0014 13.25v-9.5a1.75 1.75 0 00-.874-1.515.75.75 0 10-.752 1.298.25.25 0 01.126.217v9.5a.25.25 0 01-.25.25h-8.5a.25.25 0 01-.25-.25v-9.5a.25.25 0 01.126-.217z"></path></svg>
+              </clipboard-copy>
+            </span>
+          </div>
+        </div>
+
+</div></div>  </div>
+
+
+  </div>
+</div>
+
+
+    </div></main>
+  </div>
+  
+
+  </div>
+
+        
+<div class="footer container-xl width-full p-responsive" role="contentinfo">
+  <div class="position-relative d-flex flex-row-reverse flex-lg-row flex-wrap flex-lg-nowrap flex-justify-center flex-lg-justify-between pt-6 pb-2 mt-6 f6 text-gray border-top border-gray-light ">
+    <ul class="list-style-none d-flex flex-wrap col-12 col-lg-5 flex-justify-center flex-lg-justify-between mb-2 mb-lg-0">
+      <li class="mr-3 mr-lg-0">© 2020 GitHub, Inc.</li>
+        <li class="mr-3 mr-lg-0"><a data-ga-click="Footer, go to terms, text:terms" href="https://github.com/site/terms">Terms</a></li>
+        <li class="mr-3 mr-lg-0"><a data-ga-click="Footer, go to privacy, text:privacy" href="https://github.com/site/privacy">Privacy</a></li>
+        <li class="mr-3 mr-lg-0"><a data-ga-click="Footer, go to security, text:security" href="https://github.com/security">Security</a></li>
+        <li class="mr-3 mr-lg-0"><a href="https://githubstatus.com/" data-ga-click="Footer, go to status, text:status">Status</a></li>
+        <li><a data-ga-click="Footer, go to help, text:help" href="https://docs.github.com/">Help</a></li>
+
+    </ul>
+
+    <a aria-label="Homepage" title="GitHub" class="footer-octicon d-none d-lg-block mx-lg-4" href="https://github.com/">
+      <svg height="24" class="octicon octicon-mark-github" viewBox="0 0 16 16" version="1.1" width="24" aria-hidden="true"><path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+</a>
+   <ul class="list-style-none d-flex flex-wrap col-12 col-lg-5 flex-justify-center flex-lg-justify-between mb-2 mb-lg-0">
+        <li class="mr-3 mr-lg-0"><a data-ga-click="Footer, go to contact, text:contact" href="https://github.com/contact">Contact GitHub</a></li>
+        <li class="mr-3 mr-lg-0"><a href="https://github.com/pricing" data-ga-click="Footer, go to Pricing, text:Pricing">Pricing</a></li>
+      <li class="mr-3 mr-lg-0"><a href="https://docs.github.com/" data-ga-click="Footer, go to api, text:api">API</a></li>
+      <li class="mr-3 mr-lg-0"><a href="https://training.github.com/" data-ga-click="Footer, go to training, text:training">Training</a></li>
+        <li class="mr-3 mr-lg-0"><a href="https://github.blog/" data-ga-click="Footer, go to blog, text:blog">Blog</a></li>
+        <li><a data-ga-click="Footer, go to about, text:about" href="https://github.com/about">About</a></li>
+    </ul>
+  </div>
+  <div class="d-flex flex-justify-center pb-6">
+    <span class="f6 text-gray-light"></span>
+  </div>
+</div>
+
+
+
+  <div id="ajax-error-message" class="ajax-error-message flash flash-error">
+    <svg class="octicon octicon-alert" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 1.754a.25.25 0 00-.44 0L1.698 13.132a.25.25 0 00.22.368h12.164a.25.25 0 00.22-.368L8.22 1.754zm-1.763-.707c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0114.082 15H1.918a1.75 1.75 0 01-1.543-2.575L6.457 1.047zM9 11a1 1 0 11-2 0 1 1 0 012 0zm-.25-5.25a.75.75 0 00-1.5 0v2.5a.75.75 0 001.5 0v-2.5z"></path></svg>
+    <button type="button" class="flash-close js-ajax-error-dismiss" aria-label="Dismiss error">
+      <svg class="octicon octicon-x" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"></path></svg>
+    </button>
+    You can’t perform that action at this time.
+  </div>
+
+
+    <script crossorigin="anonymous" async="async" integrity="sha512-bn/3rKJzBl2H64K38R8KaVcT26vKK7BJQC59lwYc+9fjlHzmy0fwh+hzBtsgTdhIi13dxjzNKWhdSN8WTM9qUw==" type="application/javascript" id="js-conditional-compat" data-src="https://github.githubassets.com/assets/compat-bootstrap-6e7ff7ac.js"></script>
+    <script crossorigin="anonymous" integrity="sha512-CxjaMepCmi+z0LTeztU2S8qGD25LyHD6j9t0RSPevy63trFWJVwUM6ipAVLgtpMBBgZ53wq8JPkSeQ6ruaZL2w==" type="application/javascript" src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/environment-bootstrap-0b18da31.js.download"></script>
+    <script crossorigin="anonymous" async="async" integrity="sha512-fWpoHuxvZSXfbBUpB9xZrMeOn1OBBnQ3RO1Qpyo5hPH/+E/Wrics+UeKW6FaR8Uc6EkKtND0/eKQUZNhWOZG9w==" type="application/javascript" src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/vendor-7d6a681e.js.download"></script>
+    <script crossorigin="anonymous" async="async" integrity="sha512-ZNZwN+9e4NAzdT0+KmFelwm6CZc8nDMfNKM/PQdTSfyknN/4v+s1Yl6WkFIs32Hy/31PO52krX9IfdH6lodyfg==" type="application/javascript" src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/frameworks-64d67037.js.download"></script>
+    
+    <script crossorigin="anonymous" async="async" integrity="sha512-/bFYBugcQCjAwrrYqM4EqQe193JblMnS606egBmNbV/iUH7ZQEfnljZbIj34n6SWmayLDvv98mrfdMu81hIAvA==" type="application/javascript" src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/behaviors-bootstrap-fdb15806.js.download"></script>
+    
+      <script crossorigin="anonymous" async="async" integrity="sha512-TjmDUfspgN28WRWfc01tOL0BFS8pI/TAi8TQ665TcA3jG1C3QgfFu0YKa32Z03rlEL8dukbsy+amwBzgGyjESQ==" type="application/javascript" data-module-id="./Sortable.js" data-src="https://github.githubassets.com/assets/Sortable-4e398351.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-IfMEGeu/93qN1/7hW9kHrjLjoz8sU8yHJMOvWmrz6R3Wy7rLelm8F145OPxwF854yGhHt9anAe9BIZMZgLivaA==" type="application/javascript" data-module-id="./drag-drop.js" data-src="https://github.githubassets.com/assets/drag-drop-21f30419.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-iLuC2weaJqL9mYAud2WDWjhd8cJe8dXVxw2KhCH2Rnj6WJvTzlZRmvTtL09wNWX6nRze/TDaQ7gq7BFLchaDYg==" type="application/javascript" data-module-id="./image-crop-element-loader.js" data-src="https://github.githubassets.com/assets/image-crop-element-loader-88bb82db.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-gjvgjSSs1N35phuQcXJQ0945NAuZd2QAJcB2xfLgrd079b9eLXE7KHBDliiNyTG7kG4O3MFDBWlwP9Ye6hBO2g==" type="application/javascript" data-module-id="./jump-to.js" data-src="https://github.githubassets.com/assets/jump-to-823be08d.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-/qu1ZgsxqvzkIPvkOxFe7ioHOms48uHPkflrrH6SHCQ/XNfAydkj2fS7w9yCZR3DDFja9941EMR1+fy4NVBm7g==" type="application/javascript" data-module-id="./profile-pins-element.js" data-src="https://github.githubassets.com/assets/profile-pins-element-feabb566.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-qECv/jhsvLFN77eGNu0cjMR2+zvAlLyhQVTnmayJc5OLZoxMLjQZxZW1hK/dhcYro6Wec/aiF21HYf2N5OilYQ==" type="application/javascript" data-module-id="./randomColor.js" data-src="https://github.githubassets.com/assets/randomColor-a840affe.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-YCODMOpm6dIHRZy9o7UJlwcXMjGIZZzzdwq2JZU6R2VIXZMHJHq/j5KmCFTf+wD+swamrXmse1TPjkdZo4e2RQ==" type="application/javascript" data-module-id="./tweetsodium.js" data-src="https://github.githubassets.com/assets/tweetsodium-60238330.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-PSXN0IjR67dH0v31y2W1LRt8Eb/BaBT+IRe/dy8ffaH6I3zfdAOoMpr80upcJSI0yKceig7dBmBFa+z6rWqKJw==" type="application/javascript" data-module-id="./user-status-submit.js" data-src="https://github.githubassets.com/assets/user-status-submit-3d25cdd0.js"></script>
+      <script crossorigin="anonymous" async="async" integrity="sha512-XkEa3T/cu57xroh+FrHbbfzu1UCUHsF1yuU3SHU8DJs5O8Ciw3LjDN9HF1Hir7oYubSNbfP/esgalfHM9AmajQ==" type="application/javascript" src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/wiki-5e411add.js.download"></script>
+
+    <script crossorigin="anonymous" async="async" integrity="sha512-Wme9VMxkOyou2RzQdvG+Ay0KyV0Gf7gM90QSmurM/t/yeold0ko7jyoFfnKQ7nu+NuuoTj7g/Ty4/azctgMeqA==" type="application/javascript" src="./Tutorial_ Training LEAP from scratch · talmo_leap Wiki · GitHub_files/github-bootstrap-5a67bd54.js.download"></script>
+  <div class="js-stale-session-flash flash flash-warn flash-banner" hidden="">
+    <svg class="octicon octicon-alert" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 1.754a.25.25 0 00-.44 0L1.698 13.132a.25.25 0 00.22.368h12.164a.25.25 0 00.22-.368L8.22 1.754zm-1.763-.707c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0114.082 15H1.918a1.75 1.75 0 01-1.543-2.575L6.457 1.047zM9 11a1 1 0 11-2 0 1 1 0 012 0zm-.25-5.25a.75.75 0 00-1.5 0v2.5a.75.75 0 001.5 0v-2.5z"></path></svg>
+    <span class="js-stale-session-flash-signed-in" hidden="">You signed in with another tab or window. <a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch">Reload</a> to refresh your session.</span>
+    <span class="js-stale-session-flash-signed-out" hidden="">You signed out in another tab or window. <a href="https://github.com/talmo/leap/wiki/Tutorial:-Training-LEAP-from-scratch">Reload</a> to refresh your session.</span>
+  </div>
+  <template id="site-details-dialog"></template>
+
+  <div class="Popover js-hovercard-content position-absolute" style="display: none; outline: none;" tabindex="0">
+  <div class="Popover-message Popover-message--bottom-left Popover-message--large Box box-shadow-large" style="width:360px;">
+  </div>
+</div>
+
+
+  
+
+
+<div aria-live="polite" class="sr-only"></div></body></html>
