@@ -15,9 +15,12 @@ from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, Lambd
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from scipy.io import loadmat, savemat
+# import skimage
+# from skimage.morphology import binary_dilation, disk
+from scipy.ndimage import binary_dilation
 
 from viz import show_pred, show_confmap_grid, plot_history
-
+# from pose_estimation_prediction import fix_masks
 from pose_estimation_models import basic_nn
 PER_WING_MODEL = 'PER_WING_MODEL'
 ALL_POINTS_MODEL = 'ALL_POINTS_MODEL'
@@ -26,6 +29,8 @@ SPLIT_2_2_3_MODEL = 'SPLIT_2_2_3_MODEL'
 MEAN_SQUARE_ERROR = "MEAN_SQUARE_ERROR"
 EUCLIDIAN_DISTANCE = "EUCLIDIAN_DISTANCE"
 TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
+MOVIE_TRAIN_SET = "MOVIE_TRAIN_SET"
+RANDOM_TRAIN_SET = "RANDOM_TRAIN_SET"
 HEAD_TAIL = "HEAD_TAIL"
 LEFT_INDEXES = np.arange(0,7)
 RIGHT_INDEXES = np.arange(7,14)
@@ -367,34 +372,68 @@ def visualize_box_confmaps(box, confmaps, model_type):
 
     columns = 2
     rows = 2
-    num_frames = box.shape[0]//4
-    for frame in range(num_frames):
+
+    num_images = box.shape[0]
+    for image in range(num_images):
+        print(image)
         fig = plt.figure(figsize=(8, 8))
-        for cam in range(1, columns * rows + 1):
-            fly = box[4 * frame + cam, :, :, 1]
-            confmap = np.sum(confmaps[4 * frame + cam, :, :, :], axis=2)
-            if model_type == ALL_POINTS_MODEL:
-                masks = np.sum(box[4 * frame + cam, :, :, [3,4]], axis=0)
-            else:
-                masks = box[4 * frame + cam, :, :, 3]
-            img = np.zeros((192,192,3))
-            img[:, :, 1] = fly
-            img[:, :, 2] = confmap
-            img[:, :, 0] = masks
-            fig.add_subplot(rows, columns, cam)
-            plt.imshow(img)
+        fly = box[image, :, :, 1]
+        confmap = np.sum(confmaps[image, :, :, :], axis=2)
+        if model_type == ALL_POINTS_MODEL:
+            masks = np.sum(box[image, :, :, [3, 4]], axis=0)
+        else:
+            masks = box[image, :, :, 3]
+        img = np.zeros((192, 192, 3))
+        img[:, :, 1] = fly
+        img[:, :, 2] = confmap
+        img[:, :, 0] = masks
+        plt.imshow(img)
         plt.show()
-    a=0
+        a=0
+    # num_mirrors = box.shape[0]
+    # num_frames = box.shape[1]
+    # num_cams = box.shape[2]
+    # for side in range(num_mirrors):
+    #     for frame in [15, 16, 17, 18, 19, 20, 21, 45, 46, 47, 48, 49, 50, 51]:
+    #         print(frame)
+    #         fig = plt.figure(figsize=(8, 8))
+    #         for cam in range(num_cams):
+    #             # fly = box[side, frame, cam, :, :, 1]
+    #             # fly =
+    #             confmap = np.sum(confmaps[side, frame, cam, :, :, :], axis=2)
+    #             if model_type == ALL_POINTS_MODEL:
+    #                 masks = np.sum(box[side, frame, cam, :, :, [3,4]], axis=0)
+    #             else:
+    #                 masks = box[side, frame, cam, :, :, 3]
+    #             img = np.zeros((192, 192, 3))
+    #             img[:, :, 1] = fly
+    #             img[:, :, 2] = confmap
+    #             img[:, :, 0] = masks
+    #             fig.add_subplot(rows, columns, cam + 1)
+    #             plt.imshow(img)
+    #         plt.show()
+    #     a=0
 
 
-def split_per_wing(box, confmaps):
-    left_wing_box = box[:, :, :, [0, 1, 2, 3]]
-    right_wing_box = box[:, :, :, [0, 1, 2, 4]]
-    right_wing_confmaps = confmaps[:, :, :, LEFT_INDEXES]
-    left_wing_confmaps = confmaps[:, :, :, RIGHT_INDEXES]
+def split_per_wing(box, confmaps, model_type, trainset_type):
+    left_wing_box = box[:, :, :, :, [0, 1, 2, 3]]
+    right_wing_box = box[:, :, :, :, [0, 1, 2, 4]]
+    right_wing_confmaps = confmaps[:, :, :, :, LEFT_INDEXES]
+    left_wing_confmaps = confmaps[:, :, :, :, RIGHT_INDEXES]
 
-    left_peaks = (tf_find_peaks(left_wing_confmaps)[:, :2, :].numpy()).astype(int)
-    right_peaks = (tf_find_peaks(right_wing_confmaps)[:, :2, :].numpy()).astype(int)
+    num_frames = box.shape[0]
+    num_cams = box.shape[1]
+    num_pts_per_wing = right_wing_confmaps.shape[-1]
+    left_peaks = np.zeros((num_frames, num_cams, 2, num_pts_per_wing))
+    right_peaks = np.zeros((num_frames, num_cams, 2, num_pts_per_wing))
+    for cam in range(num_cams):
+        l_p = tf_find_peaks(left_wing_confmaps[:, cam, :, :, :])[:, :2, :].numpy()
+        r_p = tf_find_peaks(right_wing_confmaps[:, cam, :, :, :])[:, :2, :].numpy()
+        left_peaks[:, cam, :, :] = l_p
+        right_peaks[:, cam, :, :] = r_p
+
+    left_peaks = left_peaks.astype(int)
+    right_peaks = right_peaks.astype(int)
 
     new_left_wing_box = np.zeros(left_wing_box.shape)
     new_right_wing_box = np.zeros(right_wing_box.shape)
@@ -403,68 +442,137 @@ def split_per_wing(box, confmaps):
 
     num_of_bad_masks = 0
     # fit confmaps to wings
-    num_images = box.shape[0]
-    for image_num in range(num_images):
-        append = True
+    num_frames = box.shape[0]
+    for frame in range(num_frames):
+        for cam in range(num_cams):
+            append = True
+            fly_image = left_wing_box[frame, cam, :, :, [0, 1, 2]]
 
-        fly_image = left_wing_box[image_num, :, :, [0, 1, 2]]
+            left_confmap = left_wing_confmaps[frame, cam, :, :, :]
+            right_confmap = right_wing_confmaps[frame, cam, :, :, :]
 
-        left_confmap = left_wing_confmaps[image_num, :, :, :]
-        right_confmap = right_wing_confmaps[image_num, :, :, :]
+            left_mask = left_wing_box[frame, cam, :, :, 3]
+            right_mask = right_wing_box[frame, cam, :, :, 3]
 
-        left_mask = left_wing_box[image_num, :, :, 3]
-        right_mask = right_wing_box[image_num, :, :, 3]
+            left_peaks_i = left_peaks[frame, cam, :, :]
+            right_peaks_i = right_peaks[frame, cam, :, :]
 
-        left_peaks_i = left_peaks[image_num, :, :]
-        right_peaks_i = right_peaks[image_num, :, :]
+            # check peaks
+            left_values = 0
+            right_values = 0
+            for i in range(left_peaks_i.shape[-1]):
+                left_values += left_mask[left_peaks_i[1, i], left_peaks_i[0, i]]
+                right_values += right_mask[right_peaks_i[1, i], right_peaks_i[0, i]]
 
-        # check peaks
-        left_values = 0
-        right_values = 0
-        for i in range(left_peaks_i.shape[-1]):
-            left_values += left_mask[left_peaks_i[1, i], left_peaks_i[0, i]]
-            right_values += right_mask[right_peaks_i[1, i], right_peaks_i[0, i]]
+            # switch masks if peaks are completely missed
+            if left_values < 3 and right_values < 3:
+                temp = left_mask
+                left_mask = right_mask
+                right_mask = temp
 
-        # switch masks if peaks are completely missed
-        if left_values < 3 and right_values < 3:
-            temp = left_mask
-            left_mask = right_mask
-            right_mask = temp
+            # check peaks again
+            left_values = 0
+            right_values = 0
+            for i in range(left_peaks_i.shape[-1]):
+                left_values += left_mask[left_peaks_i[1, i], left_peaks_i[0, i]]
+                right_values += right_mask[right_peaks_i[1, i], right_peaks_i[0, i]]
 
-        # check peaks again
-        left_values = 0
-        right_values = 0
-        for i in range(left_peaks_i.shape[-1]):
-            left_values += left_mask[left_peaks_i[1, i], left_peaks_i[0, i]]
-            right_values += right_mask[right_peaks_i[1, i], right_peaks_i[0, i]]
+            # don't append if one mask is missing
+            mask_exist = True
+            if left_values < 3 or right_values < 3:
+                mask_exist = False
+                num_of_bad_masks += 1
 
-        # print(f"left_values = {left_values}, right_values = {right_values}")
-        # plt.imshow(np.concatenate((right_mask + np.sum(right_confmap, axis=-1),
-        #                            left_mask + np.sum(left_confmap, axis=-1),
-        #                            fly_image[1, :, :] + 0.5*(right_mask + np.sum(right_confmap, axis=-1)) +
-        #                            left_mask + np.sum(left_confmap, axis=-1)), axis=1))
-        # plt.show()
+            if trainset_type == MOVIE_TRAIN_SET or (trainset_type == RANDOM_TRAIN_SET and mask_exist):
+                # copy fly image
+                new_left_wing_box[frame, cam, :, :, [0, 1, 2]] = fly_image
+                new_left_wing_box[frame, cam, :, :, 3] = left_mask
+                # copy mask
+                new_right_wing_box[frame, cam, :, :, [0, 1, 2]] = fly_image
+                new_right_wing_box[frame, cam, :, :, 3] = right_mask
+                # copy confmaps
+                new_right_wing_confmaps[frame, cam, :, :, :] = right_confmap
+                new_left_wing_confmaps[frame, cam, :, :, :] = left_confmap
 
-        # don't append if one mask is missing
-        if left_values < 3 or right_values < 3:
-            append = False
-            num_of_bad_masks += 1
+    if model_type == PER_WING_MODEL:
+        box = np.concatenate((new_left_wing_box, new_right_wing_box), axis=0)
+        confmaps = np.concatenate((new_left_wing_confmaps, new_right_wing_confmaps), axis=0)
 
-        if append:
-            new_left_wing_box[image_num, :, :, [0, 1, 2]] = fly_image
-            new_left_wing_box[image_num, :, :, 3] = left_mask
-
-            new_right_wing_box[image_num, :, :, [0, 1, 2]] = fly_image
-            new_right_wing_box[image_num, :, :, 3] = right_mask
-
-            new_right_wing_confmaps[image_num, :, :, :] = right_confmap
-            new_left_wing_confmaps[image_num, :, :, :] = left_confmap
-
-    box = np.concatenate((new_left_wing_box, new_right_wing_box), axis=0)
-    confmaps = np.concatenate((new_left_wing_confmaps, new_right_wing_confmaps), axis=0)
+    elif model_type == ALL_POINTS_MODEL:
+        # copy fly
+        box[:, :, :, :, [0, 1, 2]] = new_left_wing_box[:, :, :, :, [0, 1, 2]]
+        # copy left mask
+        box[:, :, :, :, 3] = new_left_wing_box[:, :, :, :, 3]
+        box[:, :, :, :, 4] = new_right_wing_box[:, :, :, :, 3]
+        confmaps[:, :, :, :, LEFT_INDEXES] = new_left_wing_confmaps
+        confmaps[:, :, :, :, RIGHT_INDEXES] = new_right_wing_confmaps
 
     print(f"finish preprocess. number of bad masks = {num_of_bad_masks}")
     return box, confmaps
+
+
+def fix_movie_masks(box):
+    """
+    goes throw each frame, if there is no mask for a specific wing, unite masks of the closest times before and after
+    this frame.
+    :param box: a box of size (num_frames, 20, 192, 192)
+    :return: same box
+    """
+    search_range = 5
+    num_channels = 5
+    num_frames = int(box.shape[0])
+    problematic_masks = []
+    for frame in range(num_frames):
+        for cam in range(4):
+            for mask_num in range(2):
+                mask = box[frame, cam, :, :, 3 + mask_num]
+                if np.all(mask == 0):  # check if all 0:
+                    problematic_masks.append((frame, cam, mask_num))
+                    # find previous matching mask
+                    prev_mask = np.zeros(mask.shape)
+                    next_mask = np.zeros(mask.shape)
+                    for prev_frame in range(frame - 1, max(0, frame - search_range - 1), -1):
+                        prev_mask_i = box[prev_frame, cam, :, :, 3 + mask_num]
+                        if not np.all(prev_mask_i == 0):  # there is a good mask
+                            prev_mask = prev_mask_i
+                            break
+                    # find next matching mask
+                    for next_frame in range(frame + 1, min(num_frames, frame + search_range)):
+                        next_mask_i = box[next_frame, cam, :, :, 3 + mask_num]
+                        if not np.all(next_mask_i == 0):  # there is a good mask
+                            next_mask = next_mask_i
+                            break
+                    # combine the 2 masks
+                    new_mask = prev_mask + next_mask
+                    new_mask[new_mask >= 1] = 1
+                    # replace empty mask with new mask
+                    box[frame, cam, :, :, 3 + mask_num] = new_mask
+                    # matplotlib.use('TkAgg')
+                    # plt.imshow(new_mask)
+                    # plt.show()
+                    a=0
+
+    return box, problematic_masks
+
+
+def increase_masks_size(box, radius=5):
+    num_training_samples = box.shape[0]
+    for image_num in range(num_training_samples):
+        mask = box[image_num, :, :, 3]
+        non_0_1 = np.count_nonzero(mask)
+        dilated_mask = binary_dilation(mask, iterations=radius).astype(int)
+        non_0_2 = np.count_nonzero(dilated_mask)
+        box[image_num, :, :, 3] = dilated_mask
+        # matplotlib.use('TkAgg')
+        # plt.imshow(dilated_mask - mask)
+        # plt.show()
+        a=0
+    return box
+
+
+# def reshape_for_train(box, confmaps, model_type):
+
+
 
 
 def train_model(model_type, data_path, sigma='3',
@@ -472,12 +580,12 @@ def train_model(model_type, data_path, sigma='3',
                 test_path='',
                 loss_function=MEAN_SQUARE_ERROR,
                 mix_with_test=False,
-                val_fraction=0.15,
+                val_fraction=0.25,
                 filters=64,
                 batch_size=100,
                 batches_per_epoch=100,
                 epochs=30,
-                validation_steps=50,
+                validation_steps=200,
                 seed=0,
                 dilation_rate=2):
     """
@@ -494,8 +602,15 @@ def train_model(model_type, data_path, sigma='3',
     box, confmaps = load_dataset(data_path)
     if mix_with_test == True:
         test_box, test_confmaps = load_dataset(test_path, X_dset="box", Y_dset="confmaps")
-        box = np.concatenate((box, test_box), axis=0)
-        confmaps = np.concatenate((confmaps, test_confmaps), axis=0)
+        trainset_type = MOVIE_TRAIN_SET
+        test_box[0], test_confmaps[0] = split_per_wing(test_box[0], test_confmaps[0], ALL_POINTS_MODEL, trainset_type)
+        test_box[1], test_confmaps[1] = split_per_wing(test_box[1], test_confmaps[1], ALL_POINTS_MODEL, trainset_type)
+        test_box[0], problematic_masks_inds = fix_movie_masks(test_box[0])
+        test_box[1], problematic_masks_inds = fix_movie_masks(test_box[1])
+        problematic_masks_inds = np.array(problematic_masks_inds)
+        box = np.concatenate((box, test_box), axis=1)
+        confmaps = np.concatenate((confmaps, test_confmaps), axis=1)
+
 
     num_frames = box.shape[0]/2
     if model_type == ALL_POINTS_MODEL or model_type == HEAD_TAIL:
@@ -514,8 +629,13 @@ def train_model(model_type, data_path, sigma='3',
               dilation_rate=dilation_rate)
 
     elif model_type == PER_WING_MODEL:
-        if box.shape[-1] == 5:  # got all 5 channels
-            box, confmaps = split_per_wing(box, confmaps)
+        box_0, confmaps_0 = split_per_wing(box[0], confmaps[0], PER_WING_MODEL, RANDOM_TRAIN_SET)
+        box_1, confmaps_1 = split_per_wing(box[1], confmaps[1], PER_WING_MODEL, RANDOM_TRAIN_SET)
+        box = np.concatenate((box_0, box_1), axis=0)
+        confmaps = np.concatenate((confmaps_0, confmaps_1), axis=0)
+        box = np.reshape(box, newshape=[box.shape[0]*box.shape[1], box.shape[2], box.shape[3], box.shape[4]])
+        confmaps = np.reshape(confmaps, newshape=[confmaps.shape[0]*confmaps.shape[1], confmaps.shape[2], confmaps.shape[3], confmaps.shape[4]])
+        box = increase_masks_size(box)
         # visualize_box_confmaps(box, confmaps, model_type)
         train(box, confmaps,
               run_name=f"per_wing_model_trained_by_{num_frames}_images_segmented_masks",
@@ -529,78 +649,69 @@ def train_model(model_type, data_path, sigma='3',
               dilation_rate=dilation_rate,
               seed=seed)
 
-    elif model_type == PER_POINT_PER_WING_MODEL:
-        box, confmaps = split_per_wing(box, confmaps)
-        points_per_wing = confmaps.shape[-1]
-        tensor_confmaps = np.transpose(np.array([confmaps]), (4, 1, 2, 3, 0))
-        for point in range(points_per_wing):
-            confmaps_i = tensor_confmaps[point, :, :, :, :]
-            # visualize_box_confmaps(box, confmaps_i, model_type)
-            train(box, confmaps_i,
-              run_name=f"per_point_per_wing_point_num_{point + 1}_filters_{filters}_trained_by_{num_frames}_images",
-              val_size=val_fraction,
-              loss_function=loss_function,
-              epochs=epochs,
-              batch_size=batch_size,
-              batches_per_epoch=batches_per_epoch,
-              validation_steps=validation_steps,
-              filters=filters,
-              dilation_rate=dilation_rate)
-
-    elif model_type == TWO_CLOSE_POINTS_TOGATHER_NO_MASKS:
-        box = box[:, :, :, [0, 1, 2]]
-        confmaps = confmaps[:, :, :, [2, 6, 9, 13]]
-        train(box, confmaps,
-              run_name=f"two_points_same_time",
-              val_size=val_fraction,
-              loss_function=loss_function,
-              epochs=epochs,
-              batch_size=batch_size,
-              batches_per_epoch=batches_per_epoch,
-              validation_steps=validation_steps,
-              filters=filters,
-              dilation_rate=dilation_rate)
-
-    elif model_type == SPLIT_2_2_3_MODEL:
-        box, confmaps = split_per_wing(box, confmaps)
-        conf_points_1_2 = confmaps[:, :, :, [0, 1]]
-        conf_points_3_4 = confmaps[:, :, :, [2, 3]]
-        conf_points_5_6_7 = confmaps[:, :, :, [4, 5, 6]]
-        # visualize_box_confmaps(box, conf_points_1_2, data_path)
-        model_confs = [conf_points_1_2, conf_points_3_4, conf_points_5_6_7]
-        points = ['1-2', '3-4', '5-6-7']
-        for i, conf in enumerate(model_confs):
-            train(box, conf,
-                  run_name=f"model_2_2_3_points_{points[i]}_filters_{filters}_trained_by_{num_frames}_images",
-                  val_size=val_fraction,
-                  loss_function=loss_function,
-                  epochs=epochs,
-                  batch_size=batch_size,
-                  batches_per_epoch=batches_per_epoch,
-                  validation_steps=validation_steps,
-                  filters=filters,
-                  dilation_rate=dilation_rate,)
-
-
-
-
-
+    # elif model_type == PER_POINT_PER_WING_MODEL:
+    #     box, confmaps = split_per_wing(box, confmaps)
+    #     points_per_wing = confmaps.shape[-1]
+    #     tensor_confmaps = np.transpose(np.array([confmaps]), (4, 1, 2, 3, 0))
+    #     for point in range(points_per_wing):
+    #         confmaps_i = tensor_confmaps[point, :, :, :, :]
+    #         # visualize_box_confmaps(box, confmaps_i, model_type)
+    #         train(box, confmaps_i,
+    #           run_name=f"per_point_per_wing_point_num_{point + 1}_filters_{filters}_trained_by_{num_frames}_images",
+    #           val_size=val_fraction,
+    #           loss_function=loss_function,
+    #           epochs=epochs,
+    #           batch_size=batch_size,
+    #           batches_per_epoch=batches_per_epoch,
+    #           validation_steps=validation_steps,
+    #           filters=filters,
+    #           dilation_rate=dilation_rate)
+    #
+    # elif model_type == TWO_CLOSE_POINTS_TOGATHER_NO_MASKS:
+    #     box = box[:, :, :, [0, 1, 2]]
+    #     confmaps = confmaps[:, :, :, [2, 6, 9, 13]]
+    #     train(box, confmaps,
+    #           run_name=f"two_points_same_time",
+    #           val_size=val_fraction,
+    #           loss_function=loss_function,
+    #           epochs=epochs,
+    #           batch_size=batch_size,
+    #           batches_per_epoch=batches_per_epoch,
+    #           validation_steps=validation_steps,
+    #           filters=filters,
+    #           dilation_rate=dilation_rate)
+    #
+    # elif model_type == SPLIT_2_2_3_MODEL:
+    #     box, confmaps = split_per_wing(box, confmaps)
+    #     conf_points_1_2 = confmaps[:, :, :, [0, 1]]
+    #     conf_points_3_4 = confmaps[:, :, :, [2, 3]]
+    #     conf_points_5_6_7 = confmaps[:, :, :, [4, 5, 6]]
+    #     # visualize_box_confmaps(box, conf_points_1_2, data_path)
+    #     model_confs = [conf_points_1_2, conf_points_3_4, conf_points_5_6_7]
+    #     points = ['1-2', '3-4', '5-6-7']
+    #     for i, conf in enumerate(model_confs):
+    #         train(box, conf,
+    #               run_name=f"model_2_2_3_points_{points[i]}_filters_{filters}_trained_by_{num_frames}_images",
+    #               val_size=val_fraction,
+    #               loss_function=loss_function,
+    #               epochs=epochs,
+    #               batch_size=batch_size,
+    #               batches_per_epoch=batches_per_epoch,
+    #               validation_steps=validation_steps,
+    #               filters=filters,
+    #               dilation_rate=dilation_rate,)
 
 if __name__ == '__main__':
-
-    # model_type = PER_WING_MODEL
-    # model_type = SPLIT_2_2_3_MODEL
-    # model_type = ALL_POINTS_MODEL
-    # model_type = PER_POINT_PER_WING_MODEL
-    # model_type = TWO_CLOSE_POINTS_TOGATHER_NO_MASKS
-    # loss_function = EUCLIDIAN_DISTANCE
-
     model_type = PER_WING_MODEL
-    data_path = r"pre_trained_100_frames_800_images_segmented_masks.h5"
-    train_model(model_type=PER_WING_MODEL, data_path=data_path)
-
-    box, confmaps = load_dataset(data_path)
-    box = box[:,:,:,[0,1,2]]
-    for img in range(box.shape[0]):
-        image = box[img, :, :, :]
-        matplotlib.image.imsave(fr'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\wings_segmentation\training and predictionf using colab\segmentations training set\dataset\image_{img}.jpeg', image)
+    data_path = "pre_train_100_frames_segmented_masks_reshaped.h5"
+    test_path = "movie_dataset_71_frames_segmented_masks_reshaped.h5"
+    train_model(model_type=PER_WING_MODEL,
+                mix_with_test=True,
+                data_path=data_path,
+                test_path=test_path,
+                val_fraction=0.1,
+                filters=64,
+                batch_size=100,
+                batches_per_epoch=40,
+                epochs=30,
+                validation_steps=50,)

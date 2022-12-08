@@ -6,10 +6,11 @@ import keras
 import keras.models
 from keras.layers import Lambda
 import tensorflow as tf
-from training import preprocess
+# from training import preprocess
 from training_with_masks import visualize_box_confmaps
 # from leap.utils import find_weights, find_best_weights, preprocess
 # from leap.layers import Maxima2D
+from scipy.ndimage import binary_dilation
 
 PER_WING = "PER WING"
 ALL_POINTS = "ALL POINTS"
@@ -78,11 +79,11 @@ def get_left_right_points(X, batch_size, model_peaks, save_confmaps):
     return Ypk
 
 
-def save_predictions_to_h5(X, Ypk, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path, num_samples,
+def save_predictions_to_h5(box, Ypk, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path, num_samples,
                            out_path, prediction_runtime, save_confmaps, t0_all, weights_path):
     with h5py.File(out_path, "w") as f:
-        f.attrs["num_samples"] = X.shape[0]
-        f.attrs["img_size"] = X.shape[1:]
+        f.attrs["num_samples"] = box.shape[0]
+        f.attrs["img_size"] = box.shape[1:]
         f.attrs["box_path"] = box_path
         f.attrs["box_dset"] = box_dset
         f.attrs["model_path"] = model_path
@@ -99,6 +100,10 @@ def save_predictions_to_h5(X, Ypk, box_dset, box_path, confmaps, confmaps_max, c
         ds_conf = f.create_dataset("conf_pred", data=confidence_val.squeeze(), compression="gzip", compression_opts=1)
         ds_conf.attrs["description"] = "confidence map value in [0, 1.0] at peak"
         ds_conf.attrs["dims"] = "(sample, joint)"
+
+        ds_conf = f.create_dataset("box", data=box, compression="gzip", compression_opts=1)
+        ds_conf.attrs["description"] = "The predicted box"
+        ds_conf.attrs["dims"] = f"{box.shape}"
 
         if save_confmaps:
             ds_confmaps = f.create_dataset("confmaps", data=confmaps, compression="gzip", compression_opts=1)
@@ -142,6 +147,90 @@ def get_ensemble_results(sum_of_confmaps, num_samples):
             Ypk[image, 2, point] = confmap[peak[0], peak[1]]  # get peak value
     return Ypk
 
+def preprocess(X):
+    """ Normalizes input data. """
+
+    # Add singleton dim for single images
+    if X.ndim == 3:
+        X = X[None, ...]
+        # Normalize
+    if X.dtype == "uint8" or np.max(X) > 1:
+        X = X.astype("float32") / 255
+    return X
+
+def adjust_dimentions(X, permute=(0, 3, 2, 1)):
+    #  preprocess X
+    #  if there are 12-20 channels and we want to reduce to 3 or 5
+
+    # Adjust dimensions
+
+    X = np.transpose(X, permute)
+    X = np.transpose(X, (1, 2, 3, 0))
+
+    if X.shape[2] == 12:  # if number of channels is 3
+        x1 = X[:, :, 0:3, :]
+        x2 = X[:, :, 3:6, :]
+        x3 = X[:, :, 6:9, :]
+        x4 = X[:, :, 9:12, :]
+        X = np.concatenate((x1, x2, x3, x4), axis=3)
+
+    if X.shape[2] == 20:  # if number of channels is 5
+
+        x1 = X[:, :, 0:5, :]
+        x2 = X[:, :, 5:10, :]
+        x3 = X[:, :, 10:15, :]
+        x4 = X[:, :, 15:20, :]
+        X = np.concatenate((x1, x2, x3, x4), axis=3)
+    X = np.transpose(X, (3, 0, 1, 2))
+    return X
+
+
+def fix_masks(X, radius=5):
+    """
+    goes throw each frame, if there is no mask for a specific wing, unite masks of the closest times before and after
+    this frame.
+    :param X: a box of size (num_frames, 20, 192, 192)
+    :return: same box
+    """
+    search_range = 5
+    num_channels = 5
+    num_frames = int(X.shape[0])
+    problematic_masks = []
+    for frame in range(num_frames):
+        for cam in range(4):
+            for mask_num in range(2):
+                mask = X[frame, 3 + mask_num + num_channels * cam, :, :]
+                if np.all(mask == 0):  # check if all 0:
+                    problematic_masks.append((frame, cam, mask_num))
+                    # find previous matching mask
+                    prev_mask = np.zeros(mask.shape)
+                    next_mask = np.zeros(mask.shape)
+                    for prev_frame in range(frame - 1, max(0, frame - search_range - 1), -1):
+                        prev_mask_i = X[prev_frame, 3 + mask_num + num_channels * cam, :, :]
+                        if not np.all(prev_mask_i == 0):  # there is a good mask
+                            prev_mask = prev_mask_i
+                            break
+                    # find next matching mask
+                    for next_frame in range(frame + 1, min(num_frames, frame + search_range)):
+                        next_mask_i = X[next_frame, 3 + mask_num + num_channels * cam, :, :]
+                        if not np.all(next_mask_i == 0):  # there is a good mask
+                            next_mask = next_mask_i
+                            break
+                    # combine the 2 masks
+                    new_mask = prev_mask + next_mask
+                    new_mask[new_mask >= 1] = 1
+                    # replace empty mask with new mask
+                    X[frame, 3 + mask_num + num_channels * cam, :, :] = new_mask
+
+    # do dilation to all masks
+    for frame in range(num_frames):
+        for cam in range(4):
+            for mask_num in range(2):
+                mask = X[frame, 3 + mask_num + num_channels * cam, :, :]
+                dilated_mask = binary_dilation(mask, iterations=radius).astype(int)
+                X[frame, 3 + mask_num + num_channels * cam, :, :] = dilated_mask
+    return X
+
 
 def predict_box(test_box, box_path, model_path, out_path, *,
                 model_type=False,
@@ -176,7 +265,7 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     # Input data
     if test_box:
         box = h5py.File(box_path,"r")[test_dset]
-        box = np.reshape(box, (box.shape[0], box.shape[1] * box.shape[2], box.shape[3], box.shape[4])) # todo
+        box = np.reshape(box, (box.shape[0], box.shape[1] * box.shape[2], box.shape[3], box.shape[4]))  # todo
     else:
         box = h5py.File(box_path,"r")[box_dset]
     num_samples = box.shape[0]
@@ -219,26 +308,14 @@ def predict_box(test_box, box_path, model_path, out_path, *,
 
     # Load data and preprocess (normalize)
     t0 = time()
-    X = preprocess(box[:])
+    box = preprocess(box[:])
+    # fix the masks
+    box = fix_masks(box[:])
+    X = adjust_dimentions(box)
 
-    #  preprocess X
-    #  if there are 12-20 channels and we want to reduce to 3 or 5
-    X = np.transpose(X, (1, 2, 3, 0))
+    # visualize
+    # visualize_box_confmaps(X, None, 'ALL_POINTS_MODEL')
 
-    if X.shape[2] == 12:  # if number of channels is 3
-        x1 = X[:, :, 0:3, :]
-        x2 = X[:, :, 3:6, :]
-        x3 = X[:, :, 6:9, :]
-        x4 = X[:, :, 9:12,:]
-        X = np.concatenate((x1, x2, x3, x4), axis=3)
-
-    if X.shape[2] == 20:  # if number of channels is 5
-        x1 = X[:, :, 0:5, :]
-        x2 = X[:, :, 5:10, :]
-        x3 = X[:, :, 10:15, :]
-        x4 = X[:, :, 15:20, :]
-        X = np.concatenate((x1, x2, x3, x4), axis=3)
-    X = np.transpose(X, (3, 0, 1, 2))
     if verbose:
         print("Loaded [%.1fs]" % (time() - t0))
 
@@ -252,7 +329,8 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     elif model_type == ALL_POINTS:
         Ypk, confmaps, confmaps_max, confmaps_min = predict_Ypk(X, batch_size, model_peaks, save_confmaps)
 
-    elif model_type == PER_WING:  ## todo extract confidence maps
+    elif model_type == PER_WING:  # todo extract confidence maps
+        # X=X[:20, :,:,:]
         input_left = X[:, :, :, [0, 1, 2, 3]]
         input_right = X[:, :, :, [0, 1, 2, 4]]
         Ypk_left, confmaps_left, confmaps_max_l, confmaps_min_l = predict_Ypk(input_left, batch_size, model_peaks,
@@ -263,8 +341,8 @@ def predict_box(test_box, box_path, model_path, out_path, *,
         if save_confmaps:
             confmaps = np.transpose(np.concatenate((confmaps_left, confmaps_right), axis=1), (0, 2, 3, 1))
             confmaps_min, confmaps_max = np.min([confmaps_min_l, confmaps_min_r]), np.max([confmaps_max_l, confmaps_max_r])
-        # visualize_box_confmaps(X, np.transpose(confmaps, (0,2,3,1)) , model_type)
-        X = np.concatenate((input_left, input_right), axis=0)
+        # visualize_box_confmaps(X, confmaps, model_type)
+        # X = np.concatenate((input_left, input_right), axis=0)
 
     elif model_type == ENSEMBLE:
         num_samples = X.shape[0]
@@ -312,7 +390,7 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     # Save
     t0 = time()
     save_confmaps=False
-    save_predictions_to_h5(X, Ypk, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path,
+    save_predictions_to_h5(box, Ypk, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path,
                                            num_samples, out_path, prediction_runtime, save_confmaps, t0_all,
                                            weights_path)
     total_runtime = time() - t0_all
@@ -327,29 +405,13 @@ def predict_box(test_box, box_path, model_path, out_path, *,
 
 
 if __name__ == "__main__":
-    box_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\movie_test_set\movie_dataset_900_frames_5_channels_ds_3tc_7tj.h5"
-    # out_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\head_tail_dataset\HEAD_TAIL_800_frames_7_11\predict_over_train_set.h5"
-    # model_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\head_tail_dataset\HEAD_TAIL_800_frames_7_11\final_model.h5"
-
-    # model_type = PER_WING_SPLIT_TO_3
-    # model_type = PER_WING_PER_POINT
     model_type = PER_WING
     # model_type = ENSEMBLE
     # model_type = NO_MASKS
     # model_type = HEAD_TAIL
-
     test_box = False
-    model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_15_10\final_model.h5"
-    out_path = r"/train_nn_project/models/segmented masks/per_wing_model_trained_by_800_images_segmented_masks_15_10/roni_masks_predictions_over_movie.h5"
+    box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movie_dataset_900_frames_5_channels_segmented_masks_orig_size.h5"
+    model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_08_12\final_model.h5"
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_08_12\predict_over_movie.h5"
     predict_box(test_box, box_path, model_path, out_path, model_type=model_type, box_dset="/box", verbose=True,
                 overwrite=False, save_confmaps=False, batch_size=8)
-
-
-    # model_paths = []
-    # for i in range(1, 10):
-    #     path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\ensamble\per_wing_model_filters_64_sigma_3_trained_by_100_frames_mirroring_26-10_seed_{i}\final_model.h5"
-    #     model_paths.append(path)
-    # model_path = model_paths
-    # predict_box(test_box, box_path, model_path, out_path, model_type=model_type, box_dset="/box", verbose=True,
-    #             overwrite=False, save_confmaps=False, batch_size=8)
-
