@@ -5,7 +5,7 @@
 sparse_folder_path='C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\SelectFramesForLable\Dark2022MoviesHulls\hull\hull_Reorder'; % folder with sparse movies
 %%
 % create a 1000 samples data set with 5 channels
-channels_5 = true
+channels_5 = false
 hist_equalization=false
 %% create an best_frames_mov_idx array of movie and index of the best phi representing frames
 % 
@@ -21,13 +21,23 @@ hist_equalization=false
 % save(fullfile(sparse_folder_path, "best_frames_mov_idx") , 'best_frames_mov_idx');
 % frames_list = best_frames_mov_idx;
 
+n = 5500;
+num_movies = 18;
+movie_indexes = zeros(n, 2);
+frames_list = [];
+for i=1:num_movies
+    movie_indexes(:,1) = i;
+    movie_indexes(:,2) = (11:(n+10));
+    frames_list = [frames_list; movie_indexes];
+end
 
+num_frames=size(frames_list,1);
 
 %% create a continoues movie test set
 
-frames_list = nan(300, 2);
-frames_list(1:300, 1) = 5;
-frames_list(1:300, 2) = (501:800);
+% frames_list = nan(300, 2);
+% frames_list(1:300, 1) = 5;
+% frames_list(1:300, 2) = (501:800);
 
 % frames_list(301:600, 1) = 16;
 % frames_list(301:600, 2) = (1001:1300);
@@ -60,7 +70,7 @@ num_channels=num_cams*(num_time_channels + num_masks);
 data=zeros([crop_size,num_channels],'single');
 tic
 
-save_name=fullfile(sparse_folder_path,['movie_dataset_300_frames_5_channels','_ds_',...
+save_name=fullfile(sparse_folder_path,['movie_dataset_all_frames_3_channels','_ds_',...
     num2str(num_time_channels),'tc_',...
     num2str(time_jump),'tj.h5']);
 
@@ -157,34 +167,36 @@ for frame_ind=1:num_frames
 
 
     %% 5 channels 3 times and 2 masks
-    num_channels = 20;
-    new_data = zeros(192, 192, num_channels);
-    for cam_ind=1:4
-        times_3 = data(:, :, (1:3) + 3*(cam_ind - 1));
-        new_data(:, :, (1:3) + 5*(cam_ind - 1)) = times_3;
-        for wing=1:2     
-            mask = get_mask(frame_ind, cam_ind, wing, frames_list, -72, h5_path);
-            % crop mask by cropzone 
-            crop = 191;
-            x1 = crop_zone_data(1,cam_ind);
-            x2 = x1 + crop;
-            y1 = crop_zone_data(2,cam_ind);
-            y2 = y1 + crop;
-            mask = mask(x1:x2, y1:y2);
-            
-            % increase mask size
-            se  = strel('square',10);
-            mask = imdilate(mask,se);
-
-            new_data(:, :, 3 + wing + 5*(cam_ind - 1)) = mask;
+    if ~(num_masks == 0)
+        num_channels = 20;
+        new_data = zeros(192, 192, num_channels);
+        for cam_ind=1:4
+            times_3 = data(:, :, (1:3) + 3*(cam_ind - 1));
+            new_data(:, :, (1:3) + 5*(cam_ind - 1)) = times_3;
+            for wing=1:2     
+                mask = get_mask(frame_ind, cam_ind, wing, frames_list, -72, h5_path);
+                % crop mask by cropzone 
+                crop = 191;
+                x1 = crop_zone_data(1,cam_ind);
+                x2 = x1 + crop;
+                y1 = crop_zone_data(2,cam_ind);
+                y2 = y1 + crop;
+                mask = mask(x1:x2, y1:y2);
+                
+                % increase mask size
+                se  = strel('square',10);
+                mask = imdilate(mask,se);
+    
+                new_data(:, :, 3 + wing + 5*(cam_ind - 1)) = mask;
+            end
         end
-    end
-    data = new_data;
-    for cam_ind = 1:4
-        for time_channel=1:num_time_channels
-            img = data(:, :, time_channel + 5 * (cam_ind - 1));
-            img = histeq_nonzero(img);
-            data(:, :, time_channel + 5 * (cam_ind - 1)) = img;
+        data = new_data;
+        for cam_ind = 1:4
+            for time_channel=1:num_time_channels
+                img = data(:, :, time_channel + 5 * (cam_ind - 1));
+                img = histeq_nonzero(img);
+                data(:, :, time_channel + 5 * (cam_ind - 1)) = img;
+            end
         end
     end
     %% visualize the new box

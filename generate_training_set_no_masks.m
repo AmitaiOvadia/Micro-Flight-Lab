@@ -170,17 +170,17 @@ attrs = h5att2struct(boxPath);
 stic;
 points_per_wing = 7;
 wings = 2;
-confmaps = NaN([192, 192, numJoints, num_cams * numFrames],'single');
+confmaps = NaN([numFrames, num_cams,192, 192, numJoints],'single');
+new_box = zeros(numFrames, num_cams, 192, 192, 5);
 
-new_box = zeros(192, 192, 5, numFrames * num_cams);
 for box_ind=1:numFrames
     for cam_ind = 1:4
         points = joints(:, :, cam_ind, box_ind);
         image_confmaps = pts2confmaps(points, [192, 192],params.sigma, params.normalizeConfmaps);
-        confmaps(:,:,: , cam_ind + num_cams * (box_ind - 1)) = image_confmaps;
+        confmaps(box_ind,cam_ind, : , : ,:) = image_confmaps;
 %         confmaps(:, :, :, cam_ind + 4 * (box_ind - 1)) = image_confmaps;
         image_5_channels = box(: ,: , (1:5) + 5 * (cam_ind - 1), box_ind);
-        new_box(:, :, :, cam_ind + num_cams*(box_ind - 1)) = image_5_channels;
+        new_box(box_ind,cam_ind, : , : ,:) = image_5_channels;
         %% visualization
 %         disp_confmaps = sum(image_confmaps, 3);
 %         pt = joints(:, :, cam_ind, box_ind);
@@ -199,6 +199,7 @@ for box_ind=1:numFrames
 end
 
 box = new_box;
+
 
 if params.mirroring
     % Flip images
@@ -227,9 +228,16 @@ if params.mirroring
 %         figure; 
 %         imshow(image1)
 %     end
-    box = cat(4, box, box_flip);
-    confmaps = cat(4,confmaps, confmaps_flip);
-    joints = cat(3, joints, joints_flip);
+    temp_box(1, :,:,:,:,:) = box;
+    temp_box(2, :,:,:,:,:) = box_flip ;
+    temp_confmaps(1,:,:,:,:,:) = confmaps;
+    temp_confmaps(2,:,:,:,:,:) = confmaps_flip;
+    temp_joints(1,:,:,:,:) = joints;
+    temp_joints(2,:,:,:,:) = joints_flip;
+    temp_cropZone(1, :, :, :) = cropZone;
+    temp_cropZone(2, :, :, :) = cropZone;
+    box = temp_box; confmaps = temp_confmaps; 
+    joints = temp_joints; cropZone=temp_cropZone;
 end
 
 % display points
@@ -248,7 +256,7 @@ end
 % end
 
 %% remove masks
-box = box(:,:,[1,2,3], :);
+box = box(:,:,:,:, :,[1,2,3]);
 
 %%
 stocf('Generated confidence maps') 

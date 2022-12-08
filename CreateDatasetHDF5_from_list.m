@@ -1,20 +1,29 @@
-
+clear
 
 %% set paths
-load('C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\best_frames_21-7.mat') % load dataset (mov|frame) list
+% load('C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\best_frames_21-7.mat') % load dataset (mov|frame) list
 sparse_folder_path='C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\SelectFramesForLable\Dark2022MoviesHulls\hull\hull_Reorder'; % folder with sparse movies
-%%
 
-num_of_frames_to_sample = 1000;
-iterations = 10;
-bins_vector = linspace(0,200,11);
-nbins = length(bins_vector) - 1;
-features_weight = [1];
-[Data, best_frames, worst_frames, min_error, max_error] =  SampleBestFramesDark2022(num_of_frames_to_sample, iterations, bins_vector, features_weight);
-
-best_frames_mov_idx = Data(best_frames, 5:6)
+% num_of_frames_to_sample = 1000;
+% iterations = 10;
+% bins_vector = linspace(0,200,11);
+% nbins = length(bins_vector) - 1;
+% features_weight = [1];
+% [Data, best_frames, worst_frames, min_error, max_error] =  SampleBestFramesDark2022(num_of_frames_to_sample, iterations, bins_vector, features_weight);
+% best_frames_mov_idx = Data(best_frames, 5:6)
+n = 5500;
+num_movies = 18;
+movie_indexes = zeros(n, 2);
+best_frames_mov_idx = [];
+for i=1:num_movies
+    movie_indexes(:,1) = i;
+    movie_indexes(:,2) = (1:n);
+    best_frames_mov_idx = [best_frames_mov_idx; movie_indexes];
+end
 
 num_frames=size(best_frames_mov_idx,1);
+%%
+num_masks = 0;
 num_cams=4;
 crop_size=192*[1,1];
 
@@ -28,7 +37,6 @@ frame_time_offsets=linspace(-time_jump,time_jump,num_time_channels);
 % num_time_channels=1;
 % frame_time_offsets=[0];
 
-num_masks = 2;
 num_channels=num_cams*(num_time_channels + num_masks);
 data=zeros([crop_size,num_channels],'single');
 tic

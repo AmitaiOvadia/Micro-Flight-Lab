@@ -1,13 +1,13 @@
-function all_pts3d = get_3d_pts_rays_intersects(preds, easyWandData, cropzone)
+function all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone)
     %% set variabes
-    num_joints=size(preds,1);
+    num_joints=size(predictions,3);
     left_inds = 1:num_joints/2; right_inds = (num_joints/2+1:num_joints);
     allCams=HullReconstruction.Classes.all_cameras_class(easyWandData.easyWandData);
     num_cams=length(allCams.cams_array);
     centers=allCams.all_centers_cam';
     couples=nchoosek(1:num_cams,2);
     num_couples=size(couples,1);
-    n_frames=size(preds,3)/num_cams;
+    n_frames=size(predictions,1);
     all_pts3d=nan(num_joints,n_frames,num_couples,3);
     %% get body points in 3d from all couples 
     cam_inds=1:num_cams;
@@ -16,8 +16,8 @@ function all_pts3d = get_3d_pts_rays_intersects(preds, easyWandData, cropzone)
         for node_ind=1:num_joints
             frame_inds_all_cams=frame_ind+(cam_inds-1)*n_frames;
             
-            x=double(cropzone(2,cam_inds,frame_ind))+squeeze(preds(node_ind,1,frame_inds_all_cams))';
-            y=double(cropzone(1,cam_inds,frame_ind))+squeeze(preds(node_ind,2,frame_inds_all_cams))';
+            x=double(cropzone(2,cam_inds,frame_ind))+squeeze(predictions(frame_ind,:,node_ind, 1));
+            y=double(cropzone(1,cam_inds,frame_ind))+squeeze(predictions(frame_ind,:,node_ind, 2));
     
             PB=nan(length(cam_inds),4);
             for cam_ind=1:num_cams
