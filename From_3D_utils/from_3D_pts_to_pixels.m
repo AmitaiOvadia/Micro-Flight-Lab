@@ -21,4 +21,5 @@ function from_2d_to_3d_pts = from_3D_pts_to_pixels(pt3d, easyWandData, cropzone)
             end
         end
     end
+    from_2d_to_3d_pts = permute(from_2d_to_3d_pts, [4,3,1,2]);
 end

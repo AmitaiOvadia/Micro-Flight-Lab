@@ -16,15 +16,19 @@ predictions_head_tail = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-
 predictions_segmented_wings_23_11 = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_15_10\maskRCNN_masks_predictions_over_movie.h5";
 predictions_of_segmented_trained_model_on_roni_masks = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_15_10\roni_masks_predictions_over_movie.h5";
 predictions_segmented_wings_fixed_masks_28_11 = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_15_10\maskRCNN_masks_predictions_over_movie_fixed_masks.h5";
-predictions_xx = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_15_10\xx.h5";
-predictions_12_04 = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_04_12\predictions_over_movie.h5";
-predictions_12_04_b = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_trained_by_800_images_segmented_masks_04_12_b\predictions_over_movie.h5";
-predictions_07_12 = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12\predictions_over_movie.h5";
-predictions_07_12_b = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_b\predict_over_movie.h5";
-predictions_07_12_c = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_c\predict_over_movie.h5"; 
-h5wi_path1 = predictions_07_12_c;
-preds_path1 = predictions_07_12_c;
 
+predictions_segmented_wings_171_f_500_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_500_bpe\predictions_over_movie.h5";
+predictions_segmented_wings_171_f_100_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_100_bpe\predict_over_movie.h5";
+predictions_segmented_wings_171_f_75_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_08_12_75_bpe\predict_over_movie.h5";
+predictions_segmented_wings_171_f_50_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_50_bpe\predict_over_movie.h5";
+predictions_segmented_wings_171_f_40_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_08_12_40_bpe\predict_over_movie.h5";
+
+predictions_segmented_wings_171_f_500_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_500_bpe_val_no_augmentations\predict_over_movie.h5";
+predictions_segmented_wings_171_f_100_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_100_bpe_val_no_augmentations\predict_over_movie.h5";
+predictions_segmented_wings_171_f_50_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_50_bpe_val_no_augmentations\predict_over_movie.h5";
+
+preds_path1 = predictions_segmented_wings_171_f_50_bpe_val_not_augmented;
+h5wi_path1 = predictions_segmented_wings_171_f_50_bpe_val_not_augmented;
 % h5wi_path1 = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\movie_test_set\movie_dataset_300_frames_5_channels_histeq.h5";
 % h5wi_path1 = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\training\pre_train_100_train_no_test_frames_5_channels_sigma_3.h5";
 % preds_path1 = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\per_wing\7_points_together\per_wing_model_filters_64_sigma_3\predictions_over_test.h5";
@@ -91,45 +95,7 @@ predictions = rearange_predictions(preds1, num_cams);
 predictions(:,:,head_tail_inds,:) = head_tail_predictions;
 num_joints = size(predictions, 3);
 %% display 
-figure('Units','normalized','Position',[0,0,0.9,0.9])
-h_sp(1)=subplot(2,2,1);
-h_sp(2)=subplot(2,2,2);
-h_sp(3)=subplot(2,2,3);
-h_sp(4)=subplot(2,2,4);
-
-hold(h_sp,'on')
-
-for cam_ind=1:num_cams
-    image = new_box(:, :, :, cam_ind, 1);
-    imshos(cam_ind)=imshow(image,...
-        'Parent',h_sp(cam_ind),'Border','tight');
-end
-scats=[];
-texts=[];
-
-for frameInd=1:1:num_frames
-    delete(texts)
-    delete(scats)
-    for cam_ind=1:num_cams
-        image = new_box(:, :, :, cam_ind, frameInd);
-%         confmap =  sum(squeeze(confmaps(frameInd, cam_ind, :,:,:)), 3) ; 
-        imshos(cam_ind).CData=image;
-       
-        this_preds = squeeze(predictions(frameInd, cam_ind, :, :));
-%         this_confs=conf_pred(...
-%             (num_joints*(cam_ind-1)+1):(num_joints*(cam_ind-1)+num_joints),frameInd);
-        x = this_preds(:,1);
-        y = this_preds(:,2);
-        scats(cam_ind)=scatter(h_sp(cam_ind),x, y, 44, hsv(num_joints),'LineWidth',3);
-%         confidence = string(this_confs);
-        data = ["cam ind = " , string(cam_ind), "frame = ", string(frameInd)]; 
-        texts(cam_ind,:) = text(h_sp(cam_ind), 0 ,40 , data,'Color', 'W');
-%         texts(cam_ind,:) = text(h_sp(cam_ind), x,  y, confidence, 'Color', 'w');
-
-    end
-    drawnow
-    pause
-end
+display_predictions_2D(new_box, predictions, 0);
 
 
 
@@ -189,7 +155,7 @@ function new_box = view_masks_perimeter(new_box)
             new_box(: ,:, 3, cam, frame) = new_box(: ,:, 3, cam, frame) + perim_mask_right;
         end
     end
-    end
+end
 % new_confmaps = nan(192, 192, numCams, numFrames);
 % confmaps = h5read(preds_path1,'/confmaps');
 % for frame=1:numFrames
