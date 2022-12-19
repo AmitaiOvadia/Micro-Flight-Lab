@@ -11,16 +11,19 @@ sparse_folder_path='C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-fligh
 % features_weight = [1];
 % [Data, best_frames, worst_frames, min_error, max_error] =  SampleBestFramesDark2022(num_of_frames_to_sample, iterations, bins_vector, features_weight);
 % best_frames_mov_idx = Data(best_frames, 5:6)
-n = 5500;
-num_movies = 18;
-movie_indexes = zeros(n, 2);
-best_frames_mov_idx = [];
-for i=1:num_movies
-    movie_indexes(:,1) = i;
-    movie_indexes(:,2) = (1:n);
-    best_frames_mov_idx = [best_frames_mov_idx; movie_indexes];
-end
+% n = 5500;
+% num_movies = 18;
+% movie_indexes = zeros(n, 2);
+% best_frames_mov_idx = [];
+% for i=1:num_movies
+%     movie_indexes(:,1) = i;
+%     movie_indexes(:,2) = (1:n);
+%     best_frames_mov_idx = [best_frames_mov_idx; movie_indexes];
+% end
 
+best_frames_mov_idx = zeros(500, 2);
+best_frames_mov_idx(:, 2) = (1701:2200);
+best_frames_mov_idx(:, 1) = 1;
 num_frames=size(best_frames_mov_idx,1);
 %%
 num_masks = 0;

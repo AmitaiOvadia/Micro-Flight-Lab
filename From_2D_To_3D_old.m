@@ -27,21 +27,22 @@ predictions_segmented_wings_171_f_500_bpe_val_not_augmented = "C:\Users\amita\Py
 predictions_segmented_wings_171_f_100_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_100_bpe_val_no_augmentations\predict_over_movie.h5";
 predictions_segmented_wings_171_f_50_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_50_bpe_val_no_augmentations\predict_over_movie.h5";
 
+predictions_new_movie_171_f_100_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_100_bpe_val_no_augmentations\predict_over_new_movie.h5";
+
+
 %% set predictions
 ensemble=false;
-preds_path = predictions_segmented_wings_171_f_50_bpe_val_not_augmented ;
+preds_path = predictions_new_movie_171_f_100_bpe ;
 box = h5read(preds_path,'/box');
 box = view_masks_perimeter(reshape_box(box, 1));
 %% set variabes
-
-h5wi_path='C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\movie_test_set\movie_dataset_900_frames_5_channels_ds_3tc_7tj.h5';
 easy_wand_path="C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\movie_test_set\wand_data1+2_23_05_2022_skip5_easyWandData.mat";
-cropzone = h5read(h5wi_path,'/cropzone');
+cropzone = h5read(preds_path,'/cropzone');
 preds=h5read(preds_path,'/positions_pred');
 preds = single(preds) + 1;
 confs=h5read(preds_path,'/conf_pred');
-num_joints=size(preds,1);
-left_inds = 1:num_joints/2; right_inds = (num_joints/2+1:num_joints); head_tail_inds = (num_joints+1:num_joints+2);
+num_wings_pts=size(preds,1) - 2;
+left_inds = 1:num_wings_pts/2; right_inds = (num_wings_pts/2+1:num_wings_pts); head_tail_inds = (num_wings_pts + 1:num_wings_pts + 2);
 easyWandData=load(easy_wand_path);
 allCams=HullReconstruction.Classes.all_cameras_class(easyWandData.easyWandData);
 centers=allCams.all_centers_cam';
@@ -52,18 +53,34 @@ x=1;
 y=2;
 z=3;
 
+segmentation_scores = h5read(preds_path,'/segmentation_scores');
+
+
+%% rearange predictions
+predictions = rearange_predictions(preds, num_cams);
+head_tail_predictions = predictions(:,:,head_tail_inds,:);
+predictions = predictions(:,:,1:num_wings_pts,:);
+
+%% fix predictions per camera 
+[predictions, box] = fix_wings_per_camera(predictions, box);
+
+%% fix wing 1 and wing 2 
+predictions = fix_wings_3d(predictions, easyWandData, cropzone);
+
+%% take only first 300 frames
+% predictions = predictions(1:300,:,:,:);
+% box = box(:,:,:,:,1:300);
+%% get 3d pts from 4 2d cameras 
+predictions(:,:,head_tail_inds,:) = head_tail_predictions;
+all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone);
 
 %% get head tail preds
 head = 1;
 tail = 2;
-head_tail_preds_path = predictions_head_tail;
-head_tail_preds=h5read(head_tail_preds_path,'/positions_pred');
-head_tail_preds = single(head_tail_preds) + 1;
-head_tail_predictions = rearange_predictions(head_tail_preds, num_cams);
-head_tail_predictions = head_tail_predictions(1:300,:,:,:);
+head_tail_predictions = predictions(:,:,[15,16],:);
 head_tail_all_pts3d = get_3d_pts_rays_intersects(head_tail_predictions, easyWandData, cropzone);
-head_tail_3d = smooth_3d_points(get_avarage_consecutive_pts(head_tail_all_pts3d, 1, 3), 1);
-% head_tail_3d = get_avarage_consecutive_pts(head_tail_all_pts3d, 1, 3);
+% head_tail_3d = smooth_3d_points(get_avarage_consecutive_pts(head_tail_all_pts3d, 1, 3), 1);
+head_tail_3d = get_avarage_consecutive_pts(head_tail_all_pts3d, 1, 3);
 [~, dist_variance_head_tail, points_distances_head_tail]= get_wing_distance_variance(head_tail_3d);
 V_ht = squeeze(head_tail_3d(head,:,:) - head_tail_3d(tail,:,:));
 V_ht_hat = normr(V_ht);  % norm matrix per row
@@ -73,21 +90,6 @@ phi_rad = atan2(V_ht_hat(:, y), V_ht_hat(:, x));
 theta_rad = asin(V_ht_hat(:, z));
 phi_deg = rad2deg(phi_rad);
 theta_deg = rad2deg(theta_rad);
-
-%% rearange predictions
-predictions = rearange_predictions(preds, num_cams);
-
-%% fix predictions per camera 
-[predictions, box] = fix_wings_per_camera(predictions, box);
-
-%% fix wing 1 and wing 2 
-predictions = fix_wings_3d(predictions, easyWandData, cropzone);
-
-%% take only first 300 frames
-predictions = predictions(1:300,:,:,:);
-box = box(:,:,:,:,1:300);
-%% get 3d pts from 4 2d cameras 
-all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone);
 
 %% get 3d points for ensemble 
 
@@ -154,8 +156,6 @@ ThresholdFactor=1;
 avarage_pts_smoothed = smooth_3d_points(avarage_pts, ThresholdFactor);
 avg_consecutive_pts_smoothed = smooth_3d_points(avg_consecutive_pts, ThresholdFactor);
 
-
-
 %% create array of 
 
 sz = size(avarage_pts);
@@ -188,81 +188,27 @@ end
 
 %% plot  all pts
 % points_to_display = avarage_pts;
-% points_to_display = avg_consecutive_pts;
+points_to_display = avg_consecutive_pts;
 % points_to_display = avarage_pts_smoothed;
-points_to_display = avg_consecutive_pts_smoothed;
+% points_to_display = avg_consecutive_pts_smoothed;
 % points_to_display = avarage_points_ensemble;
 % points_to_display = avg_consecutive_pts_ensemble;
 % points_to_display=preds3d_smooth;
 
 % add head&tail to points to display
-points_to_display(head_tail_inds, : ,:) = head_tail_3d;
+% points_to_display(head_tail_inds, : ,:) = head_tail_3d;
 predictions_from_3D_to_2D = from_3D_pts_to_pixels(points_to_display, easyWandData, cropzone);
 
 %% display
-display_predictions_2D(box,predictions_from_3D_to_2D, 0);
-% display_predictions_pts_3D(points_to_display, 0.1);
-
-% n_frames = size(predictions, 1);
-% num_cams = size(predictions, 2);
-% num_joints = size(predictions, 3);
-% pause_time = 0.1;
-% figure('Units','normalized','Position',[0,0,0.9,0.9])
-% h_sp(1)=subplot(2,6,1);
-% h_sp(2)=subplot(2,6,2);
-% h_sp(3)=subplot(2,6,3);
-% h_sp(4)=subplot(2,6,4);
-% 
-% hold(h_sp,'on')
-% for cam_ind=1:num_cams
-%     image = box(:, :, :, cam_ind, 1);
-%     imshos(cam_ind)=imshow(image,...
-%         'Parent',h_sp(cam_ind),'Border','tight');
-% end
-% scats=[];
-% texts=[];
-% axis equal; 
-% for frame_ind=1:1:n_frames
-%     delete(texts)
-%     delete(scats)
-%     for cam_ind=1:num_cams
-%         image = box(:, :, :, cam_ind, frame_ind);
-%         imshos(cam_ind).CData=image;
-%         this_preds = squeeze(predictions(frame_ind, cam_ind, :, :));
-%         x_s = this_preds(:,1);
-%         y_s = this_preds(:,2);
-%         scats(cam_ind)=scatter(h_sp(cam_ind),x_s, y_s, 44, hsv(num_joints),'LineWidth',3);
-%         data = ["cam ind = " , string(cam_ind), "frame = ", string(frame_ind)]; 
-%         texts(cam_ind,:) = text(h_sp(cam_ind), 0 ,40 , data,'Color', 'W');    
-%     end
-%     
-%     h_sp(5)=subplot(2,6,5:12);
-%     
-%     xlim1=[-0.0003    0.0040];
-%     ylim1=[0.0000    0.0034];
-%     zlim1=[-0.0130   -0.0096];
-%     
-%     xlim(2.5*(xlim1-mean(xlim1))+mean(xlim1))
-%     ylim(2.5*(ylim1-mean(ylim1))+mean(ylim1))
-%     zlim(2.5*(zlim1-mean(zlim1))+mean(zlim1))
-%     p = [];
-%     box on ; 
-%     grid on;
-%     view(3); 
-%     rotate3d on
-%     p1 = plot3(points_to_display(left_inds,frame_ind,x), points_to_display(left_inds,frame_ind,y), points_to_display(left_inds,frame_ind,z),'o-r');
-%     hold on
-%     p2 = plot3(points_to_display(right_inds,frame_ind,x),points_to_display(right_inds,frame_ind,y),points_to_display(right_inds,frame_ind,z),'o-g');
-%     hold on
-%     p3 = plot3(points_to_display(head_tail_inds,frame_ind,x),points_to_display(head_tail_inds,frame_ind,y),points_to_display(head_tail_inds,frame_ind,z),'o-b');
-%     drawnow
-%     if pause_time
-%         pause(pause_time)
-%     else
-%         pause
-%     end
-%     set(p1,'Visible','off');set(p2,'Visible','off');set(p3,'Visible','off');
-% end
+pts_3D = points_to_display;
+pts_2D = predictions_from_3D_to_2D; 
+pause_time = 0.001;
+% display_predictions_2D_and_3D_tight(box, pts_3D, pts_2D, pause_time)
+display_predictions_2D_and_3D(box, pts_3D, pts_2D, pause_time)
+% display_predictions_2D_tight(box,predictions, 0.1)
+% display_predictions_2D(box,predictions, 0.1);
+% display_predictions_2D(box,predictions_from_3D_to_2D, 0.1);
+% display_predictions_pts_3D(points_to_display, 0.01);
 
 
 

@@ -27,8 +27,10 @@ predictions_segmented_wings_171_f_500_bpe_val_not_augmented = "C:\Users\amita\Py
 predictions_segmented_wings_171_f_100_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_100_bpe_val_no_augmentations\predict_over_movie.h5";
 predictions_segmented_wings_171_f_50_bpe_val_not_augmented = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_50_bpe_val_no_augmentations\predict_over_movie.h5";
 
-preds_path1 = predictions_segmented_wings_171_f_50_bpe_val_not_augmented;
-h5wi_path1 = predictions_segmented_wings_171_f_50_bpe_val_not_augmented;
+predictions_new_movie_171_f_100_bpe = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_07_12_100_bpe_val_no_augmentations\predict_over_new_movie.h5";
+
+preds_path1 = predictions_new_movie_171_f_100_bpe;
+h5wi_path1 = predictions_new_movie_171_f_100_bpe;
 % h5wi_path1 = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\movie_test_set\movie_dataset_300_frames_5_channels_histeq.h5";
 % h5wi_path1 = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\training\pre_train_100_train_no_test_frames_5_channels_sigma_3.h5";
 % preds_path1 = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\per_wing\7_points_together\per_wing_model_filters_64_sigma_3\predictions_over_test.h5";
@@ -47,7 +49,7 @@ num_time_jumps=3;
 num_cams = 4;
 num_frames=size(preds1,3)/4;
 masks_view = true;
-head_tail_inds = (num_joints+1:num_joints+2);
+head_tail_inds = (15:16);
 %% reshape to (192   192     3     4   520)
 new_box = reshape_box(box, masks_view);
 
@@ -88,8 +90,10 @@ head_tail_predictions = rearange_predictions(head_tail_preds, num_cams);
 
 %% re-arrange predictions matrix
 predictions = rearange_predictions(preds1, num_cams);
+head_tail_predictions = predictions(:,:,head_tail_inds,:);
 
 %% fix wings for every camera
+predictions = predictions(:,:,1:14,:);
 [predictions, new_box] = fix_wings_per_camera(predictions, new_box);
 
 predictions(:,:,head_tail_inds,:) = head_tail_predictions;

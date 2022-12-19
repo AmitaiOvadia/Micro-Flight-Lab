@@ -197,7 +197,7 @@ def create_run_folders(run_name, base_path="models", clean=False):
     return run_path
 
 
-def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=180):
+def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=180):   # todo change from 180
     # we create two instances with the same arguments
     data_gen_args = dict(featurewise_center=True,
                          rotation_range=rotation_range,
@@ -227,7 +227,7 @@ def train(box, confmaps,  *, data_path='',
           preshuffle=True,
           filters=64,
           rotate_angle=15,
-          epochs=50,
+          epochs=30,
           batch_size=32,
           batches_per_epoch=50,
           validation_steps=10,
@@ -299,7 +299,11 @@ def train(box, confmaps,  *, data_path='',
     print("creating generators")
 
     train_datagen = augmented_data_generator(batch_size, train_box, train_confmap, seed)
-    val_datagen = augmented_data_generator(batch_size, val_box, val_confmap, seed)
+    if validation_steps == None:
+        val_datagen = (val_box, val_confmap)
+    else:
+        val_datagen = augmented_data_generator(batch_size, val_box, val_confmap, seed)
+
 
     print("creating generators - done!")
 
@@ -701,6 +705,7 @@ def train_model(model_type, data_path, sigma='3',
     #               filters=filters,
     #               dilation_rate=dilation_rate,)
 
+
 if __name__ == '__main__':
     model_type = PER_WING_MODEL
     data_path = "pre_train_100_frames_segmented_masks_reshaped.h5"
@@ -712,6 +717,6 @@ if __name__ == '__main__':
                 val_fraction=0.1,
                 filters=64,
                 batch_size=100,
-                batches_per_epoch=40,
+                batches_per_epoch=50,
                 epochs=30,
-                validation_steps=50,)
+                validation_steps=None,)

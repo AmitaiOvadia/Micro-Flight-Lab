@@ -13,14 +13,23 @@ function display_predictions_pts_3D(points_to_display, pause_time)
     grid on;
     view(3); 
     rotate3d on
-    
-    xlim1=[-0.0003    0.0040];
-    ylim1=[0.0000    0.0034];
-    zlim1=[-0.0130   -0.0096];
-    
-    xlim(2.5*(xlim1-mean(xlim1))+mean(xlim1))
-    ylim(2.5*(ylim1-mean(ylim1))+mean(ylim1))
-    zlim(1.5*(zlim1-mean(zlim1))+mean(zlim1))
+
+    x=1;y=2;z=3;
+    max_x = max(points_to_display(:, :, x), [], 'all');
+    min_x = min(points_to_display(:, :, x), [], 'all');
+    max_y = max(points_to_display(:, :, y), [], 'all');
+    min_y = min(points_to_display(:, :, y), [], 'all');
+    max_z = max(points_to_display(:, :, z), [], 'all');
+    min_z = min(points_to_display(:, :, z), [], 'all');
+
+    xlim1=[min_x, max_x];
+    ylim1=[min_y, max_y];
+    zlim1=[min_z, max_z];
+    scale_box = 1.1;
+
+    xlim(scale_box*(xlim1-mean(xlim1))+mean(xlim1))
+    ylim(scale_box*(ylim1-mean(ylim1))+mean(ylim1))
+    zlim(scale_box*(zlim1-mean(zlim1))+mean(zlim1))
     p = [];
     % display_predictions_2D(box, predictions, 0);
     for frame_ind=1:num_frames
