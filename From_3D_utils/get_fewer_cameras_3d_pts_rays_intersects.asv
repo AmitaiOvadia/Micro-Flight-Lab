@@ -1,0 +1,37 @@
+function [errs ,all_pts3d] = get_fewer_cameras_3d_pts_rays_intersects(all_pts3d ,predictions, box, num_cams_to_use)
+%UNTITLED Summary of this function goes here
+%   Detailed explanation goes here
+    num_joints=size(predictions,3);
+    left_inds = 1:num_joints/2; right_inds = (num_joints/2+1:num_joints);
+    n_frames = size(predictions,1);
+    num_cams = size(predictions,2);
+    num_couples = nchoosek(num_cams_to_use,2);
+    all_pts3d=nan(num_joints,n_frames,num_couples,3);
+    for frame_ind=1:n_frames
+        for node_ind=1:num_joints
+            % find best cameras
+            if ismember(node_ind, left_inds)
+                masks = squeeze(box(:,:,2,:,frame_ind));
+            else ismember(node_ind, right_inds)
+                masks = squeeze(box(:,:,3,:,frame_ind));
+            end
+            % find the largest num_cams cameras
+            masks_sizes = zeros(num_cams, 1);
+            for mask_num=1:num_cams
+                mask = squeeze(masks(:,:,mask_num));
+                mask_size = nnz(mask);
+                masks_sizes(mask_num) = mask_size;
+            end
+            [sorted_array, sorted_indexes] = sort(masks_sizes, 'descend');
+            cam_inds = sorted_indexes(1:num_cams_to_use);
+            couples = nchoosek(cam_inds, 2);
+            all_couples = nchoosek(1:num_cams, 2);
+            for couple_num=1:num_cams_to_use
+                couple = couples(couple_num, :);
+                index = find(all(ismember(all_couples, vector), 2))
+                pts_indexes(couple_num) = 
+            end
+        end
+    end
+
+end

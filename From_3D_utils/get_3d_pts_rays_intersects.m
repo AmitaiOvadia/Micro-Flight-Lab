@@ -1,4 +1,4 @@
-function all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone)
+function [errs, best_err_pts_all ,all_pts3d] = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone, cam_inds)
     %% set variabes
     num_joints=size(predictions,3);
     left_inds = 1:num_joints/2; right_inds = (num_joints/2+1:num_joints);
@@ -10,7 +10,6 @@ function all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropz
     n_frames=size(predictions,1);
     all_pts3d=nan(num_joints,n_frames,num_couples,3);
     %% get body points in 3d from all couples 
-    cam_inds=1:num_cams;
     best_errors = nan(num_joints, n_frames);
     for frame_ind=1:n_frames
         for node_ind=1:num_joints
@@ -20,15 +19,17 @@ function all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropz
             y=double(cropzone(1,cam_inds,frame_ind))+squeeze(predictions(frame_ind,:,node_ind, 2));
     
             PB=nan(length(cam_inds),4);
-            for cam_ind=1:num_cams
-                PB(cam_ind,:)=allCams.cams_array(cam_inds(cam_ind)).invDLT * [x(cam_ind); (801-y(cam_ind)); 1];
+            for cam=1:num_cams
+                PB(cam,:)=allCams.cams_array(cam_inds(cam)).invDLT * [x(cam); (801-y(cam)); 1];
             end
             
             % calculate all couples
             for couple_ind=1:size(couples,1)
+                couple = couples(couple_ind,:);
+                normalized_PB = PB(couple,1:3)./PB(couple,4);
+                PA = centers(cam_inds(couple),:);
                 [pt3d_candidates(couple_ind,:),errs(node_ind,frame_ind,couple_ind,:)]=...
-                    HullReconstruction.Functions.lineIntersect3D(centers(cam_inds(couples(couple_ind,:)),:),...
-                    PB(couples(couple_ind,:),1:3)./PB(couples(couple_ind,:),4));
+                    HullReconstruction.Functions.lineIntersect3D(PA,normalized_PB);
             end
             all_pts3d(node_ind,frame_ind,:,:)=pt3d_candidates*allCams.Rotation_Matrix';
             
@@ -38,4 +39,5 @@ function all_pts3d = get_3d_pts_rays_intersects(predictions, easyWandData, cropz
             best_err_pts_all(node_ind,frame_ind,:)=best_err_pt;
         end
     end
+    errs = errs(:,:,:,1);
 end

@@ -24,13 +24,10 @@ for frame=2:numFrames
             predictions(frame, cam,right_inds, :) = temp;
             
             % flip right left masks
-            try 
-                temp = box(: ,:, 1, cam, frame);
-                box(: ,:, 1, cam, frame) = box(: ,:, 3, cam, frame);
-                box(: ,:, 3, cam, frame) = temp;
-            catch 
-            end
+            temp = box(: ,:, 2, cam, frame);
+            box(: ,:, 2, cam, frame) = box(: ,:, 3, cam, frame);
+            box(: ,:, 3, cam, frame) = temp;
         end
-   end
+    end
 end
 end

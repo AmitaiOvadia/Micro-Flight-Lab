@@ -1,4 +1,4 @@
-function predictions = fix_wings_3d(predictions, easyWandData, cropzone)
+function [predictions, box] = fix_wings_3d(predictions, easyWandData, cropzone, box)
 %[cam1, cam2, cam3]
 which_to_flip = [[0,0,0];[0,0,1];[0,1,0];[0,1,1];[1,0,0];[1,0,1];[1,1,0];[1,1,1]];
 num_of_options = size(which_to_flip, 1);
@@ -6,6 +6,7 @@ scores = zeros(num_of_options, 1);
 test_preds = predictions(1:100, :,:,:);
 num_frames = size(test_preds, 1);
 num_joints = size(test_preds, 3);
+cam_inds=1:size(predictions,2);
 left_inds = 1:num_joints/2; right_inds = (num_joints/2+1:num_joints);
 for option=1:size(which_to_flip, 1)
     test_preds_i = test_preds;
@@ -20,7 +21,7 @@ for option=1:size(which_to_flip, 1)
         end
     end
     % get 6 3d pts for every joint
-    test_3d_pts = get_3d_pts_rays_intersects(test_preds_i, easyWandData, cropzone);
+    [~, ~ ,test_3d_pts] = get_3d_pts_rays_intersects(test_preds_i, easyWandData, cropzone, cam_inds);
     % compute box volume 
     total_boxes_volume = 0;
     for frame=1:num_frames
@@ -45,6 +46,7 @@ winning_option = which_to_flip(I, :);
 aranged_predictions = predictions;
 for cam=1:3
     if winning_option(cam) == 1
+        % switch left and right prediction indexes
         left_wings_preds = squeeze(predictions(:, cam + 1, left_inds, :));
         right_wings_preds = squeeze(predictions(:, cam + 1, right_inds, :));
         aranged_predictions(:, cam + 1, right_inds, :) = left_wings_preds;
@@ -52,4 +54,27 @@ for cam=1:3
     end
 end
 predictions = aranged_predictions;
+% deal with wings masks
+% display_predictions_2D(box,predictions, 0);
+frame = 2;
+for cam=1:4
+    right_wing_preds = squeeze(predictions(frame, cam, right_inds, :));
+    count = 0;
+    right_wing_mask = squeeze(box(:, :, 3, cam, frame));
+    for joint=1:size(right_wing_preds,1)
+        count = count + right_wing_mask(right_wing_preds(joint, 2), right_wing_preds(joint, 1)); 
+    end
+%     figure; imshow(squeeze(box(:, :, :, cam, frame)));
+%     hold on 
+%     x = right_wing_preds(:,1);
+%     y = right_wing_preds(:,2);
+%     scatter(x, y, 44, 'LineWidth',3);
+    if count < 3
+        % switch first and second masks
+        first_masks = box(:, :, 2, cam, :);
+        second_masks = box(:, :, 3, cam, :);
+        box(:, :, 2, cam, :) = second_masks;
+        box(:, :, 3, cam, :) = first_masks;
+    end
+end
 end
