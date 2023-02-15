@@ -1,9 +1,9 @@
-function [predictions, box] = fix_wings_3d(predictions, easyWandData, cropzone, box)
+function [predictions, box] = fix_wings_3d(predictions, easyWandData, cropzone, box, flip_box)
 %[cam1, cam2, cam3]
 which_to_flip = [[0,0,0];[0,0,1];[0,1,0];[0,1,1];[1,0,0];[1,0,1];[1,1,0];[1,1,1]];
 num_of_options = size(which_to_flip, 1);
 scores = zeros(num_of_options, 1);
-test_preds = predictions(1:100, :,:,:);
+test_preds = predictions(:, :,:,:);
 num_frames = size(test_preds, 1);
 num_joints = size(test_preds, 3);
 cam_inds=1:size(predictions,2);
@@ -56,25 +56,27 @@ end
 predictions = aranged_predictions;
 % deal with wings masks
 % display_predictions_2D(box,predictions, 0);
-frame = 2;
-for cam=1:4
-    right_wing_preds = squeeze(predictions(frame, cam, right_inds, :));
-    count = 0;
-    right_wing_mask = squeeze(box(:, :, 3, cam, frame));
-    for joint=1:size(right_wing_preds,1)
-        count = count + right_wing_mask(right_wing_preds(joint, 2), right_wing_preds(joint, 1)); 
-    end
-%     figure; imshow(squeeze(box(:, :, :, cam, frame)));
-%     hold on 
-%     x = right_wing_preds(:,1);
-%     y = right_wing_preds(:,2);
-%     scatter(x, y, 44, 'LineWidth',3);
-    if count < 3
-        % switch first and second masks
-        first_masks = box(:, :, 2, cam, :);
-        second_masks = box(:, :, 3, cam, :);
-        box(:, :, 2, cam, :) = second_masks;
-        box(:, :, 3, cam, :) = first_masks;
+if flip_box
+    frame = 1;
+    for cam=1:4
+        right_wing_preds = squeeze(predictions(frame, cam, right_inds, :));
+        count = 0;
+        right_wing_mask = squeeze(box(:, :, 3, cam, frame));
+        for joint=1:size(right_wing_preds,1)
+            count = count + right_wing_mask(right_wing_preds(joint, 2), right_wing_preds(joint, 1)); 
+        end
+    %     figure; imshow(squeeze(box(:, :, :, cam, frame)));
+    %     hold on 
+    %     x = right_wing_preds(:,1);
+    %     y = right_wing_preds(:,2);
+    %     scatter(x, y, 44, 'LineWidth',3);
+        if count < 3
+            % switch first and second masks
+            first_masks = box(:, :, 2, cam, :);
+            second_masks = box(:, :, 3, cam, :);
+            box(:, :, 2, cam, :) = second_masks;
+            box(:, :, 3, cam, :) = first_masks;
+        end
     end
 end
 end

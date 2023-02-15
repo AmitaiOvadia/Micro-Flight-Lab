@@ -34,9 +34,23 @@ function display_predictions_pts_3D(points_to_display, pause_time)
     % display_predictions_2D(box, predictions, 0);
     for frame_ind=1:num_frames
         % draw fly points 3D
-        p(1) = plot3(points_to_display(left_inds,frame_ind,x),points_to_display(left_inds,frame_ind,y),points_to_display(left_inds,frame_ind,z),'o-r');
-        p(2) = plot3(points_to_display(right_inds,frame_ind,x),points_to_display(right_inds,frame_ind,y),points_to_display(right_inds,frame_ind,z),'o-g');
-        p(3) = plot3(points_to_display(head_tail_inds,frame_ind,x),points_to_display(head_tail_inds,frame_ind,y),points_to_display(head_tail_inds,frame_ind,z),'o-b');
+        if size(points_to_display, 1) == 4
+            indexes = [1,2];
+            p(1) = plot3(points_to_display(indexes,frame_ind,x),points_to_display(indexes,frame_ind,y),points_to_display(indexes,frame_ind,z),'o-r');
+            p(2) = plot3(points_to_display(head_tail_inds,frame_ind,x),points_to_display(head_tail_inds,frame_ind,y),points_to_display(head_tail_inds,frame_ind,z),'o-b');
+        elseif size(points_to_display, 1) == 16
+            p(1) = plot3(points_to_display(left_inds,frame_ind,x),points_to_display(left_inds,frame_ind,y),points_to_display(left_inds,frame_ind,z),'o-r');
+            p(2) = plot3(points_to_display(right_inds,frame_ind,x),points_to_display(right_inds,frame_ind,y),points_to_display(right_inds,frame_ind,z),'o-g');
+            p(3) = plot3(points_to_display(head_tail_inds,frame_ind,x),points_to_display(head_tail_inds,frame_ind,y),points_to_display(head_tail_inds,frame_ind,z),'o-b');
+        elseif size(points_to_display, 1) == 18
+            indexes = [8, 16];
+            right_inds = (1:7);
+            left_inds = (9:15);
+            p(1) = plot3(points_to_display(indexes,frame_ind,x),points_to_display(indexes,frame_ind,y),points_to_display(indexes,frame_ind,z),'o-b');
+            p(2) = plot3(points_to_display(right_inds,frame_ind,x),points_to_display(right_inds,frame_ind,y),points_to_display(right_inds,frame_ind,z),'o-g');
+            p(3) = plot3(points_to_display(left_inds,frame_ind,x),points_to_display(left_inds,frame_ind,y),points_to_display(left_inds,frame_ind,z),'o-r');
+            p(4) = plot3(points_to_display(head_tail_inds,frame_ind,x),points_to_display(head_tail_inds,frame_ind,y),points_to_display(head_tail_inds,frame_ind,z),'o-b');
+        end
         drawnow
         if pause_time
             pause(pause_time)

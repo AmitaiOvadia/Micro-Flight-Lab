@@ -11,7 +11,7 @@ else
         for joint=1:num_joints
             xyz = squeeze(all_pts3d(joint, frame, :, :)); 
             % extract weight
-            joint_errors = squeeze(all_errors(frame, joint, :));
+            joint_errors = squeeze(all_errors(joint, frame, :));
             joint_errors = joint_errors/norm(joint_errors);
     %         weights = -log(joint_errors);
             weights = softmax(-joint_errors);

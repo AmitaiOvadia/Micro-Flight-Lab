@@ -6,11 +6,15 @@ import keras
 import keras.models
 from keras.layers import Lambda
 import tensorflow as tf
+from preprocessing_utils import adjust_masks_size
 # from training import preprocess
 from training_with_masks import visualize_box_confmaps
 # from leap.utils import find_weights, find_best_weights, preprocess
 # from leap.layers import Maxima2D
 from scipy.ndimage import binary_dilation
+import matplotlib.pyplot as plt
+import matplotlib
+
 
 PER_WING = "PER WING"
 ALL_POINTS = "ALL POINTS"
@@ -79,7 +83,7 @@ def get_left_right_points(X, batch_size, model_peaks, save_confmaps):
     return Ypk
 
 
-def save_predictions_to_h5(box, Ypk, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path, num_samples,
+def save_predictions_to_h5(box, Ypk, cropzone, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path, num_samples,
                            out_path, prediction_runtime, save_confmaps, t0_all, weights_path):
     with h5py.File(out_path, "w") as f:
         f.attrs["num_samples"] = box.shape[0]
@@ -104,6 +108,10 @@ def save_predictions_to_h5(box, Ypk, box_dset, box_path, confmaps, confmaps_max,
         ds_conf = f.create_dataset("box", data=box, compression="gzip", compression_opts=1)
         ds_conf.attrs["description"] = "The predicted box"
         ds_conf.attrs["dims"] = f"{box.shape}"
+
+        ds_conf = f.create_dataset("cropzone", data=cropzone, compression="gzip", compression_opts=1)
+        ds_conf.attrs["description"] = "cropzone of every image for 2D to 3D projection"
+        ds_conf.attrs["dims"] = f"{cropzone.shape}"
 
         if save_confmaps:
             ds_confmaps = f.create_dataset("confmaps", data=confmaps, compression="gzip", compression_opts=1)
@@ -158,6 +166,7 @@ def preprocess(X):
         X = X.astype("float32") / 255
     return X
 
+
 def adjust_dimentions(X, permute=(0, 3, 2, 1)):
     #  preprocess X
     #  if there are 12-20 channels and we want to reduce to 3 or 5
@@ -185,7 +194,7 @@ def adjust_dimentions(X, permute=(0, 3, 2, 1)):
     return X
 
 
-def fix_masks(X, radius=5):
+def fix_masks(X):
     """
     goes throw each frame, if there is no mask for a specific wing, unite masks of the closest times before and after
     this frame.
@@ -223,6 +232,13 @@ def fix_masks(X, radius=5):
                     X[frame, 3 + mask_num + num_channels * cam, :, :] = new_mask
 
     # do dilation to all masks
+    X = adjust_masks_size(X, "PREDICT")
+    return X
+
+
+def do_dilation_do_all_masks(X, radius=5):
+    num_channels = 5
+    num_frames = int(X.shape[0])
     for frame in range(num_frames):
         for cam in range(4):
             for mask_num in range(2):
@@ -231,12 +247,17 @@ def fix_masks(X, radius=5):
                 X[frame, 3 + mask_num + num_channels * cam, :, :] = dilated_mask
     return X
 
-
-def predict_box(test_box, box_path, model_path, out_path, *,
+def predict_box(box_path,
+                model_path_wings,
+                model_path_head_tail,
+                out_path, *,
                 model_type=False,
                 box_dset="/box",
+                cropzone="/cropzone",
                 test_dset="/testing/box",
+                segmentation_scores = "/segmentation_scores",
                 epoch=None,
+                video=True,
                 verbose=True,
                 overwrite=False,
                 save_confmaps=False,
@@ -245,7 +266,7 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     Predict and save peak coordinates for a box.
 
     :param box_path: path to HDF5 file with box dataset
-    :param model_path: path to Keras weights file or run folder with weights subfolder
+    :param model_path_wings: path to Keras weights file or run folder with weights subfolder
     :param out_path: path to HDF5 file to save results to
     :param box_dset: name of HDF5 dataset containing box images
     :param epoch: epoch to use if run folder provided instead of Keras weights file
@@ -256,18 +277,17 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     """
 
     if verbose:
-        print("model_path:", model_path)
+        print("model_path:", model_path_wings)
 
     # Find model weights
     model_name = None
-    weights_path = model_path
+    weights_path = model_path_wings
 
-    # Input data
-    if test_box:
-        box = h5py.File(box_path,"r")[test_dset]
-        box = np.reshape(box, (box.shape[0], box.shape[1] * box.shape[2], box.shape[3], box.shape[4]))  # todo
-    else:
-        box = h5py.File(box_path,"r")[box_dset]
+    box = h5py.File(box_path,"r")[box_dset]
+    cropzone = h5py.File(box_path,"r")[cropzone]
+    try:
+        segmentation_scores = h5py.File(box_path,"r")[segmentation_scores]
+    except: segmentation_scores = None
     num_samples = box.shape[0]
     if verbose:
         print("Input:", box_path)
@@ -285,13 +305,12 @@ def predict_box(test_box, box_path, model_path, out_path, *,
             print("Error: Output path already exists.")
             return
 
-    # Load and prepare model
-
+    # Load and prepare wings model
     if model_type == PER_WING_SPLIT_TO_3 or model_type == PER_WING_PER_POINT or model_type == ENSEMBLE:
         models_list = []
         if ENSEMBLE:
             save_confmaps = True
-        for path in model_path:
+        for path in model_path_wings:
             model = keras.models.load_model(path)
             model_peaks = convert_to_peak_outputs(model, include_confmaps=save_confmaps)
             if verbose:
@@ -306,11 +325,21 @@ def predict_box(test_box, box_path, model_path, out_path, *,
             print("weights_path:", weights_path)
             print("Loaded model: %d layers, %d params" % (len(model.layers), model.count_params()))
 
+    # load head & tail detection model
+    model_head_tail = keras.models.load_model(model_path_head_tail)
+    model_peaks_head_tail = convert_to_peak_outputs(model_head_tail, include_confmaps=save_confmaps)
+    if verbose:
+        print("weights_path:", model_path_head_tail)
+        print("Loaded head tail model: %d layers, %d params" % (len(model_head_tail.layers), model_head_tail.count_params()))
+
     # Load data and preprocess (normalize)
     t0 = time()
     box = preprocess(box[:])
     # fix the masks
-    box = fix_masks(box[:])
+    if video:
+        box = fix_masks(box[:])
+    else:
+        box = do_dilation_do_all_masks(box)
     X = adjust_dimentions(box)
 
     # visualize
@@ -319,7 +348,8 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     if verbose:
         print("Loaded [%.1fs]" % (time() - t0))
 
-    # Evaluate
+    # X = X[:5,:,:,:]
+
     t0 = time()
     confmaps, confmaps_max, confmaps_min, = None, None, None
     if model_type == NO_MASKS or model_type == HEAD_TAIL:
@@ -330,11 +360,12 @@ def predict_box(test_box, box_path, model_path, out_path, *,
         Ypk, confmaps, confmaps_max, confmaps_min = predict_Ypk(X, batch_size, model_peaks, save_confmaps)
 
     elif model_type == PER_WING:  # todo extract confidence maps
-        # X=X[:20, :,:,:]
         input_left = X[:, :, :, [0, 1, 2, 3]]
         input_right = X[:, :, :, [0, 1, 2, 4]]
+        print("predict wing 1 points")
         Ypk_left, confmaps_left, confmaps_max_l, confmaps_min_l = predict_Ypk(input_left, batch_size, model_peaks,
                                                                               save_confmaps)
+        print("predict wing 2 points")
         Ypk_right, confmaps_right, confmaps_max_r, confmaps_min_r = predict_Ypk(input_right, batch_size, model_peaks,
                                                                                 save_confmaps)
         Ypk = np.concatenate((Ypk_left, Ypk_right), axis=2)
@@ -358,10 +389,9 @@ def predict_box(test_box, box_path, model_path, out_path, *,
             confmaps = np.transpose(np.concatenate((confmaps_left, confmaps_right), axis=1), (0, 2, 3, 1))
             # summing all confidence maps of same points
             sum_of_confmaps = np.add(sum_of_confmaps, confmaps)
-        Ypk = get_ensemble_results(sum_of_confmaps, num_samples)
         confmaps = sum_of_confmaps / len(models_list)
+        Ypk = get_ensemble_results(sum_of_confmaps, num_samples)
         confmaps_max, confmaps_min = np.max(confmaps), np.min(confmaps)
-
 
     elif model_type == PER_WING_SPLIT_TO_3 or model_type == PER_WING_PER_POINT:
         Ypk_left_list, Ypk_right_list = [], []
@@ -382,6 +412,14 @@ def predict_box(test_box, box_path, model_path, out_path, *,
         Ypk = np.concatenate((Ypk_left_list, Ypk_right_list), axis=2)
         # confmaps = np.concatenate((confmaps_left_list, confmaps_right_list), axis=2)
 
+    # add head and tail predictions
+    print("predict head and tail points")
+    input = X[:, :, :, [0, 1, 2]]
+    Ypk_head_tail, _, _, _ = predict_Ypk(input, batch_size, model_peaks_head_tail, save_confmaps)
+
+    # combine predictions
+    Ypk = np.concatenate((Ypk, Ypk_head_tail), axis=-1)
+
     prediction_runtime = time() - t0
     if verbose:
         print("Predicted [%.1fs]" % prediction_runtime)
@@ -390,9 +428,9 @@ def predict_box(test_box, box_path, model_path, out_path, *,
     # Save
     t0 = time()
     save_confmaps=False
-    save_predictions_to_h5(box, Ypk, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path,
-                                           num_samples, out_path, prediction_runtime, save_confmaps, t0_all,
-                                           weights_path)
+    save_predictions_to_h5(box, Ypk, cropzone, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path_wings,
+                           num_samples, out_path, prediction_runtime, save_confmaps, t0_all,
+                           weights_path)
     total_runtime = time() - t0_all
     if verbose:
         print("Saved [%.1fs]" % (time() - t0))
@@ -405,13 +443,17 @@ def predict_box(test_box, box_path, model_path, out_path, *,
 
 
 if __name__ == "__main__":
+
     model_type = PER_WING
     # model_type = ENSEMBLE
     # model_type = NO_MASKS
     # model_type = HEAD_TAIL
-    test_box = False
-    box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movie_dataset_900_frames_5_channels_segmented_masks_orig_size.h5"
-    model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_08_12\final_model.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\per_wing_model_171_frames_segmented_masks_08_12\predict_over_movie.h5"
-    predict_box(test_box, box_path, model_path, out_path, model_type=model_type, box_dset="/box", verbose=True,
-                overwrite=False, save_confmaps=False, batch_size=8)
+
+    box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movie_1_1701_2200_500_frames_3tc_7tj.h5"
+    model_path_head_tail = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\head_tail_dataset\HEAD_TAIL_800_frames_7_11\final_model.h5"
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train_on_2_good_cameras\train_on_2_good_camera_15_2\predict_over_movie.h5"
+    # model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\ensemble\model_171_frames_100_bpe_12_18_seed_0\best_model.h5"
+
+    model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train_on_2_good_cameras\train_on_2_good_camera_15_2\final_model.h5"
+    predict_box(box_path, model_path, model_path_head_tail, out_path, model_type=model_type, box_dset="/box",
+                verbose=True, overwrite=False, save_confmaps=False, batch_size=8)

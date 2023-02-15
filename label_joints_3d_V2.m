@@ -6,8 +6,10 @@ function label_joints_3d_V2(boxPath, skeletonPath)
 %
 % See also: make_template_skeleton
 % predictions_path = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\sigma_2_14_points\predictions_for_labeling.h5";
-per_wing_7_points = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\per_wing\7_points_together\per_wing_model_filters_64_sigma_2_trained_by_141_frames\predictions_over_movie.h5";
-predictions_path = per_wing_7_points;
+% per_wing_7_points = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\per_wing\7_points_together\per_wing_model_filters_64_sigma_2_trained_by_141_frames\predictions_over_movie.h5";
+predictions_xx = "C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\find 8 pts per wing\per_wing_16_pts_28_1\predict_over_video.h5";
+predictions_16_pts = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\movie_test_set_new\predictions_on_movie.mat";
+predictions_path = predictions_16_pts;
 %% Startup
 % addpath(genpath('deps'))
 
@@ -97,12 +99,16 @@ zoomBoxWindow = config.zoomBoxFrames(1):config.zoomBoxFrames(2);
         end
 
         % Open box file
-        box = h5file(boxPath, config.dsetName);
+        box = double(h5file(boxPath, config.dsetName));
+        if max(box, [], 'all') > 1
+            box = box/255;
+        end
         cropZone=h5file(boxPath, '/cropzone');
         numFrames = size(box,4);
         frame_size=size(box,1);
         numChannels = size(box,3);
-        
+      
+
         stic;
         if ~exists(labels.savePath) || recreate_labels
             % Load template skeleton
@@ -124,12 +130,10 @@ zoomBoxWindow = config.zoomBoxFrames(1):config.zoomBoxFrames(2);
             % Initialize user labels
             labels.positions = NaN(numel(labels.skeleton.nodes), 2, n_cams,numFrames, 'single');
             
-            % initiate labels positions 
-            a = load("C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\old_4pts_skeleton_labels\old_positions.mat");
-%             old_positions = a.old_positions;
-%             labels.positions(1:2,:,:,:) = old_positions(3:4,:,:,:);
-%             labels.positions(8:9,:,:,:) = old_positions(1:2,:,:,:);
-
+            
+%             a = load("C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\train set 16 points\old_positions.labels.mat");
+%             positions_wings = a.positions;
+%             labels.positions = positions_wings;
 
             % Settings
             labels.config = config;
@@ -668,8 +672,13 @@ initializeGUI();
         
         % from file
         modelPath='look in readme';
-        preds= h5readgroup(predictions_path);
-        preds.positions_pred = single(preds.positions_pred) + 1;
+        preds = h5readgroup(predictions_xx);
+        preds_1 = load(predictions_path);
+        preds_1 = preds_1.predictions_from_3D_to_2D;
+        preds_1 = preds_1(:,:, 1:16,:);
+        preds_1 = reshape(preds_1, [2000, 16,2]);
+        preds_1 = permute(preds_1, [2,3,1]);
+        preds.positions_pred = single(preds_1) + 1;
         
 %         num_frames=size(preds.positions_pred,3)/2;
 %         preds.positions_pred=cat(1,preds.positions_pred(1:2,:,1:num_frames),...

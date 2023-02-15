@@ -15,9 +15,6 @@ num_points = size(points_3d, 1);
 n_frames = size(points_3d, 2);
 % points_distances = nan(n_frames, num_points);
 for frame=1:n_frames
-    if frame == 487
-        a=0;
-    end
     if num_points == 2
         p1 = points_3d(1, frame, :);
         p2 = points_3d(2, frame, :);

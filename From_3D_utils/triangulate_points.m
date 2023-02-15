@@ -34,5 +34,5 @@ function [all_pts_3d, all_errors] = triangulate_points(points_2d, easyWandData, 
     all_pts_3d = data_1.all_pts_3d;
     all_pts_3d = permute(all_pts_3d, [3, 1, 2, 4]);
     all_errors = data_2.all_errors;
-    all_errors = permute(all_errors, [1, 3, 2]);
+    all_errors = permute(all_errors, [3, 1, 2]);
 end

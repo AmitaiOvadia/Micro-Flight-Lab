@@ -1,4 +1,4 @@
-function display_4_cameras_epipolar_lines(points_3D, points_2D ,cropzone, easyWandData)
+function display_4_cameras_epipolar_lines(points_3D, points_2D, chosen_pt_3D,cropzone, easyWandData)
 % UNTITLED12 Summary of this function goes here
 % points_2D : array of size (4, 2)
 % points_3D : array of size (11, 3) all candidates for point
@@ -25,9 +25,12 @@ for cam=1:num_cams
     plot3(x_3d,y_3d,z_3d, 'Color', circshift([1,0,0],cam), 'LineWidth',1);
     hold on 
 end
+% scatter all pts
 scatter3(points_3D(:, 1),points_3D(:, 2),points_3D(:, 3));
-max_lims = mean(points_3D) + 0.001; 
-min_lims = mean(points_3D) - 0.001;
+% scatter chosen pt
+scatter3(chosen_pt_3D(1),chosen_pt_3D(2),chosen_pt_3D(3))
+max_lims = mean(points_3D) + 0.0005; 
+min_lims = mean(points_3D) - 0.0005;
 xlim([min_lims(1), max_lims(1)]);
 ylim([min_lims(2), max_lims(2)]);
 zlim([min_lims(3), max_lims(3)]);

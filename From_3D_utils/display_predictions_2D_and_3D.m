@@ -48,6 +48,7 @@ function display_predictions_2D_and_3D(images, pts_3D, pts_2D, pause_time)
     for frame_ind=1:1:num_frames
         delete(texts)
         delete(scats)
+%         delete(p)
         for cam_ind=1:num_cams
             image = images(:, :, :, cam_ind, frame_ind);
             imshos(cam_ind).CData=image;
