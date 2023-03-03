@@ -104,11 +104,12 @@ class Predictions:
                     # mask = cv2.resize(mask, (im_size, im_size), interpolation=cv2.INTER_AREA)
                     new_box[frame, self.num_times_channels + mask_num + self.num_channels * cam, :, :] = mask
                 new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch, [2, 0, 1])
+
                 # show the image
-                # imtoshow = new_box[frame, np.array([0,1,2]) + new_num_channels * cam, :, :]
+                # imtoshow = new_box[frame, np.array([0,1,2]) + self.num_channels * cam, :, :]
                 # imtoshow = np.transpose(imtoshow, [1, 2, 0])
-                # mask_1 = new_box[frame, 3 + new_num_channels * cam, :, :]
-                # mask_2 = new_box[frame, 4 + new_num_channels * cam, :, :]
+                # mask_1 = new_box[frame, 3 + self.num_channels * cam, :, :]
+                # mask_2 = new_box[frame, 4 + self.num_channels * cam, :, :]
                 # imtoshow[:, :, 1] += mask_1
                 # imtoshow[:, :, 1] += mask_2
                 # matplotlib.use('TkAgg')
@@ -307,11 +308,15 @@ class Predictions:
 
 
 if __name__ == "__main__":
-    model_type = PER_WING
-    box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj _no_masks.h5"
+    # model_type = PER_WING
+    model_type = BODY_POINTS
+    # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj _no_masks.h5"
+    box_path_no_masks = r"movie_dataset_1_3_600_frames_no_masks.h5"
     pose_estimation_model_path = 'train_3_cams_weights.h5'
-    out_path = "new_prediction_class.h5"
     wings_detection_model_path = "wings_detection_yolov8_weights.pt"
+
+    out_path = "predictions_movie_1_3_600_frames_yolov8_body.h5"
+
     predictions = Predictions(box_path_no_masks,
                               model_type,
                               out_path,
