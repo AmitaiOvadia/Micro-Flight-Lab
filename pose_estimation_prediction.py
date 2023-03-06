@@ -2,9 +2,9 @@ import h5py
 import numpy as np
 import os
 from time import time
-import keras
-import keras.models
-from keras.layers import Lambda
+from tensorflow import keras
+import tensorflow.keras.models
+from tensorflow.keras.layers import Lambda
 import tensorflow as tf
 from preprocessing_utils import adjust_masks_size
 # from training import preprocess
@@ -15,14 +15,20 @@ from scipy.ndimage import binary_dilation
 import matplotlib.pyplot as plt
 import matplotlib
 
+# imports of the wings detection
+import cv2
+from time import time
+from ultralytics import YOLO
 
 PER_WING = "PER WING"
 ALL_POINTS = "ALL POINTS"
+BODY_POINTS = "BODY_POINTS"
 PER_WING_SPLIT_TO_3 = "PER WING SPLIT TO 3"
 PER_WING_PER_POINT = "PER_WING_PER_POINT"
 ENSEMBLE = "ENSEMBLE"
 NO_MASKS = "NO_MASKS"
 HEAD_TAIL = "NO_MASKS"
+
 
 def tf_find_peaks(x):
     """ Finds the maximum value in each channel and returns the location and value.
@@ -134,8 +140,6 @@ def predict_Ypk(X, batch_size, model_peaks, save_confmaps):
         # Quantize
         confmaps_min = confmaps.min()
         confmaps_max = confmaps.max()
-        # confmaps = (confmaps - confmaps_min) / (confmaps_max - confmaps_min)
-        # confmaps = (confmaps * 255).astype('uint8')
 
         # Reshape
         confmaps = np.transpose(confmaps, (0, 3, 2, 1))
@@ -167,7 +171,7 @@ def preprocess(X):
     return X
 
 
-def adjust_dimentions(X, permute=(0, 3, 2, 1)):
+def adjust_dimensions(X, permute=(0, 3, 2, 1)):
     #  preprocess X
     #  if there are 12-20 channels and we want to reduce to 3 or 5
 
@@ -182,6 +186,12 @@ def adjust_dimentions(X, permute=(0, 3, 2, 1)):
         x3 = X[:, :, 6:9, :]
         x4 = X[:, :, 9:12, :]
         X = np.concatenate((x1, x2, x3, x4), axis=3)
+
+    if X.shape[2] == 15:
+        x1 = X[:, :, 0:5, :]
+        x2 = X[:, :, 5:10, :]
+        x3 = X[:, :, 10:15, :]
+        X = np.concatenate((x1, x2, x3), axis=3)
 
     if X.shape[2] == 20:  # if number of channels is 5
 
@@ -204,9 +214,10 @@ def fix_masks(X):
     search_range = 5
     num_channels = 5
     num_frames = int(X.shape[0])
+    num_cams = int(X.shape[1]/num_channels)
     problematic_masks = []
     for frame in range(num_frames):
-        for cam in range(4):
+        for cam in range(num_cams):
             for mask_num in range(2):
                 mask = X[frame, 3 + mask_num + num_channels * cam, :, :]
                 if np.all(mask == 0):  # check if all 0:
@@ -247,10 +258,51 @@ def do_dilation_do_all_masks(X, radius=5):
                 X[frame, 3 + mask_num + num_channels * cam, :, :] = dilated_mask
     return X
 
+
+def add_masks(box):
+    """ Add masks detected using a YOLOV8 model """
+    wings_model = "wings_detection_yolov8_weights_4_3.pt"
+    model = YOLO(wings_model)  # load a pretrained YOLOv8n model
+    model.fuse()
+    im_size = box.shape[-1]
+    new_num_channels = 5
+    num_cams = 4
+    num_times_channels = 3
+    num_frames = box.shape[0]
+    cur_channels = box.shape[1]
+    new_box = np.zeros((box.shape[0], num_cams * new_num_channels, im_size, im_size))
+    for frame in range(num_frames):
+        for cam in range(num_cams):
+            print(f"frame number {frame}, cam number {cam}")
+            img_3_ch = box[frame, np.array([0,1,2]) + num_times_channels * cam, :, :]
+            img_3_ch = np.transpose(img_3_ch, [1, 2, 0])
+            net_input = np.round(255*img_3_ch)
+            results = model(net_input)[0]
+            num_masks = results.masks.shape[0]
+            for mask_num in range(min(num_masks, 2)):
+                mask = results.masks[mask_num, :, :].masks.numpy()
+                # mask = cv2.resize(mask, (im_size, im_size), interpolation=cv2.INTER_AREA)
+                new_box[frame, num_times_channels + mask_num + new_num_channels * cam, :, :] = mask
+            new_box[frame, np.array([0, 1, 2]) + new_num_channels * cam, :, :] = np.transpose(img_3_ch, [2, 0, 1])
+
+            # show the image
+            # imtoshow = new_box[frame, np.array([0,1,2]) + new_num_channels * cam, :, :]
+            # imtoshow = np.transpose(imtoshow, [1, 2, 0])
+            # mask_1 = new_box[frame, 3 + new_num_channels * cam, :, :]
+            # mask_2 = new_box[frame, 4 + new_num_channels * cam, :, :]
+            # imtoshow[:, :, 1] += mask_1
+            # imtoshow[:, :, 1] += mask_2
+            # matplotlib.use('TkAgg')
+            # plt.imshow(imtoshow)
+            # plt.show()
+            # a=0
+    return new_box
+
+
 def predict_box(box_path,
                 model_path_wings,
-                model_path_head_tail,
                 out_path, *,
+                add_head_tail=False,
                 model_type=False,
                 box_dset="/box",
                 cropzone="/cropzone",
@@ -285,9 +337,7 @@ def predict_box(box_path,
 
     box = h5py.File(box_path,"r")[box_dset]
     cropzone = h5py.File(box_path,"r")[cropzone]
-    try:
-        segmentation_scores = h5py.File(box_path,"r")[segmentation_scores]
-    except: segmentation_scores = None
+
     num_samples = box.shape[0]
     if verbose:
         print("Input:", box_path)
@@ -325,22 +375,20 @@ def predict_box(box_path,
             print("weights_path:", weights_path)
             print("Loaded model: %d layers, %d params" % (len(model.layers), model.count_params()))
 
-    # load head & tail detection model
-    model_head_tail = keras.models.load_model(model_path_head_tail)
-    model_peaks_head_tail = convert_to_peak_outputs(model_head_tail, include_confmaps=save_confmaps)
-    if verbose:
-        print("weights_path:", model_path_head_tail)
-        print("Loaded head tail model: %d layers, %d params" % (len(model_head_tail.layers), model_head_tail.count_params()))
-
     # Load data and preprocess (normalize)
     t0 = time()
     box = preprocess(box[:])
+
+    # box = box[:5, :,:,:]
+    # add masks
+    box = add_masks(box)
+
     # fix the masks
     if video:
-        box = fix_masks(box[:])
+        box = fix_masks(box)
     else:
         box = do_dilation_do_all_masks(box)
-    X = adjust_dimentions(box)
+    X = adjust_dimensions(box)
 
     # visualize
     # visualize_box_confmaps(X, None, 'ALL_POINTS_MODEL')
@@ -348,18 +396,16 @@ def predict_box(box_path,
     if verbose:
         print("Loaded [%.1fs]" % (time() - t0))
 
-    # X = X[:5,:,:,:]
-
     t0 = time()
     confmaps, confmaps_max, confmaps_min, = None, None, None
     if model_type == NO_MASKS or model_type == HEAD_TAIL:
         input = X[:, :, :, [0, 1, 2]]
         Ypk, confmaps, confmaps_max, confmaps_min = predict_Ypk(input, batch_size, model_peaks, save_confmaps)
 
-    elif model_type == ALL_POINTS:
+    elif model_type == ALL_POINTS or model_type == BODY_POINTS:
         Ypk, confmaps, confmaps_max, confmaps_min = predict_Ypk(X, batch_size, model_peaks, save_confmaps)
 
-    elif model_type == PER_WING:  # todo extract confidence maps
+    elif model_type == PER_WING:
         input_left = X[:, :, :, [0, 1, 2, 3]]
         input_right = X[:, :, :, [0, 1, 2, 4]]
         print("predict wing 1 points")
@@ -412,13 +458,6 @@ def predict_box(box_path,
         Ypk = np.concatenate((Ypk_left_list, Ypk_right_list), axis=2)
         # confmaps = np.concatenate((confmaps_left_list, confmaps_right_list), axis=2)
 
-    # add head and tail predictions
-    print("predict head and tail points")
-    input = X[:, :, :, [0, 1, 2]]
-    Ypk_head_tail, _, _, _ = predict_Ypk(input, batch_size, model_peaks_head_tail, save_confmaps)
-
-    # combine predictions
-    Ypk = np.concatenate((Ypk, Ypk_head_tail), axis=-1)
 
     prediction_runtime = time() - t0
     if verbose:
@@ -427,7 +466,7 @@ def predict_box(box_path,
 
     # Save
     t0 = time()
-    save_confmaps=False
+    save_confmaps = False
     save_predictions_to_h5(box, Ypk, cropzone, box_dset, box_path, confmaps, confmaps_max, confmaps_min, model_path_wings,
                            num_samples, out_path, prediction_runtime, save_confmaps, t0_all,
                            weights_path)
@@ -444,16 +483,27 @@ def predict_box(box_path,
 
 if __name__ == "__main__":
 
-    model_type = PER_WING
+    # model_type = PER_WING
     # model_type = ENSEMBLE
     # model_type = NO_MASKS
     # model_type = HEAD_TAIL
+    # model_type = ALL_POINTS
+    # model_type = BODY_POINTS
+    # box_path_no_masks = r"movie_dataset_1_3_600_frames_no_masks.h5"
+    # model_type = BODY_POINTS
+    # model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\body parts model\body_parts_model_dilation_2\best_model.h5"
+    # out_path = f"predictions_{box_path_no_masks}_{model_type}_xx.h5"
+    # predict_box(box_path_no_masks, model_path, out_path, model_type=model_type)
 
-    box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movie_1_1701_2200_500_frames_3tc_7tj.h5"
-    model_path_head_tail = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\models\5_channels_3_times_2_masks\main_dataset_1000_frames_5_channels\head_tail_dataset\HEAD_TAIL_800_frames_7_11\final_model.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train_on_2_good_cameras\train_on_2_good_camera_15_2\predict_over_movie.h5"
-    # model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\segmented masks\ensemble\model_171_frames_100_bpe_12_18_seed_0\best_model.h5"
+    box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
+    model_type = PER_WING
+    model_path = r"train_3_cams_weights.h5"
+    out_path = f"predictions_{box_path_no_masks}_{model_type}_xx.h5"
+    predict_box(box_path_no_masks, model_path, out_path, model_type=model_type)
 
-    model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train_on_2_good_cameras\train_on_2_good_camera_15_2\final_model.h5"
-    predict_box(box_path, model_path, model_path_head_tail, out_path, model_type=model_type, box_dset="/box",
-                verbose=True, overwrite=False, save_confmaps=False, batch_size=8)
+
+
+    # model_type = BODY_POINTS
+    # model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\body parts model\body_parts_model_dilation_2\best_model.h5"
+    # out_path = fr"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\magnet movie\predict_over_movie_body.h5"
+    # predict_box(magnet_movie_path, model_path, model_path_head_tail, out_path, model_type=model_type)

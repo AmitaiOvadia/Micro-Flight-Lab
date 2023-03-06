@@ -60,6 +60,7 @@ class Predictions:
         self.num_times_channels = self.box.shape[1] // self.num_cams
         self.num_channels = NUM_CHANNELS_PER_IMAGE
 
+        self.box_to_save = None
         self.Ypk = None
         self.prediction_runtime = None
         self.total_runtime = None
@@ -85,10 +86,13 @@ class Predictions:
         return model
 
     def preprocess_box(self):
+        # Add singleton dim for single images
+        if self.box.ndim == 3:
+            self.box = self.box[None, ...]
         if self.box.dtype == "uint8" or np.max(self.box) > 1:
             self.box = self.box.astype("float32") / 255
 
-    def add_masks(self):   # todo do it in one swoop : insert a matrix in size (num_frames, 192, 192, 3), can be much faster
+    def add_masks(self):
         """ Add masks to the dataset using yolov8 segmentation model """
         new_box = np.zeros((self.num_frames, self.num_cams * self.num_channels, self.im_size, self.im_size))
         for frame in range(self.num_frames):
@@ -96,15 +100,9 @@ class Predictions:
                 print(f"frame number {frame}, cam number {cam}")
                 img_3_ch = self.box[frame, np.array([0, 1, 2]) + self.num_times_channels * cam, :, :]
                 img_3_ch = np.transpose(img_3_ch, [1, 2, 0])
-                net_input = np.round(255 * img_3_ch)
-                results = self.wings_detection_model(net_input)[0]
-                num_masks = results.masks.shape[0]
-                for mask_num in range(min(num_masks, 2)):
-                    mask = results.masks[mask_num, :, :].masks.numpy()
-                    # mask = cv2.resize(mask, (im_size, im_size), interpolation=cv2.INTER_AREA)
-                    new_box[frame, self.num_times_channels + mask_num + self.num_channels * cam, :, :] = mask
+                masks = self.get_masks(img_3_ch)
+                new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
                 new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch, [2, 0, 1])
-
                 # show the image
                 # imtoshow = new_box[frame, np.array([0,1,2]) + self.num_channels * cam, :, :]
                 # imtoshow = np.transpose(imtoshow, [1, 2, 0])
@@ -115,7 +113,16 @@ class Predictions:
                 # matplotlib.use('TkAgg')
                 # plt.imshow(imtoshow)
                 # plt.show()
+                # a=0
         self.box = new_box
+
+    def get_masks(self, img_3_ch):
+        net_input = img_3_ch
+        if np.max(img_3_ch) <= 1:
+            net_input = np.round(255 * img_3_ch)
+        results = self.wings_detection_model(net_input)[0]
+        masks = results.masks.masks.numpy()[:2, :, :]
+        return masks
 
     def fix_masks(self):  # todo find out if there are even masks to be fixed
         """
@@ -129,7 +136,7 @@ class Predictions:
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
                 for mask_num in range(2):
-                    mask = self.box[frame, 3 + mask_num + self.num_channels * cam, :, :]
+                    mask = self.box[frame, self.num_times_channels + mask_num + self.num_channels * cam, :, :]
                     if np.all(mask == 0):  # check if all 0:
                         problematic_masks.append((frame, cam, mask_num))
                         # find previous matching mask
@@ -152,7 +159,7 @@ class Predictions:
                         new_mask = prev_mask + next_mask
                         new_mask[new_mask >= 1] = 1
                         # replace empty mask with new mask
-                        self.box[frame, 3 + mask_num + self.num_channels * cam, :, :] = new_mask
+                        self.box[frame, self.num_times_channels + mask_num + self.num_channels * cam, :, :] = new_mask
 
         # do dilation to all masks
         self.box = adjust_masks_size(self.box, "PREDICT")
@@ -171,6 +178,7 @@ class Predictions:
         self.box = np.transpose(self.box, (3, 0, 1, 2))
 
     def save_predictions_to_h5(self):
+        """ save the predictions and the box of images to h5 file"""
         with h5py.File(self.out_path, "w") as f:
             f.attrs["num_samples"] = self.box.shape[0]
             f.attrs["img_size"] = self.im_size
@@ -192,9 +200,9 @@ class Predictions:
             ds_conf.attrs["description"] = "confidence map value in [0, 1.0] at peak"
             ds_conf.attrs["dims"] = "(sample, joint)"
 
-            ds_conf = f.create_dataset("box", data=self.box, compression="gzip", compression_opts=1)
+            ds_conf = f.create_dataset("box", data=self.box_to_save, compression="gzip", compression_opts=1)
             ds_conf.attrs["description"] = "The predicted box"
-            ds_conf.attrs["dims"] = f"{self.box.shape}"
+            ds_conf.attrs["dims"] = f"{self.box_to_save.shape}"
 
             ds_conf = f.create_dataset("cropzone", data=self.cropzone, compression="gzip", compression_opts=1)
             ds_conf.attrs["description"] = "cropzone of every image for 2D to 3D projection"
@@ -266,7 +274,7 @@ class Predictions:
             axis=1)
         return pred
 
-    def run_predict_box(self, batch_size=8):  # todo: consider do wings and body points predictions togather
+    def run_predict_box(self, batch_size=32):  # todo: consider do wings and body points predictions togather
         t0 = time()
         if os.path.exists(self.out_path):
             print("Error: Output path already exists.")
@@ -275,6 +283,7 @@ class Predictions:
         self.add_masks()
         if self.is_video:
             self.fix_masks()
+        self.box_to_save = self.box
         self.adjust_dimensions()
         preprocessing_time = time() - t0
         preds_time = time()
@@ -290,15 +299,13 @@ class Predictions:
             Ypk_right, _, _, _ = Predictions.predict_Ypk(input_right,
                                                          batch_size,
                                                          self.pose_estimation_model)
-
-
             Ypk = np.concatenate((Ypk_left, Ypk_right), axis=2)
             # visualize_box_confmaps(self.box, confmaps, self.model_type)
 
         elif self.model_type == ALL_POINTS or self.model_type == BODY_POINTS:
-            Ypk, confmaps, confmaps_max, confmaps_min = Predictions.predict_Ypk(self.box,
-                                                                                batch_size,
-                                                                                self.pose_estimation_model)
+            Ypk, _, _, _ = Predictions.predict_Ypk(self.box,
+                                                   batch_size,
+                                                   self.pose_estimation_model)
         self.Ypk = Ypk
         self.prediction_runtime = time() - preds_time
         self.total_runtime = time() - t0
@@ -308,15 +315,23 @@ class Predictions:
 
 
 if __name__ == "__main__":
-    # model_type = PER_WING
-    model_type = BODY_POINTS
-    # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj _no_masks.h5"
+    model_type = PER_WING
+    # model_type = BODY_POINTS
+    box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
+    pose_estimation_model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_5_3_bicubic_06\best_model.h5"
+    wings_detection_model_path = "wings_detection_yolov8_weights_4_3.pt"
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_5_3_bicubic_06\predictions_over_movie_1"
+
+    predictions = Predictions(box_path_no_masks,
+                              model_type,
+                              out_path,
+                              pose_estimation_model_path,
+                              wings_detection_model_path)
+    predictions.run_predict_box()
+
+
     box_path_no_masks = r"movie_dataset_1_3_600_frames_no_masks.h5"
-    pose_estimation_model_path = 'train_3_cams_weights.h5'
-    wings_detection_model_path = "wings_detection_yolov8_weights.pt"
-
-    out_path = "predictions_movie_1_3_600_frames_yolov8_body.h5"
-
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_5_3_bicubic_06\predictions_over_movie_17"
     predictions = Predictions(box_path_no_masks,
                               model_type,
                               out_path,

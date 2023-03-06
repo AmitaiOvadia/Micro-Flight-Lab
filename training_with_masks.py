@@ -1,28 +1,13 @@
-import os
 from time import time
-import shutil
-
-import h5py
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-from training import preprocess
-
-# from tensorflow.python.client import device_lib
-# print(device_lib.list_local_devices())
-
+from PIL import Image
 from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, LambdaCallback, Callback
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-import tensorflow as tf
 from scipy.io import loadmat, savemat
 # import skimage
 # from skimage.morphology import binary_dilation, disk
-from scipy.ndimage import binary_dilation, binary_closing
-
+# from scipy.ndimage import binary_dilation, binary_closing
 from viz import show_pred, show_confmap_grid, plot_history
-# from pose_estimation_prediction import fix_masks
 from pose_estimation_models import basic_nn
-
 from preprocessing_utils import *
 
 PER_WING_MODEL = 'PER_WING_MODEL'
@@ -30,6 +15,9 @@ ALL_POINTS_MODEL = 'ALL_POINTS_MODEL'
 PER_POINT_PER_WING_MODEL = 'PER_POINT_PER_WING_MODEL'
 SPLIT_2_2_3_MODEL = 'SPLIT_2_2_3_MODEL'
 TRAIN_ON_2_GOOD_CAMERAS_MODEL = "TRAIN_ON_2_GOOD_CAMERAS_MODEL"
+TRAIN_ON_3_GOOD_CAMERAS_MODEL = "TRAIN_ON_3_GOOD_CAMERAS_MODEL"
+BODY_PARTS_MODEL = "BODY_PART_MODEL"
+
 MEAN_SQUARE_ERROR = "MEAN_SQUARE_ERROR"
 EUCLIDIAN_DISTANCE = "EUCLIDIAN_DISTANCE"
 TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
@@ -127,12 +115,35 @@ class LossHistory(Callback):
         plot_history(self.history, save_path=os.path.join(self.run_path, "history.png"))
 
 
-def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=180):   # todo change from 180
+def augment(img, h_fl, v_fl, rotation_angle):
+    if np.max(img) <= 1:
+        img = np.uint8(img * 255)
+    if h_fl:
+        img = np.fliplr(img)
+    if v_fl:
+        img = np.flipud(img)
+    img_pil = Image.fromarray(img)
+    img_pil = img_pil.rotate(rotation_angle, Image.Resampling.BICUBIC)
+    img = np.asarray(img_pil)
+    if np.max(img) > 1:
+        img = img/255
+    return img
+
+
+def custom_augmentations(img):
+    """get an image of shape (height, width, num_channels) and return augmented image"""
+    do_horizontal_flip = np.random.randint(2)
+    do_vertical_flip = np.random.randint(2)
+    rotation_angle = np.random.randint(-180, 180)
+    num_channels = img.shape[-1]
+    for channel in range(num_channels):
+        img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip, do_vertical_flip, rotation_angle)
+    return img
+
+
+def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=180):
     # we create two instances with the same arguments
-    data_gen_args = dict(rotation_range=rotation_range,
-                         zoom_range=[0.8, 1.2],
-                         horizontal_flip=True,
-                         vertical_flip=True,)
+    data_gen_args = dict(preprocessing_function=custom_augmentations,)
     # data generator
     datagen_x = ImageDataGenerator(**data_gen_args)
     datagen_y = ImageDataGenerator(**data_gen_args)
@@ -267,8 +278,9 @@ def train(box, confmaps,  *, data_path='',
     model.save(os.path.join(run_path, "final_model.h5"))
 
 
-
-def train_model(model_type, data_path, sigma='3',
+def train_model(model_type, data_path,
+                run_name='model',
+                sigma='3',
                 masks=True,
                 test_path='',
                 loss_function=MEAN_SQUARE_ERROR,
@@ -293,18 +305,20 @@ def train_model(model_type, data_path, sigma='3',
     """
 
     box, confmaps = load_dataset(data_path)
-    if mix_with_test == True and model_type != HEAD_TAIL:
+    if mix_with_test == True and model_type != HEAD_TAIL and model_type != BODY_PARTS_MODEL:
         box, confmaps = get_mix_with_test(box, confmaps, test_path)
 
     if model_type == ALL_POINTS_MODEL or model_type == HEAD_TAIL:
         box, confmaps = reshape_to_cnn_input(box, confmaps)
     elif model_type == PER_WING_MODEL:
         box, confmaps = do_reshape_per_wing(box, confmaps)
-    elif model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL:
+    elif model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
         box, confmaps = do_reshape_per_wing(box, confmaps, model_type)
+    elif model_type == BODY_PARTS_MODEL:
+        box, confmaps = reshape_to_body_parts(box, confmaps)
     # visualize_box_confmaps(box, confmaps, model_type)
     train(box, confmaps,
-          run_name=f"train_on_2_good_cameras",
+          run_name=run_name,
           val_size=val_fraction,
           loss_function=loss_function,
           epochs=epochs,
@@ -312,20 +326,28 @@ def train_model(model_type, data_path, sigma='3',
           batches_per_epoch=batches_per_epoch,
           validation_steps=validation_steps,
           filters=filters,
-          dilation_rate=dilation_rate)
+          dilation_rate=dilation_rate,
+          seed=seed)
 
 
 if __name__ == '__main__':
     # model_type = PER_WING_MODEL
-    model_type = TRAIN_ON_2_GOOD_CAMERAS_MODEL
+    # model_type = TRAIN_ON_2_GOOD_CAMERAS_MODEL
+    # model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
+    # model_type = BODY_PARTS_MODEL
     # data_path = "pre_train_100_frames_segmented_masks_reshaped.h5"
-    test_path = "movie_dataset_71_frames_segmented_masks_reshaped.h5"
-    data_path = "trainset_16_pts.h5"
-
+    # test_path = r"train_set_movie_14_pts_sigma_3.h5"
+    # data_path = r"trainset_random_14_pts_sigma_3.h5"
+    model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
+    print(f"{model_type}_dilation_2_sigma_3")
+    test_path = "train_set_movie_14_pts_yolo_masks.h5"
+    data_path = "trainset_random_14_pts_yolo_masks.h5"
     train_model(model_type=model_type,
-                mix_with_test=False,
-                data_path=data_path,
+                mix_with_test=True,
                 test_path=test_path,
+                data_path=data_path,
+                run_name=f"{model_type}_5_3_bicubic",
                 batch_size=100,
                 batches_per_epoch=100,
-                epochs=15,)
+                dilation_rate=2,
+                epochs=30)

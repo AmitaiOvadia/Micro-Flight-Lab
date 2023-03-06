@@ -7,18 +7,22 @@ import os
 import shutil
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
+from scipy.ndimage import distance_transform_edt
 
 PER_WING_MODEL = 'PER_WING_MODEL'
 ALL_POINTS_MODEL = 'ALL_POINTS_MODEL'
 PER_POINT_PER_WING_MODEL = 'PER_POINT_PER_WING_MODEL'
 SPLIT_2_2_3_MODEL = 'SPLIT_2_2_3_MODEL'
 TRAIN_ON_2_GOOD_CAMERAS_MODEL = "TRAIN_ON_2_GOOD_CAMERAS_MODEL"
+TRAIN_ON_3_GOOD_CAMERAS_MODEL = "TRAIN_ON_3_GOOD_CAMERAS_MODEL"
+
 MEAN_SQUARE_ERROR = "MEAN_SQUARE_ERROR"
 EUCLIDIAN_DISTANCE = "EUCLIDIAN_DISTANCE"
 TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
 MOVIE_TRAIN_SET = "MOVIE_TRAIN_SET"
 RANDOM_TRAIN_SET = "RANDOM_TRAIN_SET"
 HEAD_TAIL = "HEAD_TAIL"
+
 LEFT_INDEXES = np.arange(0,7)
 RIGHT_INDEXES = np.arange(7,14)
 
@@ -92,7 +96,7 @@ def tf_find_peaks(x):
 
 def visualize_box_confmaps(box, confmaps, model_type):
     """ visualize the input to the network """
-    matplotlib.use('TkAgg')
+
     w = 10
     h = 10
     columns = 2
@@ -120,6 +124,8 @@ def visualize_box_confmaps(box, confmaps, model_type):
             img[:, :, 2] = confmap
         except: a=0
         img[:, :, 0] = masks
+
+        matplotlib.use('TkAgg')
         plt.imshow(img)
         plt.show()
 
@@ -323,8 +329,9 @@ def adjust_masks_size(box, train_or_predict, radius=5):
     elif train_or_predict == "PREDICT":
         num_channels = 5
         num_frames = int(box.shape[0])
+        num_cams = int(box.shape[1]/num_channels)
         for frame in range(num_frames):
-            for cam in range(4):
+            for cam in range(num_cams):
                 for mask_num in range(2):
                     mask = box[frame, 3 + mask_num + num_channels * cam, :, :]
                     adjusted_mask = adjust_mask(mask)
@@ -343,6 +350,9 @@ def reshape_to_cnn_input(box, confmaps):
 
 def get_mix_with_test(box, confmaps, test_path):
     test_box, test_confmaps = load_dataset(test_path, X_dset="box", Y_dset="confmaps")
+    if test_box.shape[0] != 2:
+        test_box = np.transpose(test_box, (5, 4, 3, 2, 1, 0))
+        test_confmaps = np.transpose(test_confmaps, (5, 4, 3, 2, 1, 0))
     trainset_type = MOVIE_TRAIN_SET
     test_box[0], test_confmaps[0] = split_per_wing(test_box[0], test_confmaps[0], ALL_POINTS_MODEL, trainset_type)
     test_box[1], test_confmaps[1] = split_per_wing(test_box[1], test_confmaps[1], ALL_POINTS_MODEL, trainset_type)
@@ -353,24 +363,24 @@ def get_mix_with_test(box, confmaps, test_path):
     confmaps = np.concatenate((confmaps, test_confmaps), axis=1)
     return box, confmaps
 
-def take_2_good_cameras(box, confmaps):
+def take_n_good_cameras(box, confmaps, n):
     num_frames = box.shape[0]
     num_cams = box.shape[1]
-    new_num_cams = 2
+    new_num_cams = n
     image_shape = box.shape[2]
     num_channels_box = box.shape[-1]
     num_channels_confmap = confmaps.shape[-1]
     new_box = np.zeros((num_frames, new_num_cams, image_shape, image_shape, num_channels_box))
     new_confmap = np.zeros((num_frames, new_num_cams, image_shape, image_shape, num_channels_confmap))
     for frame in range(num_frames):
-        wings_size = np.zeros(4)
+        wings_size = np.zeros(num_cams)
         for cam in range(num_cams):
             wing_mask = box[frame, cam, :, :, -1]
             wings_size[cam] = np.count_nonzero(wing_mask)
         wings_size_argsort = np.argsort(wings_size)[::-1]
-        best_2_cameras = wings_size_argsort[:2]
-        new_box[frame, ...] = box[frame, best_2_cameras, ...]
-        new_confmap[frame, ...] = confmaps[frame, best_2_cameras, ...]
+        best_n_cameras = wings_size_argsort[:new_num_cams]
+        new_box[frame, ...] = box[frame, best_n_cameras, ...]
+        new_confmap[frame, ...] = confmaps[frame, best_n_cameras, ...]
     return new_box, new_confmap
 
 
@@ -382,7 +392,11 @@ def do_reshape_per_wing(box, confmaps, model_type=PER_WING_MODEL):
     box = np.concatenate((box_0, box_1), axis=0)
     confmaps = np.concatenate((confmaps_0, confmaps_1), axis=0)
     if model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL:
-        box, confmaps = take_2_good_cameras(box, confmaps)
+        n = 2
+        box, confmaps = take_n_good_cameras(box, confmaps, n)
+    elif model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
+        n = 3
+        box, confmaps = take_n_good_cameras(box, confmaps, n)
     box = np.reshape(box, newshape=[box.shape[0] * box.shape[1], box.shape[2], box.shape[3], box.shape[4]])
     confmaps = np.reshape(confmaps,
                           newshape=[confmaps.shape[0] * confmaps.shape[1], confmaps.shape[2], confmaps.shape[3],
@@ -401,7 +415,59 @@ def load_dataset(data_path, X_dset="box", Y_dset="confmaps", permute=(0, 3, 2, 1
     # Adjust dimensions
     X = preprocess(X, permute=None)
     Y = preprocess(Y, permute=None)
+    if X.shape[0] != 2:
+        X = np.transpose(X, [5, 4, 3, 2, 1, 0])
+    if Y.shape[0] != 2:
+        Y = np.transpose(Y, [5, 4, 3, 2, 1, 0])
     return X, Y
+
+
+def get_distance_from_point_to_mask(point_2D, mask):
+    dist_transform = distance_transform_edt(np.logical_not(mask).astype(int))
+    # Find the distance from the point to the nearest point in the mask
+    distance = dist_transform[point_2D[1]][point_2D[0]]
+    return distance
+
+
+def reshape_to_body_parts(box, confmaps):
+    """
+    make sure that right point corresponds to right mask and same with the left
+    and also train with 5 channels model
+    """
+    # import matplotlib
+    # import matplotlib.pyplot as plt
+    # matplotlib.use('TkAgg')
+
+    _box = np.reshape(box, [box.shape[0]*box.shape[1]*box.shape[2], box.shape[3], box.shape[4], box.shape[5]])
+    _confmaps = np.reshape(confmaps, [confmaps.shape[0] * confmaps.shape[1] * confmaps.shape[2], confmaps.shape[3],
+                                      confmaps.shape[4], confmaps.shape[5]])
+    num_images = _box.shape[0]
+    peaks = tf_find_peaks(_confmaps[:, :, :, :])[:, :2, :].numpy()
+    left = 1
+    right = 2
+    for img in range(num_images):
+        left_mask = _box[img, :, :, 2 + left]
+        right_mask = _box[img, :, :, 2 + right]
+        left_peak = peaks[img, :, 0].astype(int)
+        right_peak = peaks[img, :, 1].astype(int)
+        dist_r2r = get_distance_from_point_to_mask(right_peak, right_mask)
+        dist_l2r = get_distance_from_point_to_mask(left_peak, right_mask)
+        dist_l2l = get_distance_from_point_to_mask(left_peak, left_mask)
+        dist_r2l = get_distance_from_point_to_mask(right_peak, left_mask)
+
+        if dist_r2r > dist_l2r and dist_l2l > dist_r2l:
+            # switch
+            _box[img, :, :, 2 + left] = right_mask
+            _box[img, :, :, 2 + right] = left_mask
+
+        # fig, ax = plt.subplots()
+        # ax.imshow(right_mask)
+        # # ax.scatter(left_peak[0], left_peak[1], color='red', s=40)
+        # ax.scatter(right_peak[0], right_peak[1], color='red', s=40)
+        # plt.show()
+    return _box, _confmaps
+
+
 
 
 def test_generators(data_path):
