@@ -468,8 +468,6 @@ def reshape_to_body_parts(box, confmaps):
     return _box, _confmaps
 
 
-
-
 def test_generators(data_path):
     box, confmap = load_dataset(data_path)
     image_size = confmap.shape[-2]

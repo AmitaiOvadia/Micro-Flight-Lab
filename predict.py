@@ -104,7 +104,7 @@ class Predictions:
                 new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
                 new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch, [2, 0, 1])
                 # show the image
-                # imtoshow = new_box[frame, np.array([0,1,2]) + self.num_channels * cam, :, :]
+                # imtoshow = new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :]
                 # imtoshow = np.transpose(imtoshow, [1, 2, 0])
                 # mask_1 = new_box[frame, 3 + self.num_channels * cam, :, :]
                 # mask_2 = new_box[frame, 4 + self.num_channels * cam, :, :]
@@ -113,16 +113,19 @@ class Predictions:
                 # matplotlib.use('TkAgg')
                 # plt.imshow(imtoshow)
                 # plt.show()
-                # a=0
         self.box = new_box
 
     def get_masks(self, img_3_ch):
         net_input = img_3_ch
+        masks_2 = np.zeros((2, self.im_size, self.im_size))
         if np.max(img_3_ch) <= 1:
             net_input = np.round(255 * img_3_ch)
         results = self.wings_detection_model(net_input)[0]
-        masks = results.masks.masks.numpy()[:2, :, :]
-        return masks
+        masks_founnd = results.masks.masks.numpy()[:2, :, :]
+        num_wings_found = masks_founnd.shape[0]
+        for wing in range(num_wings_found):
+            masks_2[wing, :, :] = masks_founnd[wing, :, :]
+        return masks_2
 
     def fix_masks(self):  # todo find out if there are even masks to be fixed
         """
@@ -169,7 +172,6 @@ class Predictions:
         self.box = np.transpose(self.box, (0, 3, 2, 1))
         self.box = np.transpose(self.box, (1, 2, 3, 0))
         if self.box.shape[2] == 20:  # if number of channels is 5
-
             x1 = self.box[:, :, 0:5, :]
             x2 = self.box[:, :, 5:10, :]
             x3 = self.box[:, :, 10:15, :]
@@ -315,26 +317,23 @@ class Predictions:
 
 
 if __name__ == "__main__":
-    model_type = PER_WING
+
     # model_type = BODY_POINTS
-    box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
-    pose_estimation_model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_5_3_bicubic_06\best_model.h5"
+    # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
+
+    # wings
+    model_type = PER_WING
     wings_detection_model_path = "wings_detection_yolov8_weights_4_3.pt"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_5_3_bicubic_06\predictions_over_movie_1"
-
-    predictions = Predictions(box_path_no_masks,
-                              model_type,
-                              out_path,
-                              pose_estimation_model_path,
-                              wings_detection_model_path)
-    predictions.run_predict_box()
-
-
+    pose_estimation_model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_7_3_200_random_frames_val_0_3_75_135_augmentations_changed\best_model.h5"
     box_path_no_masks = r"movie_dataset_1_3_600_frames_no_masks.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_5_3_bicubic_06\predictions_over_movie_17"
-    predictions = Predictions(box_path_no_masks,
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_7_3_200_random_frames_val_0_3_75_135_augmentations_changed\predictions_over_movie_17_wings"
+    predictions = Predictions(
+                              box_path_no_masks,
                               model_type,
                               out_path,
                               pose_estimation_model_path,
-                              wings_detection_model_path)
+                              wings_detection_model_path
+                             )
     predictions.run_predict_box()
+
+

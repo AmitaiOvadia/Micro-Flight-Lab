@@ -1,12 +1,12 @@
 import os
-from PIL import Image
+from PIL import Image, ImageFilter
 import h5py
 import numpy as np
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import matplotlib
 import matplotlib.pyplot as plt
 from PIL import Image
-from scipy.ndimage import rotate
+from scipy.ndimage import rotate, gaussian_filter
 
 
 def preprocess(X, permute=(0, 3, 2, 1)):
@@ -59,12 +59,22 @@ def augment(img, h_fl, v_fl, rotation_angle):
     return img
 
 
+def blur_channel(img_channel, sigma):
+    """ a (imsize, imsize) numpy array """
+    return gaussian_filter(img_channel, sigma=sigma)
+
+
 def custom_augmentations(img):
     """get an image of shape (height, width, num_channels) and return augmented image"""
     do_horizontal_flip = np.random.randint(2)
     do_vertical_flip = np.random.randint(2)
     rotation_angle = np.random.randint(-180, 180)
     num_channels = img.shape[-1]
+    do_blur = np.random.randint(10) == 1
+    if do_blur and num_channels != 7:
+        sigma = np.random.uniform(0, 1)
+        for channel in range(3):
+            img[:, :, channel] = blur_channel(img[:, :, channel], sigma)
     for channel in range(num_channels):
         img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip, do_vertical_flip, rotation_angle)
     return img
@@ -79,11 +89,15 @@ def test_generators(data_path):
     confmap = confmap.reshape([-1, image_size, image_size, num_channels_confmap])
     seed = 0
     batch_size = 8
-    # data_gen_args = dict(rotation_range=180,
+
+    data_gen_args = dict(preprocessing_function=custom_augmentations,)
+    # data_gen_args = dict(rotation_range=45,
     #                      zoom_range=[0.8, 1.2],
     #                      horizontal_flip=True,
-    #                      vertical_flip=True,)
-    data_gen_args = dict(preprocessing_function=custom_augmentations,)
+    #                      vertical_flip=True,
+    #                      width_shift_range=10,
+    #                      height_shift_range=10,
+    #                      interpolation_order=2,)
 
     # data generator
     datagen_x = ImageDataGenerator(**data_gen_args)
@@ -105,7 +119,7 @@ def test_generators(data_path):
             image = batch_x[0][:, :, 1]
             conf = np.sum(np.squeeze(batch_y[0]), axis=-1)
             # plot raw pixel data
-            plt.imshow(image, cmap='gray')
+            plt.imshow(image + conf, cmap='gray')
         # show the figure
         plt.show()
         pass

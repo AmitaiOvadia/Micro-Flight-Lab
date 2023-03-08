@@ -6,6 +6,7 @@ from scipy.io import loadmat, savemat
 # import skimage
 # from skimage.morphology import binary_dilation, disk
 # from scipy.ndimage import binary_dilation, binary_closing
+from scipy.ndimage import gaussian_filter
 from viz import show_pred, show_confmap_grid, plot_history
 from pose_estimation_models import basic_nn
 from preprocessing_utils import *
@@ -24,8 +25,9 @@ TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
 MOVIE_TRAIN_SET = "MOVIE_TRAIN_SET"
 RANDOM_TRAIN_SET = "RANDOM_TRAIN_SET"
 HEAD_TAIL = "HEAD_TAIL"
-LEFT_INDEXES = np.arange(0,7)
-RIGHT_INDEXES = np.arange(7,14)
+
+LEFT_INDEXES = np.arange(0, 7)
+RIGHT_INDEXES = np.arange(7, 14)
 """
 things to try:
 
@@ -130,12 +132,22 @@ def augment(img, h_fl, v_fl, rotation_angle):
     return img
 
 
+def blur_channel(img_channel, sigma):
+    """ a (imsize, imsize) numpy array """
+    return gaussian_filter(img_channel, sigma=sigma)
+
+
 def custom_augmentations(img):
     """get an image of shape (height, width, num_channels) and return augmented image"""
     do_horizontal_flip = np.random.randint(2)
     do_vertical_flip = np.random.randint(2)
     rotation_angle = np.random.randint(-180, 180)
     num_channels = img.shape[-1]
+    do_blur = np.random.randint(10) == 1
+    if do_blur and num_channels != 7:  # do it only to the fly images
+        sigma = np.random.uniform(0, 1)
+        for channel in range(3):  # do it only to the fly channels, not the masks
+            img[:, :, channel] = blur_channel(img[:, :, channel], sigma)
     for channel in range(num_channels):
         img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip, do_vertical_flip, rotation_angle)
     return img
@@ -143,8 +155,20 @@ def custom_augmentations(img):
 
 def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=180):
     # we create two instances with the same arguments
-    data_gen_args = dict(preprocessing_function=custom_augmentations,)
+
     # data generator
+
+    data_gen_args = dict(preprocessing_function=custom_augmentations,)
+
+    # data_gen_args = dict(rotation_range=45,
+    #                      zoom_range=[0.8, 1.2],
+    #                      horizontal_flip=True,
+    #                      vertical_flip=True,
+    #                      width_shift_range=10,
+    #                      height_shift_range=10,
+    #                      interpolation_order=2,)
+
+
     datagen_x = ImageDataGenerator(**data_gen_args)
     datagen_y = ImageDataGenerator(**data_gen_args)
     # prepare iterator
@@ -331,22 +355,24 @@ def train_model(model_type, data_path,
 
 
 if __name__ == '__main__':
-    # model_type = PER_WING_MODEL
+    model_type = PER_WING_MODEL
     # model_type = TRAIN_ON_2_GOOD_CAMERAS_MODEL
     # model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
     # model_type = BODY_PARTS_MODEL
     # data_path = "pre_train_100_frames_segmented_masks_reshaped.h5"
     # test_path = r"train_set_movie_14_pts_sigma_3.h5"
     # data_path = r"trainset_random_14_pts_sigma_3.h5"
-    model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
+    # model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
+
     print(f"{model_type}_dilation_2_sigma_3")
     test_path = "train_set_movie_14_pts_yolo_masks.h5"
-    data_path = "trainset_random_14_pts_yolo_masks.h5"
+    data_path = "trainset_random_14_pts_200_frames.h5"
     train_model(model_type=model_type,
                 mix_with_test=True,
                 test_path=test_path,
                 data_path=data_path,
-                run_name=f"{model_type}_5_3_bicubic",
+                run_name=f"{model_type}_7_3_200_random_frames_with_blur",
+                val_fraction=0.1,
                 batch_size=100,
                 batches_per_epoch=100,
                 dilation_rate=2,
