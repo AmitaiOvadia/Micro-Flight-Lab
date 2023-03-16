@@ -15,6 +15,7 @@ PER_POINT_PER_WING_MODEL = 'PER_POINT_PER_WING_MODEL'
 SPLIT_2_2_3_MODEL = 'SPLIT_2_2_3_MODEL'
 TRAIN_ON_2_GOOD_CAMERAS_MODEL = "TRAIN_ON_2_GOOD_CAMERAS_MODEL"
 TRAIN_ON_3_GOOD_CAMERAS_MODEL = "TRAIN_ON_3_GOOD_CAMERAS_MODEL"
+ALL_CAMS = "ALL_CAMS"
 
 MEAN_SQUARE_ERROR = "MEAN_SQUARE_ERROR"
 EUCLIDIAN_DISTANCE = "EUCLIDIAN_DISTANCE"
@@ -22,6 +23,7 @@ TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
 MOVIE_TRAIN_SET = "MOVIE_TRAIN_SET"
 RANDOM_TRAIN_SET = "RANDOM_TRAIN_SET"
 HEAD_TAIL = "HEAD_TAIL"
+INPUT_OF_12_CHANNELS_3_CAMERAS = "INPUT_OF_12_CHANNELS_3_CAMERAS"
 
 LEFT_INDEXES = np.arange(0,7)
 RIGHT_INDEXES = np.arange(7,14)
@@ -306,9 +308,9 @@ def fix_movie_masks(box):
     return box, problematic_masks
 
 
-def adjust_mask(mask, radious=5):
-    # mask = binary_dilation(mask, iterations=radius).astype(int)
-    mask = binary_closing(mask).astype(int)
+def adjust_mask(mask, radius=4):
+    mask = binary_dilation(mask, iterations=radius).astype(int)
+    # mask = binary_closing(mask).astype(int)
     return mask
 
 
@@ -318,9 +320,9 @@ def adjust_masks_size(box, train_or_predict, radius=5):
         num_training_samples = box.shape[0]
         for image_num in range(num_training_samples):
             mask = box[image_num, :, :, 3]
-            non_0_1 = np.count_nonzero(mask)
+            # non_0_1 = np.count_nonzero(mask)
             adjusted_mask = adjust_mask(mask)
-            non_0_2 = np.count_nonzero(adjusted_mask)
+            # non_0_2 = np.count_nonzero(adjusted_mask)
             box[image_num, :, :, 3] = adjusted_mask
             # matplotlib.use('TkAgg')
             # plt.imshow(adjusted_mask - mask)
@@ -363,6 +365,7 @@ def get_mix_with_test(box, confmaps, test_path):
     confmaps = np.concatenate((confmaps, test_confmaps), axis=1)
     return box, confmaps
 
+
 def take_n_good_cameras(box, confmaps, n):
     num_frames = box.shape[0]
     num_cams = box.shape[1]
@@ -384,24 +387,56 @@ def take_n_good_cameras(box, confmaps, n):
     return new_box, new_confmap
 
 
+def adjust_masks_size_per_wing(box):
+    num_frames = box.shape[0]
+    num_cams = box.shape[1]
+    for frame in range(num_frames):
+        for cam in range(num_cams):
+            mask = box[frame, cam, :, :, 3]
+            adjusted_mask = adjust_mask(mask)
+            box[frame, cam, :, :, 3] = adjusted_mask
+    return box
+
+
+def reshape_for_ALL_CAMS(box, confmaps):
+    image_size = confmaps.shape[-2]
+    num_channels_img = box.shape[-1]
+    num_channels_confmap = confmaps.shape[-1]
+    # box = box.reshape([-1, image_size, image_size, num_channels_img])
+    # confmaps = confmaps.reshape([-1, image_size, image_size, num_channels_confmap])
+    box = box.reshape([-1, 4, image_size, image_size, num_channels_img])
+    confmaps = confmaps.reshape([-1, 4, image_size, image_size, num_channels_confmap])
+
+    box_1 = box[:, 0, :, :, :]
+    box_2 = box[:, 1, :, :, :]
+    box_3 = box[:, 2, :, :, :]
+    box_4 = box[:, 3, :, :, :]
+    box = np.concatenate((box_1, box_2, box_3, box_4), axis=-1)
+
+    confmaps_1 = confmaps[:, 0, :, :, :]
+    confmaps_2 = confmaps[:, 1, :, :, :]
+    confmaps_3 = confmaps[:, 2, :, :, :]
+    confmaps_4 = confmaps[:, 3, :, :, :]
+    confmaps = np.concatenate((confmaps_1, confmaps_2, confmaps_3, confmaps_4), axis=-1)
+    return box, confmaps
 
 def do_reshape_per_wing(box, confmaps, model_type=PER_WING_MODEL):
     """ reshape input to a per wing model input """
     box_0, confmaps_0 = split_per_wing(box[0], confmaps[0], PER_WING_MODEL, RANDOM_TRAIN_SET)
     box_1, confmaps_1 = split_per_wing(box[1], confmaps[1], PER_WING_MODEL, RANDOM_TRAIN_SET)
     box = np.concatenate((box_0, box_1), axis=0)
+    box = adjust_masks_size_per_wing(box)
     confmaps = np.concatenate((confmaps_0, confmaps_1), axis=0)
-    if model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL:
-        n = 2
+    if model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
+        n = 3 if model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL else 2
         box, confmaps = take_n_good_cameras(box, confmaps, n)
-    elif model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
-        n = 3
-        box, confmaps = take_n_good_cameras(box, confmaps, n)
-    box = np.reshape(box, newshape=[box.shape[0] * box.shape[1], box.shape[2], box.shape[3], box.shape[4]])
-    confmaps = np.reshape(confmaps,
+    if model_type == ALL_CAMS:
+        box, confmaps = reshape_for_ALL_CAMS(box, confmaps)
+    else:
+        box = np.reshape(box, newshape=[box.shape[0] * box.shape[1], box.shape[2], box.shape[3], box.shape[4]])
+        confmaps = np.reshape(confmaps,
                           newshape=[confmaps.shape[0] * confmaps.shape[1], confmaps.shape[2], confmaps.shape[3],
                                     confmaps.shape[4]])
-    box = adjust_masks_size(box, "TRAIN")
     return box, confmaps
 
 
