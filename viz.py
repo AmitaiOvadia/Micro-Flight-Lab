@@ -18,17 +18,9 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
     #     Y = confmap[idx]
     # if len(idx) == 2:
     #     X, Y = idx
-    if X.ndim == 2:
-        X = X[None, ..., None]
-    if X.ndim == 3:
-        if X.shape[0] == 1:  # missing singleton channel
-            X = X[..., None]
-        elif X.shape[-1] == 1 or X.shape[-1] == 3:  # missing sample singleton
-            X = X[None, ...]
-    if Y.ndim > 3:
-        Y = Y.squeeze(axis=0)
-
+    print(X.shape)
     # Predict
+    X = X[None, ...]
     Y2 = net.predict(X)
     if type(Y2) == list:
         Y2 = Y2[-1]
@@ -49,7 +41,7 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
 
     # Show box image
     plt.figure(figsize=(6, 6))
-    plt.imshow(X, cmap="gray")
+    plt.imshow(np.squeeze(X[:,:,1]), cmap="gray")
 
     # Normalize channels
     for i in range(Y2.shape[-1]):
@@ -59,7 +51,9 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
     plt.imshow(Y2[:, :, joint_idx], alpha=alpha_pred)
 
     # Plot peak markers
-    for i in range(Y2.shape[-1]):
+    if Y2.shape[-1] == 28:
+        num_points = 7
+    for i in range(num_points):
         plt.plot(*pks_gt[i][::-1], 'o', markersize=12, mew=3, mec='w', mfc=[0, 0, 0, 0])
         plt.plot(*pks_gt[i][::-1], 'o', markersize=12, mew=1, mec='g', mfc=[0, 0, 0, 0])
 
@@ -70,9 +64,9 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
     plt.tight_layout()
 
     if save_path is not None:
-        plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+        plt.savefig(save_path, bbox_inches='tight')
     if show_figure:
-        plt.show();
+        plt.show()
     else:
         plt.close()
 
