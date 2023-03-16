@@ -8,7 +8,7 @@ from scipy.io import loadmat, savemat
 # from scipy.ndimage import binary_dilation, binary_closing
 from scipy.ndimage import gaussian_filter
 from viz import show_pred, show_confmap_grid, plot_history
-from pose_estimation_models import basic_nn
+from pose_estimation_models import basic_nn, ed3d
 from preprocessing_utils import *
 
 PER_WING_MODEL = 'PER_WING_MODEL'
@@ -18,6 +18,7 @@ SPLIT_2_2_3_MODEL = 'SPLIT_2_2_3_MODEL'
 TRAIN_ON_2_GOOD_CAMERAS_MODEL = "TRAIN_ON_2_GOOD_CAMERAS_MODEL"
 TRAIN_ON_3_GOOD_CAMERAS_MODEL = "TRAIN_ON_3_GOOD_CAMERAS_MODEL"
 BODY_PARTS_MODEL = "BODY_PART_MODEL"
+ALL_CAMS = "ALL_CAMS"
 
 MEAN_SQUARE_ERROR = "MEAN_SQUARE_ERROR"
 EUCLIDIAN_DISTANCE = "EUCLIDIAN_DISTANCE"
@@ -25,7 +26,7 @@ TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
 MOVIE_TRAIN_SET = "MOVIE_TRAIN_SET"
 RANDOM_TRAIN_SET = "RANDOM_TRAIN_SET"
 HEAD_TAIL = "HEAD_TAIL"
-
+INPUT_OF_12_CHANNELS_3_CAMERAS = "INPUT_OF_12_CHANNELS_3_CAMERAS"
 LEFT_INDEXES = np.arange(0, 7)
 RIGHT_INDEXES = np.arange(7, 14)
 """
@@ -143,14 +144,10 @@ def custom_augmentations(img):
     do_vertical_flip = np.random.randint(2)
     rotation_angle = np.random.randint(-180, 180)
     num_channels = img.shape[-1]
-    do_blur = np.random.randint(10) == 1
-    if do_blur and num_channels != 7:  # do it only to the fly images
-        sigma = np.random.uniform(0, 1)
-        for channel in range(3):  # do it only to the fly channels, not the masks
-            img[:, :, channel] = blur_channel(img[:, :, channel], sigma)
     for channel in range(num_channels):
         img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip, do_vertical_flip, rotation_angle)
     return img
+
 
 
 def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=180):
@@ -159,13 +156,11 @@ def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=18
     # data generator
 
     data_gen_args = dict(preprocessing_function=custom_augmentations,)
-
-    # data_gen_args = dict(rotation_range=45,
+    #
+    # data_gen_args = dict(rotation_range=90,
     #                      zoom_range=[0.8, 1.2],
     #                      horizontal_flip=True,
     #                      vertical_flip=True,
-    #                      width_shift_range=10,
-    #                      height_shift_range=10,
     #                      interpolation_order=2,)
 
 
@@ -197,7 +192,7 @@ def train(box, confmaps,  *, data_path='',
           batch_size=32,
           batches_per_epoch=50,
           validation_steps=10,
-          viz_idx=5,
+          viz_idx=1,
           reduce_lr_factor=0.1,
           reduce_lr_patience=3,
           reduce_lr_min_delta=1e-5,
@@ -243,7 +238,9 @@ def train(box, confmaps,  *, data_path='',
     elif loss_function == EUCLIDIAN_DISTANCE:
         loss_function = euclidian_distance_loss
 
-    model = basic_nn(img_size, num_output_channels, filters=filters, num_blocks=2, kernel_size=3, loss_function=loss_function, dilation_rate=dilation_rate)
+    net_input = dict(img_size=img_size, num_output_channels=num_output_channels,
+                     filters=filters, num_blocks=2, kernel_size=3)
+    model = basic_nn(**net_input) if model_type != ALL_CAMS else ed3d(**net_input)
 
     # Save initial network
     model.save(os.path.join(run_path, "initial_model.h5"))
@@ -329,9 +326,10 @@ def train_model(model_type, data_path,
     """
 
     box, confmaps = load_dataset(data_path)
+    # box = box[:, :10, :, :, :, :]
+    # confmaps = confmaps[:, :10, :, :, :, :]
     if mix_with_test == True and model_type != HEAD_TAIL and model_type != BODY_PARTS_MODEL:
         box, confmaps = get_mix_with_test(box, confmaps, test_path)
-
     if model_type == ALL_POINTS_MODEL or model_type == HEAD_TAIL:
         box, confmaps = reshape_to_cnn_input(box, confmaps)
     elif model_type == PER_WING_MODEL:
@@ -340,6 +338,8 @@ def train_model(model_type, data_path,
         box, confmaps = do_reshape_per_wing(box, confmaps, model_type)
     elif model_type == BODY_PARTS_MODEL:
         box, confmaps = reshape_to_body_parts(box, confmaps)
+    elif model_type == ALL_CAMS:
+        box, confmaps = do_reshape_per_wing(box, confmaps, model_type)
     # visualize_box_confmaps(box, confmaps, model_type)
     train(box, confmaps,
           run_name=run_name,
@@ -355,7 +355,7 @@ def train_model(model_type, data_path,
 
 
 if __name__ == '__main__':
-    model_type = PER_WING_MODEL
+    # model_type = PER_WING_MODEL
     # model_type = TRAIN_ON_2_GOOD_CAMERAS_MODEL
     # model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
     # model_type = BODY_PARTS_MODEL
@@ -363,6 +363,7 @@ if __name__ == '__main__':
     # test_path = r"train_set_movie_14_pts_sigma_3.h5"
     # data_path = r"trainset_random_14_pts_sigma_3.h5"
     # model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
+    model_type = ALL_CAMS
 
     print(f"{model_type}_dilation_2_sigma_3")
     test_path = "train_set_movie_14_pts_yolo_masks.h5"
@@ -371,9 +372,10 @@ if __name__ == '__main__':
                 mix_with_test=True,
                 test_path=test_path,
                 data_path=data_path,
-                run_name=f"{model_type}_7_3_200_random_frames_with_blur",
+                run_name=f"{model_type}_16_3_bs_50_bpe_200",
+                filters=64,
                 val_fraction=0.1,
-                batch_size=100,
-                batches_per_epoch=100,
+                batch_size=50,
+                batches_per_epoch=200,
                 dilation_rate=2,
                 epochs=30)
