@@ -5,7 +5,7 @@ function [] = display_predictions_2D_tight(box, predictions, pause_time)
     figure('Units','normalized','Position',[0,0,0.9,0.9])
     scats=[];
     texts=[];
-    for frameInd=1:1:num_frames
+    for frameInd=66:num_frames
         t = tiledlayout(2,2);
         t.TileSpacing = 'compact';
         t.Padding = 'compact';

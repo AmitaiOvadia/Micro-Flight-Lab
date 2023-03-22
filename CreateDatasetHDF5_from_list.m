@@ -20,11 +20,23 @@ sparse_folder_path='C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-fligh
 %     movie_indexes(:,2) = (1:n);
 %     best_frames_mov_idx = [best_frames_mov_idx; movie_indexes];
 % end
+% movie_num = 17;
+% best_frames_mov_idx = zeros(600, 2);
+% best_frames_mov_idx(:, 2) = (1401:2000);
+% best_frames_mov_idx(:, 1) = movie_num;
+% num_frames=size(best_frames_mov_idx,1);
 
-best_frames_mov_idx = zeros(500, 2);
-best_frames_mov_idx(:, 2) = (1701:2200);
-best_frames_mov_idx(:, 1) = 1;
-num_frames=size(best_frames_mov_idx,1);
+%% set a apecific movie
+% movie_num = 14;
+% best_frames_mov_idx = zeros(2000, 2);
+% best_frames_mov_idx(:, 2) = (301:2300);
+% best_frames_mov_idx(:, 1) = movie_num;
+% num_frames=size(best_frames_mov_idx,1);
+
+%% create 5 channels dataset
+a = load("C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\best_frames_mov_idx.mat");
+best_frames_mov_idx = a.best_frames_mov_idx;
+num_frames = size(best_frames_mov_idx, 1);
 %%
 num_masks = 0;
 num_cams=4;
@@ -32,8 +44,8 @@ crop_size=192*[1,1];
 
 
 %% change time channels
-time_jump=7;
-num_time_channels=3;
+time_jump=14;
+num_time_channels=5;
 frame_time_offsets=linspace(-time_jump,time_jump,num_time_channels);
 
 % time_jump=0;
@@ -44,7 +56,7 @@ num_channels=num_cams*(num_time_channels + num_masks);
 data=zeros([crop_size,num_channels],'single');
 tic
 
-save_name=fullfile(sparse_folder_path,['amitai_dataset2','_ds_',...
+save_name=fullfile(sparse_folder_path,['dataset_random_frames_','ds_',...
     num2str(num_time_channels),'tc_',...
     num2str(time_jump),'tj.h5']);
 

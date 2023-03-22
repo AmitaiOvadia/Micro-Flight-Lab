@@ -9,14 +9,14 @@ function [errs, best_err_pts_all ,all_pts3d] = get_3d_pts_rays_intersects(predic
     num_couples=size(couples,1);
     n_frames=size(predictions,1);
     all_pts3d=nan(num_joints,n_frames,num_couples,3);
-    %% get body points in 3d from all couples 
+    %% get body points in 3d from all couples sigma_2_5_3_cams
     best_errors = nan(num_joints, n_frames);
     for frame_ind=1:n_frames
         for node_ind=1:num_joints
             frame_inds_all_cams=frame_ind+(cam_inds-1)*n_frames;
-            
-            x=double(cropzone(2,cam_inds,frame_ind))+squeeze(predictions(frame_ind,:,node_ind, 1));
-            y=double(cropzone(1,cam_inds,frame_ind))+squeeze(predictions(frame_ind,:,node_ind, 2));
+           
+            x=double(cropzone(2,cam_inds,frame_ind)) + double(squeeze(predictions(frame_ind,:,node_ind, 1)));
+            y=double(cropzone(1,cam_inds,frame_ind)) + double(squeeze(predictions(frame_ind,:,node_ind, 2)));
     
             PB=nan(length(cam_inds),4);
             for cam=1:num_cams

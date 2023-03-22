@@ -1,5 +1,5 @@
 function [mean_std, dist_GT_3D, dist_GT_2D] = get_preds_evaluation(GT_2D, GT_3D, preds_2D, preds_3D)
-    mean_std = get_mean_std(preds_3D);
+    mean_std = get_mean_std(preds_3D(1:14, :, :));
     GT_2D = squeeze(GT_2D); GT_3D = squeeze(GT_3D);
     preds_2D = squeeze(preds_2D); preds_3D = squeeze(preds_3D);
     num_joints = min(size(preds_3D,1) ,size(GT_3D,1));

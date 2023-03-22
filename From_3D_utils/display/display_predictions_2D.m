@@ -23,8 +23,8 @@ function [] = display_predictions_2D(box, predictions, pause_time)
             image = box(:, :, :, cam_ind, frameInd);
             imshos(cam_ind).CData=image;
             this_preds = squeeze(predictions(frameInd, cam_ind, :, :));
-            x = this_preds(:,1);
-            y = this_preds(:,2);
+            x = this_preds(:,2);
+            y = this_preds(:,1);
             scats(cam_ind)=scatter(h_sp(cam_ind),x, y, 44, hsv(num_joints),'LineWidth',3);
             data = ["cam ind = " , string(cam_ind), "frame = ", string(frameInd)]; 
             texts(cam_ind,:) = text(h_sp(cam_ind), 0 ,40 , data,'Color', 'W');    

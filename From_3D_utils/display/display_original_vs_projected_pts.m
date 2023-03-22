@@ -7,7 +7,7 @@ function display_original_vs_projected_pts(box,original_2D_pts, projected_2D_pts
     figure('Units','normalized','Position',[0,0,0.9,0.9])
     scats=[];
     texts=[];
-    for frameInd=1:1:num_frames
+    for frameInd=1:num_frames
         t = tiledlayout(2,2);
         t.TileSpacing = 'compact';
         t.Padding = 'compact';
@@ -20,7 +20,7 @@ function display_original_vs_projected_pts(box,original_2D_pts, projected_2D_pts
             image = box(:, :, :, cam_ind, frameInd);
             imshow(image);
 
-            proj_preds = squeeze(projected_2D_pts(frameInd, cam_ind, :, :));
+            proj_preds = squeeze(projected_2D_pts(frameInd, cam_ind, 1:num_joints, :));
             x_proj = proj_preds(:,1);
             y_proj = proj_preds(:,2);
 
@@ -45,8 +45,9 @@ function display_original_vs_projected_pts(box,original_2D_pts, projected_2D_pts
             end
 
             data = ["cam ind = " , string(cam_ind), "frame = ", string(frameInd),... 
-                "red wing", taken_for_wing_1,...
-                "blue wing", taken_for_wing_2,]; 
+%                 "red wing", taken_for_wing_1,...
+%                 "blue wing", taken_for_wing_2,
+                ]; 
             hold on
             text(0 ,40 , data,'Color', 'W');    
             hold on

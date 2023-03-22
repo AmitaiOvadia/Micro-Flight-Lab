@@ -1,49 +1,115 @@
-function [errors_3D, preds_3D, preds_2D, box] = get_predictions_2D_3D(preds_path, easy_wand_path)
-    % get the 2D and 3D points of predictions  
-    box = h5read(preds_path,'/box');
+function [errors_3D, preds_3D, preds_2D, box] = get_predictions_2D_3D(body_parts_path ,wings_preds_path, easy_wand_path)
+    % get the 2D and 3D points of predictions 
+    box = h5read(wings_preds_path,'/box');
     box = reshape_box(box, 1);
-    cropzone = h5read(preds_path,'/cropzone');
-    preds=h5read(preds_path,'/positions_pred');
-    preds = single(preds) + 1;
-    num_joints = size(preds,1);
-    num_wings_pts = num_joints - 2;
+    cropzone = h5read(wings_preds_path,'/cropzone');
+    num_wings_pts = 14;
+
+    wings_preds = h5read(wings_preds_path,'/positions_pred');
+    wings_preds = single(wings_preds) + 1;
+    
+    body_preds = h5read(body_parts_path,'/positions_pred');
+    body_preds = single(body_preds) + 1;
+    num_body_pts = size(body_preds, 1);
+
+    num_wings_pts = size(wings_preds,1);
     pnt_per_wing = num_wings_pts/2;
     left_inds = 1:pnt_per_wing; right_inds = (pnt_per_wing+1:num_wings_pts); 
-    head_tail_inds = (num_wings_pts + 1:num_wings_pts + 2);
+    wings_joints_inds = (num_wings_pts + num_body_pts - 3):(num_wings_pts + num_body_pts - 2);
+    head_tail_inds = (num_wings_pts + num_body_pts - 1):(num_wings_pts + num_body_pts);
+    body_parts_inds = (num_wings_pts + 1):(num_wings_pts + num_body_pts);
     easyWandData=load(easy_wand_path);
     allCams=HullReconstruction.Classes.all_cameras_class(easyWandData.easyWandData);
     num_cams=length(allCams.cams_array);
     cam_inds=1:num_cams;
-    n_frames=size(preds,3)/num_cams;
+    num_frames=size(box, 5);
     x=1;
     y=2;
     z=3;
 
-    %% rearange predictions
-    preds_2D = rearange_predictions(preds, num_cams);
-    head_tail_predictions = preds_2D(:,:,head_tail_inds,:);
-    preds_2D = preds_2D(:,:,1:num_wings_pts,:);
-
+    %% rearange predictions wings
+    if ndims(wings_preds) == 4
+        wings_preds_2D = permute(wings_preds, [4, 3, 1, 2]);
+%         wings_preds_2D_x = wings_preds_2D(:, :, :, 1);
+%         wings_preds_2D_y = wings_preds_2D(:, :, :, 2);
+%         wings_preds_2D(:, :, :, 1) = wings_preds_2D_y;
+%         wings_preds_2D(:, :, :, 2) = wings_preds_2D_x;
+    else
+        wings_preds_2D = rearange_predictions(wings_preds, num_cams);
+    end
+        
+    %% rearange predictions body
+    body_parts_2D = rearange_predictions(body_preds, num_cams);
+    head_tail_preds_2D = body_parts_2D(:,:,3:4, :);
+    
     %% fix predictions per camera 
-    [preds_2D, box] = fix_wings_per_camera(preds_2D, box);
+    [wings_preds_2D, box] = fix_wings_per_camera(wings_preds_2D, box);
     
     %% fix wing 1 and wing 2 
-    [preds_2D, box] = fix_wings_3d(preds_2D, easyWandData, cropzone, box, true);
+    [wings_preds_2D, box] = fix_wings_3d(wings_preds_2D, easyWandData, cropzone, box, true);
+
+    %% fix wings in one function
+%     [wings_preds_2D, box] = fix_wings_3d_per_frame(wings_preds_2D, easyWandData, cropzone, box);
     
+    %% find wing joints sides
+    for frame=1:num_frames
+        for cam=1:num_cams
+             left_wj = squeeze(body_parts_2D(frame, cam, 1, :)); 
+             right_wj = squeeze(body_parts_2D(frame, cam, 2, :)); 
+
+             left_mask = squeeze(box(:,:,2,cam, frame));
+             right_mask = squeeze(box(:,:,3,cam, frame));
+             dist_r2r  = get_distance_from_mask_to_point(right_mask, right_wj);
+             dist_r2l = get_distance_from_mask_to_point(right_mask, left_wj);
+             dist_l2l  = get_distance_from_mask_to_point(left_mask, left_wj);
+             dist_l2r = get_distance_from_mask_to_point(left_mask, right_wj);
+             if dist_r2l < dist_r2r || dist_l2r < dist_l2l
+                % switch body points location 
+                body_parts_2D(frame, cam, 1, :) = right_wj;
+                body_parts_2D(frame, cam, 2, :) = left_wj;
+             end
+        end
+    end
+
+    %% display 
+%     display_box = view_masks_perimeter(box);
+%     display_predictions_2D_tight(display_box, body_parts_2D, 0) 
+
+    %% join all points 
+    preds_2D(:,:,1:num_wings_pts,:) = wings_preds_2D;
+    preds_2D(:,:,body_parts_inds,:) = body_parts_2D;
+%     display_predictions_2D_tight(display_box, preds_2D, 0) 
+
     %% get 3d pts from 4 2d cameras 
-    preds_2D(:,:,head_tail_inds,:) = head_tail_predictions;
     [all_errors, ~, all_pts3d] = get_3d_pts_rays_intersects(preds_2D, easyWandData, cropzone, cam_inds);
     
-    %% get head tail pts
+    %% get avarage consecpoints 
+%     rem_outliers = 1;
+%     ThresholdFactor = 0.2;
+%     avg_consecutive_pts = get_avarage_consecutive_pts(all_pts3d, rem_outliers, ThresholdFactor);
+
+    %% get head tail pts 3D
     all_pts3d_head_tail = all_pts3d(head_tail_inds, :, :, :);
     all_errors_head_tail = all_errors(head_tail_inds, :, :);
     head_tail_pts = get_avarage_points_3d(all_pts3d_head_tail, all_errors_head_tail, 1, 1.3);
+        
+    %% get wing joing points 3D
+    all_wings_joints_pts = all_pts3d(wings_joints_inds, :, :, :);
+    all_errors_wings_joints = all_errors(wings_joints_inds, :, :);
+    wings_joints_pts = get_avarage_points_3d(all_wings_joints_pts , all_errors_wings_joints, 1, 1.3);
     
     %% get 3D
+    erosion_rad = 0;
+    body_masks = get_body_masks(wings_preds_path, erosion_rad);
     only_wings_predictions = preds_2D(:,:,1:num_wings_pts,:);
     only_wings_all_pts3d = all_pts3d(1:num_wings_pts,:,:,:);
-    [preds_3D, errors_3D, cams_used] = get_3D_pts_2_cameras(only_wings_all_pts3d, all_errors, only_wings_predictions, box);
+    [preds_3D, errors_3D] = get_3D_pts_2_cameras(only_wings_all_pts3d, all_errors, only_wings_predictions, box, body_masks);
+%     [preds_3D, errors_3D]  = get_3D_pts_2_cameras_smart(only_wings_all_pts3d, all_errors, only_wings_predictions, box, body_masks);
+    preds_3D(wings_joints_inds, :,: ) = wings_joints_pts;
     preds_3D(head_tail_inds, :,:) = head_tail_pts;
     preds_3D = squeeze(preds_3D);
 %     display_predictions_pts_3D(preds_3D, 0.1);
+
+    %% do postproccesing 3D points for correction
+%     preds_3D = post_correct(preds_3D, all_pts3d);
 end
