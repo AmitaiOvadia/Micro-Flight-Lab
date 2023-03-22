@@ -6,10 +6,12 @@ from scipy.io import loadmat, savemat
 # import skimage
 # from skimage.morphology import binary_dilation, disk
 # from scipy.ndimage import binary_dilation, binary_closing
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, shift
 from viz import show_pred, show_confmap_grid, plot_history
-from pose_estimation_models import basic_nn, ed3d
+from pose_estimation_models import basic_nn, ed3d, two_wings_net, pretrained_per_wing_vgg
 from preprocessing_utils import *
+
+TWO_WINGS_TOGATHER = "TWO_WINGS_TOGATHER"
 
 PER_WING_MODEL = 'PER_WING_MODEL'
 ALL_POINTS_MODEL = 'ALL_POINTS_MODEL'
@@ -19,7 +21,7 @@ TRAIN_ON_2_GOOD_CAMERAS_MODEL = "TRAIN_ON_2_GOOD_CAMERAS_MODEL"
 TRAIN_ON_3_GOOD_CAMERAS_MODEL = "TRAIN_ON_3_GOOD_CAMERAS_MODEL"
 BODY_PARTS_MODEL = "BODY_PART_MODEL"
 ALL_CAMS = "ALL_CAMS"
-
+VGG_PER_WING = "VGG_PER_WING"
 MEAN_SQUARE_ERROR = "MEAN_SQUARE_ERROR"
 EUCLIDIAN_DISTANCE = "EUCLIDIAN_DISTANCE"
 TWO_CLOSE_POINTS_TOGATHER_NO_MASKS = "TWO_CLOSE_POINTS_TOGATHER_NO_MASKS"
@@ -118,19 +120,21 @@ class LossHistory(Callback):
         plot_history(self.history, save_path=os.path.join(self.run_path, "history.png"))
 
 
-def augment(img, h_fl, v_fl, rotation_angle):
+def augment(img, h_fl, v_fl, rotation_angle, shift_y_x):
     if np.max(img) <= 1:
         img = np.uint8(img * 255)
     if h_fl:
         img = np.fliplr(img)
     if v_fl:
         img = np.flipud(img)
+    img = shift(img, shift_y_x)
     img_pil = Image.fromarray(img)
-    img_pil = img_pil.rotate(rotation_angle, Image.Resampling.BICUBIC)
+    img_pil = img_pil.rotate(rotation_angle, 3)
     img = np.asarray(img_pil)
     if np.max(img) > 1:
         img = img/255
     return img
+
 
 
 def blur_channel(img_channel, sigma):
@@ -143,9 +147,11 @@ def custom_augmentations(img):
     do_horizontal_flip = np.random.randint(2)
     do_vertical_flip = np.random.randint(2)
     rotation_angle = np.random.randint(-180, 180)
+    shift_y_x = np.random.randint(-10, 10, 2)
     num_channels = img.shape[-1]
     for channel in range(num_channels):
-        img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip, do_vertical_flip, rotation_angle)
+        img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip,
+                                     do_vertical_flip, rotation_angle, shift_y_x)
     return img
 
 
@@ -162,7 +168,6 @@ def augmented_data_generator(batch_size, box, confmap, seed=0, rotation_range=18
     #                      horizontal_flip=True,
     #                      vertical_flip=True,
     #                      interpolation_order=2,)
-
 
     datagen_x = ImageDataGenerator(**data_gen_args)
     datagen_y = ImageDataGenerator(**data_gen_args)
@@ -231,17 +236,17 @@ def train(box, confmaps,  *, data_path='',
     else:
         checkpointer = ModelCheckpoint(filepath=os.path.join(run_path, "best_model.h5"), verbose=1, save_best_only=True)
 
-    # get model
-    # filters=64, num_blocks=2 was good
-    if loss_function == MEAN_SQUARE_ERROR:
-        loss_function = "mean_squared_error"
-    elif loss_function == EUCLIDIAN_DISTANCE:
-        loss_function = euclidian_distance_loss
-
     net_input = dict(img_size=img_size, num_output_channels=num_output_channels,
                      filters=filters, num_blocks=2, kernel_size=3)
-    model = basic_nn(**net_input) if model_type != ALL_CAMS else ed3d(**net_input)
 
+    if model_type == ALL_CAMS:
+        model = ed3d(**net_input)
+    elif model_type == TWO_WINGS_TOGATHER:
+        model = two_wings_net(**net_input)
+    elif model_type == VGG_PER_WING:
+        model = pretrained_per_wing_vgg(**net_input)
+    else:
+        model = basic_nn(**net_input)
     # Save initial network
     model.save(os.path.join(run_path, "initial_model.h5"))
 
@@ -330,9 +335,9 @@ def train_model(model_type, data_path,
     # confmaps = confmaps[:, :10, :, :, :, :]
     if mix_with_test == True and model_type != HEAD_TAIL and model_type != BODY_PARTS_MODEL:
         box, confmaps = get_mix_with_test(box, confmaps, test_path)
-    if model_type == ALL_POINTS_MODEL or model_type == HEAD_TAIL:
+    if model_type == ALL_POINTS_MODEL or model_type == HEAD_TAIL or model_type == TWO_WINGS_TOGATHER:
         box, confmaps = reshape_to_cnn_input(box, confmaps)
-    elif model_type == PER_WING_MODEL:
+    elif model_type == PER_WING_MODEL or model_type == VGG_PER_WING:
         box, confmaps = do_reshape_per_wing(box, confmaps)
     elif model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
         box, confmaps = do_reshape_per_wing(box, confmaps, model_type)
@@ -341,6 +346,7 @@ def train_model(model_type, data_path,
     elif model_type == ALL_CAMS:
         box, confmaps = do_reshape_per_wing(box, confmaps, model_type)
     # visualize_box_confmaps(box, confmaps, model_type)
+    print(f"number of training samples is {box.shape[0]}")
     train(box, confmaps,
           run_name=run_name,
           val_size=val_fraction,
@@ -363,19 +369,24 @@ if __name__ == '__main__':
     # test_path = r"train_set_movie_14_pts_sigma_3.h5"
     # data_path = r"trainset_random_14_pts_sigma_3.h5"
     # model_type = TRAIN_ON_3_GOOD_CAMERAS_MODEL
-    model_type = ALL_CAMS
+    # model_type = ALL_CAMS
+    model_type = TWO_WINGS_TOGATHER
+    # model_type = VGG_PER_WING
 
-    print(f"{model_type}_dilation_2_sigma_3")
+    batch_size = 70
+    batches_per_epoch = 200
+    filters = 64
+    print(f"{model_type}")
     test_path = "train_set_movie_14_pts_yolo_masks.h5"
     data_path = "trainset_random_14_pts_200_frames.h5"
     train_model(model_type=model_type,
                 mix_with_test=True,
                 test_path=test_path,
                 data_path=data_path,
-                run_name=f"{model_type}_16_3_bs_50_bpe_200",
-                filters=64,
+                run_name=f"{model_type}_merged_right_order_22_3_bs_{batch_size}_bpe_{batches_per_epoch}_fil_{filters}",
+                filters=filters,
                 val_fraction=0.1,
-                batch_size=50,
-                batches_per_epoch=200,
+                batch_size=batch_size,
+                batches_per_epoch=batches_per_epoch,
                 dilation_rate=2,
                 epochs=30)

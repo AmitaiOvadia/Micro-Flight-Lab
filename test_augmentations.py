@@ -6,8 +6,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import matplotlib
 import matplotlib.pyplot as plt
 from PIL import Image
-from scipy.ndimage import rotate, gaussian_filter
-
+from scipy.ndimage import rotate, gaussian_filter, shift
 
 def preprocess(X, permute=(0, 3, 2, 1)):
     """ Normalizes input data. """
@@ -44,15 +43,16 @@ def load_dataset(data_path, X_dset="box", Y_dset="confmaps", permute=(0, 3, 2, 1
     return X, Y
 
 
-def augment(img, h_fl, v_fl, rotation_angle):
+def augment(img, h_fl, v_fl, rotation_angle, shift_y_x):
     if np.max(img) <= 1:
         img = np.uint8(img * 255)
     if h_fl:
         img = np.fliplr(img)
     if v_fl:
         img = np.flipud(img)
+    img = shift(img, shift_y_x)
     img_pil = Image.fromarray(img)
-    img_pil = img_pil.rotate(rotation_angle, Image.Resampling.BICUBIC)
+    img_pil = img_pil.rotate(rotation_angle, 3)
     img = np.asarray(img_pil)
     if np.max(img) > 1:
         img = img/255
@@ -69,28 +69,50 @@ def custom_augmentations(img):
     do_horizontal_flip = np.random.randint(2)
     do_vertical_flip = np.random.randint(2)
     rotation_angle = np.random.randint(-180, 180)
+    shift_y_x = np.random.randint(-10, 10, 2)
     num_channels = img.shape[-1]
-    do_blur = np.random.randint(10) == 1
-    if do_blur and num_channels != 7:
-        sigma = np.random.uniform(0, 1)
-        for channel in range(3):
-            img[:, :, channel] = blur_channel(img[:, :, channel], sigma)
     for channel in range(num_channels):
-        img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip, do_vertical_flip, rotation_angle)
+        img[:, :, channel] = augment(img[:, :, channel], do_horizontal_flip,
+                                     do_vertical_flip, rotation_angle, shift_y_x)
     return img
 
 
 def test_generators(data_path):
-    box, confmap = load_dataset(data_path)
-    image_size = confmap.shape[-2]
+    box, confmaps = load_dataset(data_path)
+    image_size = confmaps.shape[-2]
     num_channels_img = box.shape[-1]
-    num_channels_confmap = confmap.shape[-1]
+    num_channels_confmap = confmaps.shape[-1]
     box = box.reshape([-1, image_size, image_size, num_channels_img])
-    confmap = confmap.reshape([-1, image_size, image_size, num_channels_confmap])
+    confmaps = confmaps.reshape([-1, image_size, image_size, num_channels_confmap])
+
+    # box = box.reshape([-1, 4, image_size, image_size, num_channels_img])
+    # confmaps = confmaps.reshape([-1, 4, image_size, image_size, num_channels_confmap])
+    #
+    # box = box[:, :, :, :, :-1]
+    # confmaps = confmaps[:, :, :, :, :7]
+    #
+    # box_1 = box[:, 0, :, :, :]
+    # box_2 = box[:, 1, :, :, :]
+    # box_3 = box[:, 2, :, :, :]
+    # box_4 = box[:, 3, :, :, :]
+    # box = np.concatenate((box_1, box_2, box_3, box_4), axis=-1)
+    #
+    # confmaps_1 = confmaps[:, 0, :, :, :]
+    # confmaps_2 = confmaps[:, 1, :, :, :]
+    # confmaps_3 = confmaps[:, 2, :, :, :]
+    # confmaps_4 = confmaps[:, 3, :, :, :]
+    # confmaps = np.concatenate((confmaps_1, confmaps_2, confmaps_3, confmaps_4), axis=-1)
+
+    # matplotlib.use('TkAgg')
+    # example_img = np.transpose(box[0, :, :, [0, 1, 2]], [2, 1, 0])
+    # plt.imshow(example_img, cmap='gray')
+    # plt.show()
+
     seed = 0
     batch_size = 8
 
     data_gen_args = dict(preprocessing_function=custom_augmentations,)
+
     # data_gen_args = dict(rotation_range=45,
     #                      zoom_range=[0.8, 1.2],
     #                      horizontal_flip=True,
@@ -103,10 +125,10 @@ def test_generators(data_path):
     datagen_x = ImageDataGenerator(**data_gen_args)
     datagen_y = ImageDataGenerator(**data_gen_args)
     # prepare iterator
-    datagen_x.fit(box, augment=True, seed=seed)
-    datagen_y.fit(confmap, augment=True, seed=seed)
+    datagen_x.fit(box[:10, :, :, :], augment=True, seed=seed)
+    datagen_y.fit(confmaps[:10, :, :, :], augment=True, seed=seed)
     flow_box = datagen_x.flow(box, batch_size=batch_size, seed=seed)
-    flow_conf = datagen_y.flow(confmap, batch_size=batch_size, seed=seed)
+    flow_conf = datagen_y.flow(confmaps, batch_size=batch_size, seed=seed)
     matplotlib.use('TkAgg')
     for j in range(5):
         for i in range(9):
@@ -117,13 +139,12 @@ def test_generators(data_path):
             batch_y = flow_conf.next()
             # convert to unsigned integers for viewing
             image = batch_x[0][:, :, 1]
-            conf = np.sum(np.squeeze(batch_y[0]), axis=-1)
+            conf = np.sum(np.squeeze(batch_y[0][:, :, :7]), axis=-1)
             # plot raw pixel data
             plt.imshow(image + conf, cmap='gray')
         # show the figure
         plt.show()
         pass
-
 
 
 if __name__ == '__main__':

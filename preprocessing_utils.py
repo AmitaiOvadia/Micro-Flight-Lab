@@ -8,6 +8,7 @@ import shutil
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import tensorflow as tf
 from scipy.ndimage import distance_transform_edt
+TWO_WINGS_TOGATHER = "TWO_WINGS_TOGATHER"
 
 PER_WING_MODEL = 'PER_WING_MODEL'
 ALL_POINTS_MODEL = 'ALL_POINTS_MODEL'
@@ -308,9 +309,9 @@ def fix_movie_masks(box):
     return box, problematic_masks
 
 
-def adjust_mask(mask, radius=4):
+def adjust_mask(mask, radius=3):
+    mask = binary_closing(mask).astype(int)
     mask = binary_dilation(mask, iterations=radius).astype(int)
-    # mask = binary_closing(mask).astype(int)
     return mask
 
 
@@ -341,12 +342,29 @@ def adjust_masks_size(box, train_or_predict, radius=5):
     return box
 
 
+def adjust_masks_size_ALL_POINTS(box):
+    num_frames = box.shape[0]
+    num_channels = box.shape[-1]
+    for frame in range(num_frames):
+        mask_1 = box[frame, :, :, num_channels - 1]
+        mask_2 = box[frame, :, :, num_channels - 2]
+        adjusted_mask_1 = adjust_mask(mask_1)
+        adjusted_mask_2 = adjust_mask(mask_2)
+        box[frame, :, :, num_channels - 1] = adjusted_mask_1
+        box[frame, :, :, num_channels - 2] = adjusted_mask_2
+    return box
+
+
 def reshape_to_cnn_input(box, confmaps):
     """ reshape the  input from """
-    confmaps = np.transpose(confmaps, (5,4,3,2,1,0))
+    # confmaps = np.transpose(confmaps, (5,4,3,2,1,0))
+    box = np.reshape(box, [-1, box.shape[2], box.shape[3], box.shape[4], box.shape[5]])
+    confmaps = np.reshape(confmaps, [-1, confmaps.shape[2], confmaps.shape[3], confmaps.shape[4], confmaps.shape[5]])
+    box, confmaps = split_per_wing(box, confmaps, ALL_POINTS_MODEL, RANDOM_TRAIN_SET)
     confmaps = np.reshape(confmaps, [-1, confmaps.shape[-3], confmaps.shape[-2], confmaps.shape[-1]])
-    box = np.transpose(box, (5, 4, 3, 2, 1, 0))
+    # box = np.transpose(box, (5, 4, 3, 2, 1, 0))
     box = np.reshape(box, [-1, box.shape[-3], box.shape[-2], box.shape[-1]])
+    box = adjust_masks_size_ALL_POINTS(box)
     return box, confmaps
 
 

@@ -14,15 +14,17 @@ from training_with_masks import visualize_box_confmaps
 from scipy.ndimage import binary_dilation
 import matplotlib.pyplot as plt
 import matplotlib
-
+from scipy.spatial.distance import cdist
 # imports of the wings detection
 import cv2
 from time import time
 from ultralytics import YOLO
-
+TWO_WINGS_TOGATHER = "TWO_WINGS_TOGATHER"
 PER_WING = "PER WING"
 ALL_POINTS = "ALL POINTS"
 BODY_POINTS = "BODY_POINTS"
+ALL_CAMS = "ALL_CAMS"
+
 PER_WING_SPLIT_TO_3 = "PER WING SPLIT TO 3"
 PER_WING_PER_POINT = "PER_WING_PER_POINT"
 ENSEMBLE = "ENSEMBLE"
@@ -40,7 +42,8 @@ class Predictions:
                  out_path: str,
                  pose_estimation_model_path: str,
                  wings_detection_model_path: str,
-                 is_video: bool = True):
+                 is_video: bool = True,
+                 threshold: float = 2):
 
         self.box_path = box_path
         self.model_type = model_type
@@ -50,6 +53,10 @@ class Predictions:
         self.is_video = is_video
 
         self.box = self.get_box()
+
+        # debug
+        # self.box = self.box[:10, :, :, :]
+
         self.cropzone = self.get_cropzone()
         self.pose_estimation_model = self.get_pose_estimation_model()
         self.wings_detection_model = self.get_wings_detection_model()
@@ -59,9 +66,12 @@ class Predictions:
         self.num_cams = NUM_CAMS
         self.num_times_channels = self.box.shape[1] // self.num_cams
         self.num_channels = NUM_CHANNELS_PER_IMAGE
+        self.threshold = threshold
 
         self.box_to_save = None
         self.Ypk = None
+        self.left_input = None
+        self.right_input = None
         self.prediction_runtime = None
         self.total_runtime = None
 
@@ -115,16 +125,48 @@ class Predictions:
                 # plt.show()
         self.box = new_box
 
+    @staticmethod
+    def eliminate_close_vectors(matrix, threshold):
+        # calculate pairwise Euclidean distances
+        distances = cdist(matrix, matrix, 'euclidean')
+
+        # create a mask to identify which vectors to keep
+        inds_to_del = np.ones(len(matrix), dtype=bool)
+        for i in range(len(matrix)):
+            for j in range(i + 1, len(matrix)):
+                if distances[i, j] < threshold:
+                    # eliminate one of the vectors
+                    inds_to_del[j] = False
+
+        # return the new matrix with close vectors eliminated
+        return inds_to_del
+
     def get_masks(self, img_3_ch):
         net_input = img_3_ch
         masks_2 = np.zeros((2, self.im_size, self.im_size))
         if np.max(img_3_ch) <= 1:
             net_input = np.round(255 * img_3_ch)
         results = self.wings_detection_model(net_input)[0]
-        masks_founnd = results.masks.masks.numpy()[:2, :, :]
-        num_wings_found = masks_founnd.shape[0]
-        for wing in range(num_wings_found):
-            masks_2[wing, :, :] = masks_founnd[wing, :, :]
+
+        # find if the masks detected are overlapping
+        boxes = results.boxes.boxes.numpy()
+        inds_to_keep = self.eliminate_close_vectors(boxes, 10)
+
+        # get number of masks detected
+        num_wings_found = np.count_nonzero(inds_to_keep)
+        if num_wings_found > 0:
+            masks_found = results.masks.masks.numpy()[inds_to_keep, :, :]
+        # add masks
+        for wing in range(min(num_wings_found, 2)):
+            mask = masks_found[wing, :, :]
+            score = results.boxes.boxes[wing, 4]
+            masks_2[wing, :, :] = mask
+            # else:
+            # print(f"score = {score}")
+            # matplotlib.use('TkAgg')
+            # img_3_ch[:, :, 2] += mask
+            # plt.imshow(img_3_ch)
+            # plt.show()
         return masks_2
 
     def fix_masks(self):  # todo find out if there are even masks to be fixed
@@ -159,8 +201,17 @@ class Predictions:
                                 next_mask = next_mask_i
                                 break
                         # combine the 2 masks
-                        new_mask = prev_mask + next_mask
+
+                        new_mask = prev_mask + next_mask  # todo changed it from : prev_mask + next_mask
                         new_mask[new_mask >= 1] = 1
+
+                        sz_prev_mask = np.count_nonzero(prev_mask)
+                        sz_next_mask = np.count_nonzero(next_mask)
+                        sz_new_mask = np.count_nonzero(new_mask)
+                        if sz_prev_mask + sz_next_mask == sz_new_mask:
+                            # it means that the masks are not overlapping
+                            new_mask = prev_mask if sz_prev_mask > sz_next_mask else next_mask
+
                         # replace empty mask with new mask
                         self.box[frame, self.num_times_channels + mask_num + self.num_channels * cam, :, :] = new_mask
 
@@ -169,15 +220,22 @@ class Predictions:
 
     def adjust_dimensions(self):  # todo: do it in a smarter less ugly way
         """ return a box with dimensions (num_frames, imsize, imsize, num_channels)"""
+        if self.model_type == ALL_CAMS:
+            # make input:
+            self.box = np.transpose(self.box, [0, 2, 3, 1])
+            left_indexes = [0,1,2,3, 5,6,7,8, 10,11,12,13, 15,16,17,18]
+            right_indexes = [0,1,2,4, 5,6,7,9, 10,11,12,14, 15,16,17,19]
+            self.left_input = self.box[..., left_indexes]
+            self.right_input = self.box[..., right_indexes]
+            return
         self.box = np.transpose(self.box, (0, 3, 2, 1))
-        self.box = np.transpose(self.box, (1, 2, 3, 0))
-        if self.box.shape[2] == 20:  # if number of channels is 5
-            x1 = self.box[:, :, 0:5, :]
-            x2 = self.box[:, :, 5:10, :]
-            x3 = self.box[:, :, 10:15, :]
-            x4 = self.box[:, :, 15:20, :]
-            self.box = np.concatenate((x1, x2, x3, x4), axis=3)
-        self.box = np.transpose(self.box, (3, 0, 1, 2))
+        if self.box.shape[-1] == 20:  # if number of channels is 5
+            x1 = np.expand_dims(self.box[:, :, :, 0:5], axis=1)
+            x2 = np.expand_dims(self.box[:, :, :, 5:10], axis=1)
+            x3 = np.expand_dims(self.box[:, :, :, 10:15], axis=1)
+            x4 = np.expand_dims(self.box[:, :, :, 15:20], axis=1)
+            self.box = np.concatenate((x1, x2, x3, x4), axis=1)
+
 
     def save_predictions_to_h5(self):
         """ save the predictions and the box of images to h5 file"""
@@ -188,9 +246,12 @@ class Predictions:
             f.attrs["box_dset"] = "/box"
             f.attrs["pose_estimation_model_path"] = self.pose_estimation_model_path
             f.attrs["wings_detection_model_path"] = self.wings_detection_model_path
-            # f.attrs["model_name"] = model_name
-            positions = self.Ypk[:, :2, :]
-            confidence_val = self.Ypk[:, 2, :]
+
+            # positions = self.Ypk[:, :2, :]
+            # confidence_val = self.Ypk[:, 2, :]
+            positions = self.Ypk[:, :, :2, :]
+            confidence_val = self.Ypk[:, :, 2, :]
+
             # positions = np.transpose(positions, (0,2,1))
             ds_pos = f.create_dataset("positions_pred", data=positions.astype("int32"), compression="gzip",
                                       compression_opts=1)
@@ -276,7 +337,7 @@ class Predictions:
             axis=1)
         return pred
 
-    def run_predict_box(self, batch_size=32):  # todo: consider do wings and body points predictions togather
+    def run_predict_box(self, batch_size=8):  # todo: consider do wings and body points predictions togather
         t0 = time()
         if os.path.exists(self.out_path):
             print("Error: Output path already exists.")
@@ -288,26 +349,62 @@ class Predictions:
         self.box_to_save = self.box
         self.adjust_dimensions()
         preprocessing_time = time() - t0
+
         preds_time = time()
         print("preprocess [%.1fs]" % preprocessing_time)
         if self.model_type == PER_WING:
-            input_left = self.box[:, :, :, [0, 1, 2, 3]]
-            input_right = self.box[:, :, :, [0, 1, 2, 4]]
-            print("predict wing 1 points")
-            Ypk_left, _, _, _ = Predictions.predict_Ypk(input_left,
-                                                        batch_size,
-                                                        self.pose_estimation_model)
-            print("predict wing 2 points")
-            Ypk_right, _, _, _ = Predictions.predict_Ypk(input_right,
-                                                         batch_size,
-                                                         self.pose_estimation_model)
-            Ypk = np.concatenate((Ypk_left, Ypk_right), axis=2)
+            Ypks = []
+            for cam in range(self.num_cams):
+                print(f"predict wing 1 points cam {cam + 1}")
+                input_left = np.transpose(self.box[:, cam, :, :, [0, 1, 2, 3]], [1, 2, 3, 0])
+                Ypk_left, _, _, _ = Predictions.predict_Ypk(input_left,
+                                                            batch_size,
+                                                            self.pose_estimation_model)
+                print(f"predict wing 2 points cam {cam + 1}")
+                input_right = np.transpose(self.box[:, cam, :, :, [0, 1, 2, 4]], [1, 2, 3, 0])
+                Ypk_right, _, _, _ = Predictions.predict_Ypk(input_right,
+                                                             batch_size,
+                                                             self.pose_estimation_model)
+                Ypk_cam = np.concatenate((Ypk_left, Ypk_right), axis=2)
+                Ypk_cam = np.expand_dims(Ypk_cam, axis=1)
+                Ypks.append(Ypk_cam)
+            Ypk = np.concatenate(Ypks, axis=1)
+
             # visualize_box_confmaps(self.box, confmaps, self.model_type)
 
-        elif self.model_type == ALL_POINTS or self.model_type == BODY_POINTS:
-            Ypk, _, _, _ = Predictions.predict_Ypk(self.box,
+        elif self.model_type == ALL_POINTS or self.model_type == BODY_POINTS or model_type == TWO_WINGS_TOGATHER:
+            Ypks = []
+            for cam in range(self.num_cams):
+                input_per_cam = self.box[:, cam, :, :, :]
+                Ypk_cam, _, _, _ = Predictions.predict_Ypk(input_per_cam,
+                                                       batch_size,
+                                                       self.pose_estimation_model)
+                Ypk_cam = np.expand_dims(Ypk_cam, axis=1)
+                Ypks.append(Ypk_cam)
+            Ypk = np.concatenate(Ypks, axis=1)
+        elif self.model_type == ALL_CAMS:
+            Ypk_left, _, _, _ = Predictions.predict_Ypk(self.left_input,
                                                    batch_size,
                                                    self.pose_estimation_model)
+            Ypk_left_1 = np.expand_dims(Ypk_left[:, :, 0:7], 1)
+            Ypk_left_2 = np.expand_dims(Ypk_left[:, :, 7:14], 1)
+            Ypk_left_3 = np.expand_dims(Ypk_left[:, :, 14:21], 1)
+            Ypk_left_4 = np.expand_dims(Ypk_left[:, :, 21:28], 1)
+
+            Ypk_left = np.concatenate((Ypk_left_1, Ypk_left_2, Ypk_left_3, Ypk_left_4), 1)
+
+            Ypk_right, _, _, _ = Predictions.predict_Ypk(self.right_input,
+                                                   batch_size,
+                                                   self.pose_estimation_model)
+
+            Ypk_right_1 = np.expand_dims(Ypk_right[:, :, 0:7], 1)
+            Ypk_right_2 = np.expand_dims(Ypk_right[:, :, 7:14], 1)
+            Ypk_right_3 = np.expand_dims(Ypk_right[:, :, 14:21], 1)
+            Ypk_right_4 = np.expand_dims(Ypk_right[:, :, 21:28], 1)
+
+            Ypk_right = np.concatenate((Ypk_right_1, Ypk_right_2, Ypk_right_3, Ypk_right_4), axis=1)
+            Ypk = np.concatenate((Ypk_left, Ypk_right), axis=-1)
+
         self.Ypk = Ypk
         self.prediction_runtime = time() - preds_time
         self.total_runtime = time() - t0
@@ -318,22 +415,42 @@ class Predictions:
 
 if __name__ == "__main__":
 
-    # model_type = BODY_POINTS
     # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
 
     # wings
-    model_type = PER_WING
-    wings_detection_model_path = "wings_detection_yolov8_weights_4_3.pt"
-    pose_estimation_model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_7_3_200_random_frames_val_0_3_75_135_augmentations_changed\best_model.h5"
-    box_path_no_masks = r"movie_dataset_1_3_600_frames_no_masks.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\sigma 3\TRAIN_ON_3_GOOD_CAMERAS_MODEL_7_3_200_random_frames_val_0_3_75_135_augmentations_changed\predictions_over_movie_17_wings"
+
+    # model_type = PER_WING
+    model_type = TWO_WINGS_TOGATHER
+    # model_type = ALL_CAMS
+    wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
+    # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
+
+    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
+
+    pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\two wings togather\TWO_WINGS_TOGATHER_21_3_bs_65_bpe_200_fil_64\best_model.h5"
+    # box_path_no_masks = r"dataset_movie_6_2001_2600.h5"
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\predictions_2_wings_together_model.h5"
     predictions = Predictions(
                               box_path_no_masks,
                               model_type,
                               out_path,
-                              pose_estimation_model_path,
-                              wings_detection_model_path
+                              pose_estimation_model_path_wings,
+                              wings_detection_model_path,
+                              is_video=True
                              )
     predictions.run_predict_box()
+
+
+    # model_type = BODY_POINTS
+    # pose_estimation_model_path_body = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\body parts model\body_parts_model_dilation_2\best_model.h5"
+    # out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\predict_over_movie_1301_2300_body.h5"
+    # predictions = Predictions(
+    #     box_path_no_masks,
+    #     model_type,
+    #     out_path,
+    #     pose_estimation_model_path_body,
+    #     wings_detection_model_path
+    # )
+    # predictions.run_predict_box()
 
 
