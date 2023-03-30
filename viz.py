@@ -41,7 +41,11 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
 
     # Show box image
     plt.figure(figsize=(6, 6))
-    plt.imshow(np.squeeze(X[:,:,1]), cmap="gray")
+    if X.shape[-1] == 6:
+        present_channel = 2
+    else:
+        present_channel = 1
+    plt.imshow(np.squeeze(X[:, :, present_channel]), cmap="gray")
 
     # Normalize channels
     for i in range(Y2.shape[-1]):
@@ -51,6 +55,7 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
     plt.imshow(Y2[:, :, joint_idx], alpha=alpha_pred)
 
     # Plot peak markers
+    num_points = Y2.shape[-1]
     if Y2.shape[-1] == 28:
         num_points = 7
     for i in range(num_points):

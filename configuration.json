@@ -1,0 +1,52 @@
+
+{
+  "debug mode" : 0,
+
+    "// training parameters //" : 0,
+  "batch_size": 35,
+  "epochs" : 30,
+  "batches per epoch" : 200,
+  "loss_function": "mean_squared_error",
+  "val_fraction" : 0.1,
+  "learning rate": 0.001,
+
+  "// Network parameters //" : 0,
+  "dropout ratio": 0.5,
+  "dilation rate" : 2,
+  "optimizer": "adam",
+  "number of base filters" : 64,
+  "number of encoder decoder blocks" : 2,
+  "convolution kernel size" : 3,
+
+  "// preprocess parameters //" : 0,
+  "model type":  "PER_WING_MODEL",
+  "test_path" : "train_set_movie_14_pts_yolo_masks.h5",
+  "data_path" : "dataset_random_frames_7_channels_ds_5tc_14tj.h5",
+  "mix_with_test" : 0,
+  "mask dilation" : 3,
+
+  "// augmentations parameters //" : 0,
+  "custom" : 1,
+  "augmentation shift x y" : 10,
+  "rotation range" : 180,
+  "seed" : 0,
+  "horizontal flip" : 1,
+  "vertical flip": 1,
+    "// augmentations using keras ImageGenerator" : 0,
+    "zoom range" : [0.8, 1.2],
+    "interpolation order" : 2,
+
+
+    "// saving configurations //" : 0,
+  "base output path" : "models",
+  "clean" : 0,
+
+  "// callbacks parameters //" : 0,
+    "// ReduceLROnPlateau" : 0,
+        "reduce_lr_factor" : 0.1,
+        "reduce_lr_patience" : 3,
+        "reduce_lr_min_delta" : 1e-5,
+        "reduce_lr_cooldown" : 0,
+        "reduce_lr_min_lr" : 1e-10,
+        "save_every_epoch" : 0
+}

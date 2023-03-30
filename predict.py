@@ -1,24 +1,21 @@
 import h5py
 import numpy as np
 import os
-from time import time
 from tensorflow import keras
-import tensorflow.keras.models
 from tensorflow.keras.layers import Lambda
 import tensorflow as tf
 from preprocessing_utils import adjust_masks_size
 # from training import preprocess
-from training_with_masks import visualize_box_confmaps
 # from leap.utils import find_weights, find_best_weights, preprocess
 # from leap.layers import Maxima2D
-from scipy.ndimage import binary_dilation
-import matplotlib.pyplot as plt
-import matplotlib
 from scipy.spatial.distance import cdist
+from scipy.io import loadmat
 # imports of the wings detection
-import cv2
 from time import time
 from ultralytics import YOLO
+import open3d as o3d
+
+
 TWO_WINGS_TOGATHER = "TWO_WINGS_TOGATHER"
 PER_WING = "PER WING"
 ALL_POINTS = "ALL POINTS"
@@ -32,7 +29,12 @@ NO_MASKS = "NO_MASKS"
 HEAD_TAIL = "NO_MASKS"
 NUM_CAMS = 4
 NUM_CHANNELS_PER_IMAGE = 5
+CAMERAS_MATRICES_PATH = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\traingulation\datasets\projection_matrices.mat"
 
+CAM_1 = [0,   1, 2,  3,  4]
+CAM_2 = [5,   6, 7,  8,  9]
+CAM_3 = [10, 11, 12, 13, 14]
+CAM_4 = [15, 16, 17, 18, 19]
 
 class Predictions:
 
@@ -42,6 +44,7 @@ class Predictions:
                  out_path: str,
                  pose_estimation_model_path: str,
                  wings_detection_model_path: str,
+                 cameras_path: str = CAMERAS_MATRICES_PATH,
                  is_video: bool = True,
                  threshold: float = 2):
 
@@ -55,7 +58,7 @@ class Predictions:
         self.box = self.get_box()
 
         # debug
-        # self.box = self.box[:10, :, :, :]
+        self.box = self.box[:10, :, :, :]
 
         self.cropzone = self.get_cropzone()
         self.pose_estimation_model = self.get_pose_estimation_model()
@@ -74,6 +77,8 @@ class Predictions:
         self.right_input = None
         self.prediction_runtime = None
         self.total_runtime = None
+        self.cam_matrices = None
+
 
     def get_box(self):
         return h5py.File(self.box_path, "r")["/box"]
@@ -236,7 +241,6 @@ class Predictions:
             x4 = np.expand_dims(self.box[:, :, :, 15:20], axis=1)
             self.box = np.concatenate((x1, x2, x3, x4), axis=1)
 
-
     def save_predictions_to_h5(self):
         """ save the predictions and the box of images to h5 file"""
         with h5py.File(self.out_path, "w") as f:
@@ -272,6 +276,36 @@ class Predictions:
             ds_conf.attrs["dims"] = f"{self.cropzone.shape}"
             f.attrs["prediction_runtime_secs"] = self.prediction_runtime
             f.attrs["total_runtime_secs"] = self.total_runtime
+
+    @staticmethod
+    def carve_voxels(masks, cameras):
+        # Create voxel grid
+        voxel_grid = o3d.geometry.VoxelGrid.create_dense(
+            width=1200,
+            height=800,
+            depth=800,
+            voxel_size=1,
+            origin=[-600, -400, -400])
+
+        # Project masks onto voxel grid using carve_silhouette function
+        for i in range(4):
+            # Get image and camera matrix for current mask
+            img = masks[i]
+            cam = cameras[i]
+
+            # Create silhouette from mask
+            silhouette = o3d.geometry.Image(img)
+
+            # Carve silhouette onto voxel grid
+            voxel_grid.carve_silhouette(silhouette, cam)
+
+        # Count number of voxels equal to 1 (intersection of all masks)
+        voxel_count = np.sum(voxel_grid.voxels == 1)
+
+        # Plot voxel grid (optional)
+        o3d.visualization.draw_geometries([voxel_grid])
+
+        return voxel_count
 
     @staticmethod
     def predict_Ypk(X, batch_size, model_peaks, save_confmaps=False):
@@ -337,6 +371,20 @@ class Predictions:
             axis=1)
         return pred
 
+    def make_masks_agree(self):
+        options = [[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]]
+        matrices = loadmat(CAMERAS_MATRICES_PATH)['projection_matrices']
+        for frame in range(self.num_frames):
+            masks_1 = self.box[frame, :, :, CAM_1][-2:]
+            masks_2 = self.box[frame, :, :, CAM_2][-2:]
+            masks_3 = self.box[frame, :, :, CAM_3][-2:]
+            masks_4 = self.box[frame, :, :, CAM_4][-2:]
+            all_masks = [masks_1, masks_2, masks_3, masks_4]
+            for option in options:
+                for cam in range(1, 4):
+
+            pass
+
     def run_predict_box(self, batch_size=8):  # todo: consider do wings and body points predictions togather
         t0 = time()
         if os.path.exists(self.out_path):
@@ -348,6 +396,8 @@ class Predictions:
             self.fix_masks()
         self.box_to_save = self.box
         self.adjust_dimensions()
+        if model_type == ALL_CAMS:
+            self.make_masks_agree()
         preprocessing_time = time() - t0
 
         preds_time = time()
@@ -416,12 +466,11 @@ class Predictions:
 if __name__ == "__main__":
 
     # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
-
     # wings
 
     # model_type = PER_WING
-    model_type = TWO_WINGS_TOGATHER
-    # model_type = ALL_CAMS
+    # model_type = TWO_WINGS_TOGATHER
+    model_type = ALL_CAMS
     wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
     # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
 
@@ -429,7 +478,7 @@ if __name__ == "__main__":
 
     pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\two wings togather\TWO_WINGS_TOGATHER_21_3_bs_65_bpe_200_fil_64\best_model.h5"
     # box_path_no_masks = r"dataset_movie_6_2001_2600.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\predictions_2_wings_together_model.h5"
+    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\predictions_2_wings_together_model_xx.h5"
     predictions = Predictions(
                               box_path_no_masks,
                               model_type,
