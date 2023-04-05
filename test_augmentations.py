@@ -103,10 +103,10 @@ def test_generators(data_path):
     # confmaps_4 = confmaps[:, 3, :, :, :]
     # confmaps = np.concatenate((confmaps_1, confmaps_2, confmaps_3, confmaps_4), axis=-1)
 
-    # matplotlib.use('TkAgg')
-    # example_img = np.transpose(box[0, :, :, [0, 1, 2]], [2, 1, 0])
-    # plt.imshow(example_img, cmap='gray')
-    # plt.show()
+    matplotlib.use('TkAgg')
+    example_img = np.transpose(box[0, :, :, [0, 2, 4]], [2, 1, 0])
+    plt.imshow(example_img, cmap='gray')
+    plt.show()
 
     seed = 0
     batch_size = 8
@@ -148,5 +148,6 @@ def test_generators(data_path):
 
 
 if __name__ == '__main__':
-    data_path = "trainset_random_14_pts_yolo_masks.h5"
+    # data_path = "trainset_random_14_pts_yolo_masks.h5"
+    data_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\training\dataset_random_frames_7_channels_ds_5tc_14tj.h5"
     test_generators(data_path)

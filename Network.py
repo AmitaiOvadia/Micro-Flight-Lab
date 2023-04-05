@@ -128,28 +128,20 @@ class Network:
         x_in_split_3 = Lambda(lambda x: x[..., 8:12], name="lambda_3")(x_in)
         x_in_split_4 = Lambda(lambda x: x[..., 12:16], name="lambda_4")(x_in)
 
-        # when using wing masks add 2 more images (wings) per camera
-        # x_in_split_1 = Lambda(lambda x: x[..., 0:5])(x_in)
-        # x_in_split_2 = Lambda(lambda x: x[..., 5:10])(x_in)
-        # x_in_split_3 = Lambda(lambda x: x[..., 10:15])(x_in)
-
-        # x_in_split_1 = Lambda(lambda x: x[..., 0:3])(x_in)
-        # x_in_split_2 = Lambda(lambda x: x[..., 3:6])(x_in)
-        # x_in_split_3 = Lambda(lambda x: x[..., 6:9])(x_in)
-
         # different outputs of encoder
         code_out_1 = shared_encoder(x_in_split_1)
         code_out_2 = shared_encoder(x_in_split_2)
         code_out_3 = shared_encoder(x_in_split_3)
         code_out_4 = shared_encoder(x_in_split_4)
 
-        # x_code_avg = Average()([code_out_1,code_out_2,code_out_3])
-        # map_out_1 = shared_decoder(Concatenate()([code_out_1,x_code_avg]))
-        # map_out_2 = shared_decoder(Concatenate()([code_out_2,x_code_avg]))
-        # map_out_3 = shared_decoder(Concatenate()([code_out_3,x_code_avg]))
-
         # concatenated output of the 3 different encoders
         x_code_merge = Concatenate()([code_out_1, code_out_2, code_out_3, code_out_4])
+
+        # shorter latent vector : each map_out gets only the other encoded vectors
+        # map_out_1 = shared_decoder(Concatenate()([code_out_1, code_out_2, code_out_3, code_out_4]))
+        # map_out_2 = shared_decoder(Concatenate()([code_out_2, code_out_1, code_out_3, code_out_4]))
+        # map_out_3 = shared_decoder(Concatenate()([code_out_3, code_out_1, code_out_2, code_out_4]))
+        # map_out_4 = shared_decoder(Concatenate()([code_out_4, code_out_1, code_out_2, code_out_3]))
 
         # prepare encoder's input as camera + concatenated latent vector of all cameras
         map_out_1 = shared_decoder(Concatenate()([code_out_1, x_code_merge]))

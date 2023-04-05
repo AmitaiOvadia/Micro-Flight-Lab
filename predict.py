@@ -1,10 +1,10 @@
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 from tensorflow import keras
 from tensorflow.keras.layers import Lambda
 import tensorflow as tf
-from preprocessing_utils import adjust_masks_size
 # from training import preprocess
 # from leap.utils import find_weights, find_best_weights, preprocess
 # from leap.layers import Maxima2D
@@ -14,6 +14,12 @@ from scipy.io import loadmat
 from time import time
 from ultralytics import YOLO
 import open3d as o3d
+from scipy.ndimage import binary_dilation, binary_closing
+from scipy.spatial.distance import pdist
+from scipy.ndimage.measurements import center_of_mass
+from scipy.spatial import ConvexHull
+import matplotlib
+from traingulation.triangulation_2D_3D import calculate_all_possible_triangulations
 
 
 TWO_WINGS_TOGATHER = "TWO_WINGS_TOGATHER"
@@ -30,11 +36,46 @@ HEAD_TAIL = "NO_MASKS"
 NUM_CAMS = 4
 NUM_CHANNELS_PER_IMAGE = 5
 CAMERAS_MATRICES_PATH = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\traingulation\datasets\projection_matrices.mat"
+ROTATION_MATRIX_PATH = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\traingulation\datasets\rotation_mat.mat"
 
 CAM_1 = [0,   1, 2,  3,  4]
 CAM_2 = [5,   6, 7,  8,  9]
 CAM_3 = [10, 11, 12, 13, 14]
 CAM_4 = [15, 16, 17, 18, 19]
+LEFT_INDS = [0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 16, 17, 18]
+RIGHT_INDS = [0, 1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 19]
+CAM1_LEFT = [0, 1, 2, 3]
+CAM2_LEFT = [5, 6, 7, 8]
+CAM3_LEFT = [10, 11, 12, 13]
+CAM4_LEFT = [15, 16, 17, 18]
+CAM1_RIGHT = [0, 1, 2, 4]
+CAM2_RIGHT = [5, 6, 7, 9]
+CAM3_RIGHT = [10, 11, 12, 14]
+CAM4_RIGHT = [15, 16, 17, 19]
+
+
+
+
+
+# def adjust_masks_size(box, train_or_predict):
+#     """ adjust the size of the wings masks """
+#     if train_or_predict == "TRAIN":
+#         num_training_samples = box.shape[0]
+#         for image_num in range(num_training_samples):
+#             mask = box[image_num, :, :, 3]
+#             # non_0_1 = np.count_nonzero(mask)
+#             adjusted_mask = adjust_mask(mask)
+#             # non_0_2 = np.count_nonzero(adjusted_mask)
+#             box[image_num, :, :, 3] = adjusted_mask
+#             # matplotlib.use('TkAgg')
+#             # plt.imshow(adjusted_mask - mask)
+#             # plt.show()
+#     if train_or_predict == "PREDICT":
+#         pass
+#     return box
+
+
+
 
 class Predictions:
 
@@ -54,11 +95,15 @@ class Predictions:
         self.out_path = out_path
         self.wings_detection_model_path = wings_detection_model_path
         self.is_video = is_video
+        self.cam_matrices = loadmat(CAMERAS_MATRICES_PATH)['projection_matrices']
+        self.rotation_matrix = loadmat(ROTATION_MATRIX_PATH)['rotation_mat']
 
         self.box = self.get_box()
 
         # debug
-        self.box = self.box[:10, :, :, :]
+        # self.box = self.box[:10, :, :, :]
+        # train set only
+        # self.box = self.box[:, [0, 1, 2, 5, 6, 7, 10, 11, 12, 15, 16, 17, ], :, :]
 
         self.cropzone = self.get_cropzone()
         self.pose_estimation_model = self.get_pose_estimation_model()
@@ -68,7 +113,8 @@ class Predictions:
         self.num_frames = self.box.shape[0]
         self.num_cams = NUM_CAMS
         self.num_times_channels = self.box.shape[1] // self.num_cams
-        self.num_channels = NUM_CHANNELS_PER_IMAGE
+        # self.num_times_channels = 3  # todo remove this line, only for trainset
+        self.num_channels = self.num_times_channels + 2
         self.threshold = threshold
 
         self.box_to_save = None
@@ -77,7 +123,6 @@ class Predictions:
         self.right_input = None
         self.prediction_runtime = None
         self.total_runtime = None
-        self.cam_matrices = None
 
 
     def get_box(self):
@@ -110,24 +155,45 @@ class Predictions:
     def add_masks(self):
         """ Add masks to the dataset using yolov8 segmentation model """
         new_box = np.zeros((self.num_frames, self.num_cams * self.num_channels, self.im_size, self.im_size))
-        for frame in range(self.num_frames):
-            for cam in range(self.num_cams):
-                print(f"frame number {frame}, cam number {cam}")
-                img_3_ch = self.box[frame, np.array([0, 1, 2]) + self.num_times_channels * cam, :, :]
-                img_3_ch = np.transpose(img_3_ch, [1, 2, 0])
-                masks = self.get_masks(img_3_ch)
-                new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
-                new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch, [2, 0, 1])
-                # show the image
-                # imtoshow = new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :]
-                # imtoshow = np.transpose(imtoshow, [1, 2, 0])
-                # mask_1 = new_box[frame, 3 + self.num_channels * cam, :, :]
-                # mask_2 = new_box[frame, 4 + self.num_channels * cam, :, :]
-                # imtoshow[:, :, 1] += mask_1
-                # imtoshow[:, :, 1] += mask_2
-                # matplotlib.use('TkAgg')
-                # plt.imshow(imtoshow)
-                # plt.show()
+        if self.num_times_channels == 3:
+            for frame in range(self.num_frames):
+                for cam in range(self.num_cams):
+                    print(f"frame number {frame}, cam number {cam}")
+                    img_3_ch = self.box[frame, np.array([0, 1, 2]) + self.num_times_channels * cam, :, :]
+                    img_3_ch = np.transpose(img_3_ch, [1, 2, 0])
+                    masks = self.get_masks(img_3_ch)
+                    new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
+                    new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch, [2, 0, 1])
+                    # show the image
+                    # imtoshow = new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :]
+                    # imtoshow = np.transpose(imtoshow, [1, 2, 0])
+                    # mask_1 = new_box[frame, 3 + self.num_channels * cam, :, :]
+                    # mask_2 = new_box[frame, 4 + self.num_channels * cam, :, :]
+                    # imtoshow[:, :, 1] += mask_1
+                    # imtoshow[:, :, 1] += mask_2
+                    # matplotlib.use('TkAgg')
+                    # plt.imshow(imtoshow)
+                    # plt.show()
+        elif self.num_times_channels == 5:
+            for frame in range(self.num_frames):
+                for cam in range(self.num_cams):
+                    print(f"frame number {frame}, cam number {cam}")
+                    img_5_ch = self.box[frame, np.array([0, 1, 2, 3, 4]) + self.num_times_channels * cam, :, :]
+                    img_5_ch = np.transpose(img_5_ch, [1, 2, 0])
+                    img_3_ch = img_5_ch[:, :, [1, 2, 3]]
+                    masks = self.get_masks(img_3_ch)
+                    new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
+                    new_box[frame, np.array([0, 1, 2, 3, 4]) + self.num_channels * cam, :, :] = np.transpose(img_5_ch, [2, 0, 1])
+                    # show the image
+                    # imtoshow = new_box[frame, np.array([0, 2, 4]) + self.num_channels * cam, :, :]
+                    # imtoshow = np.transpose(imtoshow, [1, 2, 0])
+                    # mask_1 = new_box[frame, 5 + self.num_channels * cam, :, :]
+                    # mask_2 = new_box[frame, 6 + self.num_channels * cam, :, :]
+                    # imtoshow[:, :, 1] += mask_1
+                    # imtoshow[:, :, 1] += mask_2
+                    # matplotlib.use('TkAgg')
+                    # plt.imshow(imtoshow)
+                    # plt.show()
         self.box = new_box
 
     @staticmethod
@@ -221,17 +287,15 @@ class Predictions:
                         self.box[frame, self.num_times_channels + mask_num + self.num_channels * cam, :, :] = new_mask
 
         # do dilation to all masks
-        self.box = adjust_masks_size(self.box, "PREDICT")
+
 
     def adjust_dimensions(self):  # todo: do it in a smarter less ugly way
         """ return a box with dimensions (num_frames, imsize, imsize, num_channels)"""
         if self.model_type == ALL_CAMS:
             # make input:
             self.box = np.transpose(self.box, [0, 2, 3, 1])
-            left_indexes = [0,1,2,3, 5,6,7,8, 10,11,12,13, 15,16,17,18]
-            right_indexes = [0,1,2,4, 5,6,7,9, 10,11,12,14, 15,16,17,19]
-            self.left_input = self.box[..., left_indexes]
-            self.right_input = self.box[..., right_indexes]
+            self.left_input = self.box[..., LEFT_INDS]
+            self.right_input = self.box[..., RIGHT_INDS]
             return
         self.box = np.transpose(self.box, (0, 3, 2, 1))
         if self.box.shape[-1] == 20:  # if number of channels is 5
@@ -239,6 +303,13 @@ class Predictions:
             x2 = np.expand_dims(self.box[:, :, :, 5:10], axis=1)
             x3 = np.expand_dims(self.box[:, :, :, 10:15], axis=1)
             x4 = np.expand_dims(self.box[:, :, :, 15:20], axis=1)
+            self.box = np.concatenate((x1, x2, x3, x4), axis=1)
+
+        if self.box.shape[-1] == 28:  # if number of channels is 7
+            x1 = np.expand_dims(self.box[:, :, :, 0:7], axis=1)
+            x2 = np.expand_dims(self.box[:, :, :, 7:14], axis=1)
+            x3 = np.expand_dims(self.box[:, :, :, 14:21], axis=1)
+            x4 = np.expand_dims(self.box[:, :, :, 21:28], axis=1)
             self.box = np.concatenate((x1, x2, x3, x4), axis=1)
 
     def save_predictions_to_h5(self):
@@ -277,35 +348,6 @@ class Predictions:
             f.attrs["prediction_runtime_secs"] = self.prediction_runtime
             f.attrs["total_runtime_secs"] = self.total_runtime
 
-    @staticmethod
-    def carve_voxels(masks, cameras):
-        # Create voxel grid
-        voxel_grid = o3d.geometry.VoxelGrid.create_dense(
-            width=1200,
-            height=800,
-            depth=800,
-            voxel_size=1,
-            origin=[-600, -400, -400])
-
-        # Project masks onto voxel grid using carve_silhouette function
-        for i in range(4):
-            # Get image and camera matrix for current mask
-            img = masks[i]
-            cam = cameras[i]
-
-            # Create silhouette from mask
-            silhouette = o3d.geometry.Image(img)
-
-            # Carve silhouette onto voxel grid
-            voxel_grid.carve_silhouette(silhouette, cam)
-
-        # Count number of voxels equal to 1 (intersection of all masks)
-        voxel_count = np.sum(voxel_grid.voxels == 1)
-
-        # Plot voxel grid (optional)
-        o3d.visualization.draw_geometries([voxel_grid])
-
-        return voxel_count
 
     @staticmethod
     def predict_Ypk(X, batch_size, model_peaks, save_confmaps=False):
@@ -372,18 +414,97 @@ class Predictions:
         return pred
 
     def make_masks_agree(self):
-        options = [[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]]
-        matrices = loadmat(CAMERAS_MATRICES_PATH)['projection_matrices']
+        # todo tomorrow: a 16 options array of masks for candidates to left
+        #  and a 16 options array of masks candidates to right
+        #  each candidate is a 16(options)x4(cameras)x2(masks)x192x192
+        options = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1],
+                   [0, 1, 0, 0], [0, 1, 0, 1], [0, 1, 1, 0], [0, 1, 1, 1],
+                   [1, 0, 0, 0], [1, 0, 0, 1], [1, 0, 1, 0], [1, 0, 1, 1],
+                   [1, 1, 0, 0], [1, 1, 0, 1], [1, 1, 1, 0], [1, 1, 1, 1]]
         for frame in range(self.num_frames):
-            masks_1 = self.box[frame, :, :, CAM_1][-2:]
-            masks_2 = self.box[frame, :, :, CAM_2][-2:]
-            masks_3 = self.box[frame, :, :, CAM_3][-2:]
-            masks_4 = self.box[frame, :, :, CAM_4][-2:]
-            all_masks = [masks_1, masks_2, masks_3, masks_4]
-            for option in options:
-                for cam in range(1, 4):
+            masks_1 = np.transpose(self.box[frame, :, :, CAM_1][-2:], [1, 2, 0])
+            masks_2 = np.transpose(self.box[frame, :, :, CAM_2][-2:], [1, 2, 0])
+            masks_3 = np.transpose(self.box[frame, :, :, CAM_3][-2:], [1, 2, 0])
+            masks_4 = np.transpose(self.box[frame, :, :, CAM_4][-2:], [1, 2, 0])
+            all_masks = np.array([masks_1, masks_2, masks_3, masks_4])
+            grades_1 = np.zeros((len(options),1))
+            grades_2 = np.zeros((len(options),1))
+            grades_both = np.zeros((len(options),1))
+            for i, option in enumerate(options) :
+                all_masks_op = all_masks[:]
+                all_masks_op_left, all_masks_op_right = self.switch_wings(all_masks_op, option)
+                option_grade1 = self.evaluate_option_1(all_masks_op_left, frame)
+                option_grade2 = self.evaluate_option_1(all_masks_op_right, frame)
 
+                grades_1[i] = option_grade1
+                grades_2[i] = option_grade2
+                grades_both[i] = option_grade1 + option_grade2
+                print(f"option : {option}, grade : {option_grade1}")
+                pass
+            best_op1 = np.argmin(grades_1)
+            best_op2 = np.argmin(grades_2)
+            best_op_both = np.argmin(grades_both)
+            print()
             pass
+
+    def switch_wings(self, all_masks_op, option):
+        all_masks_switched = np.array(all_masks_op)
+        for cam in range(self.num_cams):
+            if option[cam] == 1:
+                masks_i = all_masks_op[cam]
+                mask_0 = masks_i[:, :, 0]
+                mask_1 = masks_i[:, :, 1]
+                new_masks = np.zeros(masks_i.shape)
+                new_masks[:, :, 0] = mask_1
+                new_masks[:, :, 1] = mask_0
+                all_masks_switched[cam] = new_masks
+        all_masks_op_left = all_masks_switched[:, :, :, 0]
+        all_masks_op_right = all_masks_switched[:, :, :, 1]
+        return all_masks_op_left, all_masks_op_right
+
+    def evaluate_option_1(self, all_masks_op, frame):
+        m = self.cam_matrices
+        CMs = np.zeros((self.num_cams, 2))
+        real_CMs = np.zeros((self.num_cams, 2))
+        for cam in range(self.num_cams):
+            mask = all_masks_op[cam][:, :]
+            cm_p = center_of_mass(mask)
+            CMs[cam, :] = cm_p
+            y, x = cm_p[0], cm_p[1]
+            # matplotlib.use('TkAgg')
+            # plt.imshow(mask)
+            # plt.scatter(x, y, c='r', marker='o')
+            # plt.show()
+            real_x = x + self.cropzone[frame, cam, 1]
+            real_y = y + self.cropzone[frame, cam, 0]
+            real_y = 801 - real_y
+            real_CMs[cam, :] = np.array([real_x, real_y])
+        all_candidates_1, all_errors_1 = calculate_all_possible_triangulations(np.expand_dims(real_CMs, axis=1),
+                                                                     self.cam_matrices, self.rotation_matrix)
+        all_candidates = np.squeeze(all_candidates_1)[:6]
+        dists = np.mean(pdist(all_candidates))
+        size_hull = ConvexHull(all_candidates).volume
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points =o3d.utility.Vector3dVector(all_candidates)
+        box_size = point_cloud.get_max_bound() - point_cloud.get_min_bound()
+        box_volume = box_size[0]*box_size[1]*box_size[2]
+        return box_volume
+
+    @staticmethod
+    def adjust_mask(mask, radius=3):
+        mask = binary_closing(mask).astype(int)
+        mask = binary_dilation(mask, iterations=radius).astype(int)
+        return mask
+
+    def adjust_masks_size(self):
+        for frame in range(self.num_frames):
+            for cam in range(self.num_cams):
+                mask_1 = self.box[frame, self.num_times_channels + cam*self.num_channels, :, :]
+                mask_2 = self.box[frame, self.num_times_channels + 1 + cam * self.num_channels, :, :]
+                mask_1 = self.adjust_mask(mask_1)
+                mask_2 = self.adjust_mask(mask_2)
+                self.box[frame, self.num_times_channels + cam * self.num_channels, :, :] = mask_1
+                self.box[frame, self.num_times_channels + 1 + cam * self.num_channels, :, :] = mask_2
 
     def run_predict_box(self, batch_size=8):  # todo: consider do wings and body points predictions togather
         t0 = time()
@@ -392,12 +513,13 @@ class Predictions:
             return
         self.preprocess_box()
         self.add_masks()
+        self.adjust_masks_size()
         if self.is_video:
             self.fix_masks()
         self.box_to_save = self.box
         self.adjust_dimensions()
-        if model_type == ALL_CAMS:
-            self.make_masks_agree()
+        # if model_type == ALL_CAMS:
+        #     self.make_masks_agree()
         preprocessing_time = time() - t0
 
         preds_time = time()
@@ -406,12 +528,21 @@ class Predictions:
             Ypks = []
             for cam in range(self.num_cams):
                 print(f"predict wing 1 points cam {cam + 1}")
-                input_left = np.transpose(self.box[:, cam, :, :, [0, 1, 2, 3]], [1, 2, 3, 0])
+                if self.num_times_channels == 3:
+                    left_channels = [0, 1, 2, 3]
+                elif self.num_times_channels == 5:
+                    left_channels = [0, 1, 2, 3, 4, 5]
+                input_left = np.transpose(self.box[:, cam, :, :, left_channels], [1, 2, 3, 0])
                 Ypk_left, _, _, _ = Predictions.predict_Ypk(input_left,
                                                             batch_size,
                                                             self.pose_estimation_model)
                 print(f"predict wing 2 points cam {cam + 1}")
-                input_right = np.transpose(self.box[:, cam, :, :, [0, 1, 2, 4]], [1, 2, 3, 0])
+
+                if self.num_times_channels == 3:
+                    right_channels = [0, 1, 2, 4]
+                elif self.num_times_channels == 5:
+                    right_channels = [0, 1, 2, 3, 4, 6]
+                input_right = np.transpose(self.box[:, cam, :, :, right_channels], [1, 2, 3, 0])
                 Ypk_right, _, _, _ = Predictions.predict_Ypk(input_right,
                                                              batch_size,
                                                              self.pose_estimation_model)
@@ -468,24 +599,25 @@ if __name__ == "__main__":
     # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
     # wings
 
-    # model_type = PER_WING
+    model_type = PER_WING
     # model_type = TWO_WINGS_TOGATHER
-    model_type = ALL_CAMS
+    # model_type = ALL_CAMS
     wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
     # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
 
-    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
+    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 1\movie_1_1701_2200_500_frames_5tc_7tj.h5.h5"
 
-    pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\two wings togather\TWO_WINGS_TOGATHER_21_3_bs_65_bpe_200_fil_64\best_model.h5"
+    trainset_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\pre_train_1000_frames_5_channels_ds_3tc_7tj.h5"
+    pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\TRAIN_ON_3_GOOD_CAMERAS_MODEL_Mar 30\best_model.h5"
     # box_path_no_masks = r"dataset_movie_6_2001_2600.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\predictions_2_wings_together_model_xx.h5"
+    out_path = r"datasets\predict_over_all_random_trainset_train_on_3_cams.h5"
     predictions = Predictions(
-                              box_path_no_masks,
+                              trainset_path,
                               model_type,
                               out_path,
                               pose_estimation_model_path_wings,
                               wings_detection_model_path,
-                              is_video=True
+                              is_video=False
                              )
     predictions.run_predict_box()
 

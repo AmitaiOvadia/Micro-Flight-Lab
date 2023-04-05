@@ -31,7 +31,7 @@ class Trainer:
             self.batches_per_epoch = 1
 
         # create the running folders
-        self.run_name = f"{self.model_type}_{date.today().strftime('%b %d')}_7_channels"
+        self.run_name = f"{self.model_type}_{date.today().strftime('%b %d')}"
         self.run_path = self.create_run_folders()
 
         # do preprocessing according to the model type
@@ -163,6 +163,7 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    trainer = Trainer("configuration.json")
+    path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\5 times channels\TRAIN_ON_3_GOOD_CAMERAS_MODEL_Mar 31_7_channels\configuration.json"
+    trainer = Trainer(path)
     trainer.train()
 
