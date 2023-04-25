@@ -163,7 +163,6 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\5 times channels\TRAIN_ON_3_GOOD_CAMERAS_MODEL_Mar 31_7_channels\configuration.json"
-    trainer = Trainer(path)
+    trainer = Trainer("configuration.json")
     trainer.train()
 
