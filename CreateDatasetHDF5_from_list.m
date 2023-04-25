@@ -20,23 +20,24 @@ sparse_folder_path='C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-fligh
 %     movie_indexes(:,2) = (1:n);
 %     best_frames_mov_idx = [best_frames_mov_idx; movie_indexes];
 % end
-% movie_num = 17;
-% best_frames_mov_idx = zeros(600, 2);
-% best_frames_mov_idx(:, 2) = (1401:2000);
-% best_frames_mov_idx(:, 1) = movie_num;
-% num_frames=size(best_frames_mov_idx,1);
+
+movie_num = 17;
+best_frames_mov_idx = zeros(600, 2);
+best_frames_mov_idx(:, 2) = (1401:2000);
+best_frames_mov_idx(:, 1) = movie_num;
+num_frames=size(best_frames_mov_idx,1);
 
 %% set a apecific movie
-% movie_num = 14;
-% best_frames_mov_idx = zeros(2000, 2);
-% best_frames_mov_idx(:, 2) = (301:2300);
+% movie_num = 1;
+% best_frames_mov_idx = zeros(500, 2);
+% best_frames_mov_idx(:, 2) = (1701:2200);
 % best_frames_mov_idx(:, 1) = movie_num;
 % num_frames=size(best_frames_mov_idx,1);
 
 %% create 5 channels dataset
-a = load("C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\best_frames_mov_idx.mat");
-best_frames_mov_idx = a.best_frames_mov_idx;
-num_frames = size(best_frames_mov_idx, 1);
+% a = load("C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\best_frames_mov_idx.mat");
+% best_frames_mov_idx = a.best_frames_mov_idx;
+% num_frames = size(best_frames_mov_idx, 1);
 %%
 num_masks = 0;
 num_cams=4;
@@ -56,7 +57,7 @@ num_channels=num_cams*(num_time_channels + num_masks);
 data=zeros([crop_size,num_channels],'single');
 tic
 
-save_name=fullfile(sparse_folder_path,['dataset_random_frames_','ds_',...
+save_name=fullfile(sparse_folder_path,['movie_17_1401_2000_','ds_',...
     num2str(num_time_channels),'tc_',...
     num2str(time_jump),'tj.h5']);
 
@@ -64,6 +65,11 @@ save_name=fullfile(sparse_folder_path,['dataset_random_frames_','ds_',...
 % - box - holds the cropped images for all cameras
 % - cropzone - holds the top left coordinate of the cropped window
 % - frameInds - holds the frame indices for synchronization/testing
+%% save best_frames_mov_idx
+h5create(save_name,'/best_frames_mov_idx',size(best_frames_mov_idx))
+h5write(save_name,'/best_frames_mov_idx',best_frames_mov_idx);
+
+%% create the other datasets
 h5create(save_name,'/box',[crop_size,num_channels,Inf],'ChunkSize',[crop_size,num_channels,1],...
     'Datatype','single','Deflate',1)
 h5create(save_name,'/cropzone',[2,num_cams,Inf],'ChunkSize',[2,num_cams,1],...
