@@ -28,7 +28,9 @@ class Network:
 
     def config_model(self):
         if self.model_type == ALL_CAMS:
-            model = self.ed3d()
+            model = self.all_4_cams()
+        elif self.model_type == ALL_CAMS_AND_3_GOOD_CAMS:
+            model = self.all_3_cams()
         elif self.model_type == TWO_WINGS_TOGATHER:
             model = self.two_wings_net()
         else:
@@ -100,7 +102,70 @@ class Network:
                     loss=self.loss_function)
         return net
 
-    def ed3d(self):
+
+    def all_3_cams(self):
+        x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
+        num_cameras = 3
+        # encoder encodes 1 image at a time
+        shared_encoder = self.encoder2d_atrous((self.image_size[0], self.image_size[1],
+                                                self.image_size[2] // num_cameras),
+                                          self.num_base_filters, self.num_blocks, self.kernel_size, self.dilation_rate, self.dropout)
+        shared_encoder.summary()
+
+        # for average
+        # shared_decoder = decoder2d(
+        #    (shared_encoder.output_shape[1], shared_encoder.output_shape[2], 2 * shared_encoder.output_shape[3])
+        #    , num_output_channels, filters, num_blocks, kernel_size)
+        # for cat
+
+        # decoder accepts 1 encoder output concatenated with all other cameras encoders output so 1 + num cams
+        shared_decoder = self.decoder2d(
+            (shared_encoder.output_shape[1], shared_encoder.output_shape[2],
+             (1 + num_cameras) * shared_encoder.output_shape[3]),
+            self.number_of_output_channels // num_cameras, self.num_base_filters, self.num_blocks, self.kernel_size)
+        shared_decoder.summary()
+
+        # spliting input of 12 channels to 3 different cameras
+        num_input_channels = self.image_size[-1]
+        if num_input_channels == 12:
+            x_in_split_1 = Lambda(lambda x: x[..., 0:4], name="lambda_1")(x_in)
+            x_in_split_2 = Lambda(lambda x: x[..., 4:8], name="lambda_2")(x_in)
+            x_in_split_3 = Lambda(lambda x: x[..., 8:12], name="lambda_3")(x_in)
+        elif num_input_channels == 28:
+            x_in_split_1 = Lambda(lambda x: x[..., 0:6], name="lambda_1")(x_in)
+            x_in_split_2 = Lambda(lambda x: x[..., 6:12], name="lambda_2")(x_in)
+            x_in_split_3 = Lambda(lambda x: x[..., 12:18], name="lambda_3")(x_in)
+        # different outputs of encoder
+        code_out_1 = shared_encoder(x_in_split_1)
+        code_out_2 = shared_encoder(x_in_split_2)
+        code_out_3 = shared_encoder(x_in_split_3)
+
+        # concatenated output of the 3 different encoders
+        x_code_merge = Concatenate()([code_out_1, code_out_2, code_out_3])
+
+        # shorter latent vector : each map_out gets only the other encoded vectors
+        # map_out_1 = shared_decoder(Concatenate()([code_out_1, code_out_2, code_out_3, code_out_4]))
+        # map_out_2 = shared_decoder(Concatenate()([code_out_2, code_out_1, code_out_3, code_out_4]))
+        # map_out_3 = shared_decoder(Concatenate()([code_out_3, code_out_1, code_out_2, code_out_4]))
+        # map_out_4 = shared_decoder(Concatenate()([code_out_4, code_out_1, code_out_2, code_out_3]))
+
+        # prepare encoder's input as camera + concatenated latent vector of all cameras
+        map_out_1 = shared_decoder(Concatenate()([code_out_1, x_code_merge]))
+        map_out_2 = shared_decoder(Concatenate()([code_out_2, x_code_merge]))
+        map_out_3 = shared_decoder(Concatenate()([code_out_3, x_code_merge]))
+
+        # merging all the encoders outputs, meaning we get a (M, M, num_pnts_per_wing * num_cams) confmaps
+        x_maps_merge = Concatenate()([map_out_1, map_out_2, map_out_3])
+
+        net = Model(inputs=x_in, outputs=x_maps_merge, name="ed3d")
+        net.summary()
+        net.compile(optimizer=Adam(amsgrad=False),
+                    loss=self.loss_function)
+        # loss="categorical_crossentropy")
+        return net
+
+
+    def all_4_cams(self):
         x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
         num_cameras = 4
         # encoder encodes 1 image at a time
@@ -123,11 +188,17 @@ class Network:
         shared_decoder.summary()
 
         # spliting input of 12 channels to 3 different cameras
-        x_in_split_1 = Lambda(lambda x: x[..., 0:4], name="lambda_1")(x_in)
-        x_in_split_2 = Lambda(lambda x: x[..., 4:8], name="lambda_2")(x_in)
-        x_in_split_3 = Lambda(lambda x: x[..., 8:12], name="lambda_3")(x_in)
-        x_in_split_4 = Lambda(lambda x: x[..., 12:16], name="lambda_4")(x_in)
-
+        num_input_channels = self.image_size[-1]
+        if num_input_channels == 16:
+            x_in_split_1 = Lambda(lambda x: x[..., 0:4], name="lambda_1")(x_in)
+            x_in_split_2 = Lambda(lambda x: x[..., 4:8], name="lambda_2")(x_in)
+            x_in_split_3 = Lambda(lambda x: x[..., 8:12], name="lambda_3")(x_in)
+            x_in_split_4 = Lambda(lambda x: x[..., 12:16], name="lambda_4")(x_in)
+        elif num_input_channels == 24:
+            x_in_split_1 = Lambda(lambda x: x[..., 0:6], name="lambda_1")(x_in)
+            x_in_split_2 = Lambda(lambda x: x[..., 6:12], name="lambda_2")(x_in)
+            x_in_split_3 = Lambda(lambda x: x[..., 12:18], name="lambda_3")(x_in)
+            x_in_split_4 = Lambda(lambda x: x[..., 18:24], name="lambda_4")(x_in)
         # different outputs of encoder
         code_out_1 = shared_encoder(x_in_split_1)
         code_out_2 = shared_encoder(x_in_split_2)

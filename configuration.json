@@ -4,8 +4,8 @@
 
     "// training parameters //" : 0,
   "batch_size": 20,
-  "epochs" : 50,
-  "batches per epoch" : 300,
+  "epochs" : 40,
+  "batches per epoch" : 400,
   "loss_function": "mean_squared_error",
   "val_fraction" : 0.1,
   "learning rate": 0.001,
@@ -19,9 +19,10 @@
   "convolution kernel size" : 3,
 
   "// preprocess parameters //" : 0,
-  "model type":  "ALL_CAMS",
-  "test_path" : "dataset_movie_7_channels_ds_5tc_14tj.h5",
-  "data_path" : "dataset_random_frames_7_channels_ds_5tc_14tj.h5",
+  "rank wing size": 2,
+    "model type":  "ALL_CAMS",
+  "test_path" : "trainset_random_14_pts_yolo_masks.h5",
+  "data_path" : "train_set_movie_14_pts_yolo_masks.h5",
   "mix_with_test" : 1,
   "mask dilation" : 3,
 

@@ -14,6 +14,7 @@ class Preprocessor:
         self.model_type = config['model type']
         self.mask_dilation = config['mask dilation']
         self.debug_mode = bool(config['debug mode'])
+        self.wing_size_rank = config["rank wing size"]
         self.box, self.confmaps = self.load_dataset(self.data_path)
         self.num_frames = self.box.shape[1]
         self.num_channels = self.box.shape[-1]
@@ -60,9 +61,9 @@ class Preprocessor:
         X = self.preprocess(X, permute=None)
         Y = self.preprocess(Y, permute=None)
         if X.shape[0] != 2:
-            X = np.transpose(X, [5, 4, 3, 2, 1, 0])
+            X = X.T
         if Y.shape[0] != 2:
-            Y = np.transpose(Y, [5, 4, 3, 2, 1, 0])
+            Y = Y.T
         return X, Y
 
     def do_mix_with_test(self):
@@ -260,46 +261,55 @@ class Preprocessor:
                 adjusted_mask = self.adjust_mask(mask)
                 self.box[frame, cam, :, :, self.first_mask_ind] = adjusted_mask
 
-    def take_n_good_cameras(self, n):
-        num_frames = self.box.shape[0]
-        num_cams = self.box.shape[1]
+    @staticmethod
+    def take_n_good_cameras(box, confmaps, n, wing_size_rank=3):
+        num_frames = box.shape[0]
+        num_cams = box.shape[1]
         new_num_cams = n
-        image_shape = self.box.shape[2]
-        num_channels_box = self.box.shape[-1]
-        num_channels_confmap = self.confmaps.shape[-1]
+        image_shape = box.shape[2]
+        num_channels_box = box.shape[-1]
+        num_channels_confmap = confmaps.shape[-1]
         new_box = np.zeros((num_frames, new_num_cams, image_shape, image_shape, num_channels_box))
         new_confmap = np.zeros((num_frames, new_num_cams, image_shape, image_shape, num_channels_confmap))
+        small_wings_box = np.zeros((num_frames, image_shape, image_shape, num_channels_box))
+        small_wings_confmaps = np.zeros((num_frames, image_shape, image_shape, num_channels_confmap))
+        d_size_wings_inds = np.zeros((num_frames,))
         for frame in range(num_frames):
             wings_size = np.zeros(num_cams)
             for cam in range(num_cams):
-                wing_mask = self.box[frame, cam, :, :, -1]
+                wing_mask = box[frame, cam, :, :, -1]
                 wings_size[cam] = np.count_nonzero(wing_mask)
             wings_size_argsort = np.argsort(wings_size)[::-1]
-            best_n_cameras = wings_size_argsort[:new_num_cams]
-            new_box[frame, ...] = self.box[frame, best_n_cameras, ...]
-            new_confmap[frame, ...] = self.confmaps[frame, best_n_cameras, ...]
-        self.box, self.confmaps = new_box, new_confmap
+            d_size_wing_ind = wings_size_argsort[wing_size_rank]
+            d_size_wings_inds[frame] = d_size_wing_ind
+            best_n_cameras = np.sort(wings_size_argsort[:new_num_cams])
+            new_box[frame, ...] = box[frame, best_n_cameras, ...]
+            new_confmap[frame, ...] = confmaps[frame, best_n_cameras, ...]
+            small_wings_box[frame, ...] = box[frame, d_size_wing_ind, ...]
+            small_wings_confmaps[frame, ...] = confmaps[frame, d_size_wing_ind, ...]
+        return new_box, new_confmap, small_wings_box, small_wings_confmaps, d_size_wings_inds.astype(int)
 
     def reshape_for_ALL_CAMS(self):
         image_size = self.confmaps.shape[-2]
         num_channels_img = self.box.shape[-1]
         num_channels_confmap = self.confmaps.shape[-1]
+        num_cams = self.box.shape[1]
+
         # box = box.reshape([-1, image_size, image_size, num_channels_img])
         # confmaps = confmaps.reshape([-1, image_size, image_size, num_channels_confmap])
-        self.box = self.box.reshape([-1, 4, image_size, image_size, num_channels_img])
-        self.confmaps = self.confmaps.reshape([-1, 4, image_size, image_size, num_channels_confmap])
+        self.box = self.box.reshape([-1, num_cams, image_size, image_size, num_channels_img])
+        self.confmaps = self.confmaps.reshape([-1, num_cams, image_size, image_size, num_channels_confmap])
 
-        box_1 = self.box[:, 0, :, :, :]
-        box_2 = self.box[:, 1, :, :, :]
-        box_3 = self.box[:, 2, :, :, :]
-        box_4 = self.box[:, 3, :, :, :]
-        self.box = np.concatenate((box_1, box_2, box_3, box_4), axis=-1)
+        cam_boxes = []
+        cam_confmaps = []
+        for cam in range(num_cams):
+            box_cam_i = self.box[:, cam, :, :, :]
+            cam_confmaps_i = self.confmaps[:, cam, :, :, :]
+            cam_boxes.append(box_cam_i)
+            cam_confmaps.append(cam_confmaps_i)
+        self.box = np.concatenate(cam_boxes, axis=-1)
+        self.confmaps = np.concatenate(cam_confmaps, axis=-1)
 
-        confmaps_1 = self.confmaps[:, 0, :, :, :]
-        confmaps_2 = self.confmaps[:, 1, :, :, :]
-        confmaps_3 = self.confmaps[:, 2, :, :, :]
-        confmaps_4 = self.confmaps[:, 3, :, :, :]
-        self.confmaps = np.concatenate((confmaps_1, confmaps_2, confmaps_3, confmaps_4), axis=-1)
 
     def do_reshape_per_wing(self):
         """ reshape input to a per wing model input """
@@ -310,9 +320,18 @@ class Preprocessor:
         self.confmaps = np.concatenate((confmaps_0, confmaps_1), axis=0)
         if self.model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
             n = 3 if self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL else 2
-            self.take_n_good_cameras(n)
-        if self.model_type == ALL_CAMS:
+            self.box, self.confmaps, _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, n)
+        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS:
+            n = 3 if self.model_type == ALL_CAMS_AND_3_GOOD_CAMS else 4
+            if n == 3:
+                self.box, self.confmaps,  _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, n)
             self.reshape_for_ALL_CAMS()
+            self.num_samples = self.box.shape[0]
+            return
+        if self.model_type == PER_WING_SMALL_WINGS_MODEL:
+            _, _, self.box, self.confmaps, _ = self.take_n_good_cameras(self.box, self.confmaps, 3)
+        if self.model_type == PER_WING_1_SIZE_RANK:
+            _, _, self.box, self.confmaps, _ = self.take_n_good_cameras(self.box, self.confmaps, 3, self.wing_size_rank)
         else:
             self.box = np.reshape(self.box, newshape=[self.box.shape[0] * self.box.shape[1],
                                                       self.box.shape[2], self.box.shape[3],
@@ -379,7 +398,7 @@ class Preprocessor:
             return self.do_reshape_per_wing
         elif self.model_type == BODY_PARTS_MODEL:
             return self.reshape_to_body_parts
-        elif self.model_type == ALL_CAMS:
+        elif self.model_type == ALL_CAMS or ALL_CAMS_AND_3_GOOD_CAMS or self.model_type == PER_WING_SMALL_WINGS_MODEL:
             return self.do_reshape_per_wing
 
     @staticmethod

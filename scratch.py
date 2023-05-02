@@ -64,6 +64,7 @@ def create_wings_syncronized_dataset():
     with h5py.File("box_to_save_movie_1.h5", "w") as f:
         ds_pos = f.create_dataset("box", data=box_to_save, compression="gzip",
                                   compression_opts=1)
+
 def get_masks(img_3_ch, model):
     net_input = img_3_ch
     masks_2 = np.zeros((2, 192, 192))
@@ -91,14 +92,44 @@ def get_masks(img_3_ch, model):
 def use_tracker_to_add_wings():
     from ultralytics import YOLO
     import h5py
+    import cv2
+    from PIL import Image
+    import supervision as sv
+    import matplotlib.pyplot as plt
+    import matplotlib
+    import torch
+
+    matplotlib.use('TkAgg')
     wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
-    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\movie_17_1401_2000_ds_5tc_14tj.h5"
+    # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
+    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\movie_17_1401_2000_ds_5tc_14tj.h5";
     box = h5py.File(box_path_no_masks, "r")["/box"][:]
+    # inds = [3,4,5]
+    inds = [11, 12, 13]
+    box = box[:100, inds, :, :]
+    box_tensor = torch.from_numpy(255 * box)
+
+    box = np.transpose(box, [0, 3, 2, 1])
+    box_list = [box[i, :, :, :] for i in range(box.shape[0])]
+    box_list = [np.round(255 * img) for img in box_list]
+    box_list = [np.ascontiguousarray(img) for img in box_list]  # make sure the arrays are contiguous
+
     model = YOLO(wings_detection_model_path)
     model.fuse()
     # Run object detection on saved video
-    results = model.predict(source='video.gif', save=True, save_txt=True, tracker='botsort.yaml')
-    pass
+    results = model.predict(source=box_list, save=False, save_txt=False, max_det=2, retina_masks=True)
+    # results = model.track(source=box_list,stream=False, persist=False, max_det=2)
+    for i, result in enumerate(results):
+        masks = result.masks.data.numpy()
+        orig_img = result.orig_img/255
+        for wing in range(min(masks.shape[0], 2)):
+            mask = masks[wing, :, :]
+            orig_img[:, :, wing] += 1 * mask
+            orig_img[:, :, wing + 1] += 1 * mask
+        plt.imshow(orig_img)
+        plt.show()
+
+
 
 def save_as_video():
     import numpy as np
@@ -111,21 +142,37 @@ def save_as_video():
     wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
     box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
     box = h5py.File(box_path_no_masks, "r")["/box"][:]
+    # box[frame, 3 + np.array([0, 1, 2]), :, :].T)]
 
-    img = []  # some array of images
-    frames = []  # for storing the generated images
-    fig = plt.figure()
-    for frame in range(box.shape[0]):
-        print(f"saving frame {frame + 1}")
-        frames.append([plt.imshow(box[frame, 3 + np.array([0, 1, 2]), :, :].T, cmap=cm.Greys_r, animated=True)])
-    ani = animation.ArtistAnimation(fig, frames, interval=50, blit=True, repeat_delay=1000)
-    ani.save('video.gif')
-    plt.show()
+    fig, ax = plt.subplots()
+
+    # Create an empty plot
+    im = ax.imshow(box[0, 3 + np.array([0, 1, 2]), :, :].T, cmap='gray')
+
+    # Define the update function
+    def update(i):
+        # im.set_data(box[i, 3 + np.array([0, 1, 2]), :, :].T)
+        im = ax.imshow(box[i, 3 + np.array([0, 1, 2]), :, :].T, extent=[0, 1, 0, 1])
+        return im,
+
+    # Create the animation object
+    ani = animation.FuncAnimation(fig, update, frames=10, repeat=True)
+
+    # Save the animation as an mp4 video
+    ani.save('animation.gif', writer='pillow', bbox_inches='tight')
 
 
 
 
 if __name__ == "__main__":
-    use_tracker_to_add_wings()
+    # use_tracker_to_add_wings()
     # save_as_video()
+
+    H = np.array([[0, -1], [1, 0]])
+    x = np.random.rand(2)*100
+    x = np.array([100 ,1])
+    z = x.T @ H @ x
+    print(z)
+    pass
+    # add times channels:
 

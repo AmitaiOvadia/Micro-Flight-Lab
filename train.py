@@ -25,13 +25,15 @@ class Trainer:
             self.model_type = config["model type"]
             self.clean = bool(config["clean"])
             self.debug_mode = bool(config["debug mode"])
+            self.wing_rank = config["rank wing size"]
             self.preprocessor = preprocessor.Preprocessor(config)
 
         if self.debug_mode:
             self.batches_per_epoch = 1
 
         # create the running folders
-        self.run_name = f"{self.model_type}_{date.today().strftime('%b %d')}"
+        custom_per_wing = f"_trained_on_wing_rank_{self.wing_rank}" if self.model_type == PER_WING_1_SIZE_RANK else ""
+        self.run_name = f"{self.model_type}_{date.today().strftime('%b %d')}{custom_per_wing}"
         self.run_path = self.create_run_folders()
 
         # do preprocessing according to the model type
