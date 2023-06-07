@@ -1,11 +1,13 @@
 from constants import *
 from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras import models
 from tensorflow.keras.layers import *
 from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, Add, MaxPooling2D, Concatenate, Lambda, Reshape, \
                                     Activation, Dropout
 import tensorflow as tf
 
 from tensorflow.keras.optimizers import Adam
+import tensorflow.keras.backend as K
 
 
 class Network:
@@ -33,9 +35,70 @@ class Network:
             model = self.all_3_cams()
         elif self.model_type == TWO_WINGS_TOGATHER:
             model = self.two_wings_net()
+        elif self.model_type == HEAD_TAIL_ALL_CAMS:
+            model = self.head_tail_all_cams()
+        elif self.model_type == C2F_PER_WING:
+            model = self.C2F_per_wing()
+        elif self.model_type == COARSE_PER_WING:
+            model = self.coarse_per_wing()
+        elif self.model_type == HOURGLASS:
+            model = self.hourglass()
         else:
             model = self.basic_nn()
         return model
+
+    def head_tail_all_cams(self):
+        x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
+        num_cameras = 4
+        # encoder encodes 1 image at a time
+        shared_encoder = self.encoder2d_atrous((self.image_size[0], self.image_size[1],
+                                                self.image_size[2] // num_cameras),
+                                               self.num_base_filters, self.num_blocks, self.kernel_size,
+                                               self.dilation_rate, self.dropout)
+        shared_encoder.summary()
+
+        # decoder accepts 1 encoder output concatenated with all other cameras encoders output so 1 + num cams
+        shared_decoder = self.decoder2d(
+            (shared_encoder.output_shape[1], shared_encoder.output_shape[2],
+             (1 + num_cameras) * shared_encoder.output_shape[3]),
+            self.number_of_output_channels // num_cameras, self.num_base_filters, self.num_blocks, self.kernel_size)
+        shared_decoder.summary()
+
+        # spliting input of 12 channels to 3 different cameras
+        # x_in_split_1 = Lambda(lambda x: x[..., 0:3], name="lambda_1")(x_in)
+        # x_in_split_2 = Lambda(lambda x: x[..., 3:6], name="lambda_2")(x_in)
+        # x_in_split_3 = Lambda(lambda x: x[..., 6:9], name="lambda_3")(x_in)
+        # x_in_split_4 = Lambda(lambda x: x[..., 9:12], name="lambda_4")(x_in)
+
+        # spliting input of 20 channels to 3 different cameras
+        x_in_split_1 = Lambda(lambda x: x[..., 0:5], name="lambda_1")(x_in)
+        x_in_split_2 = Lambda(lambda x: x[..., 5:10], name="lambda_2")(x_in)
+        x_in_split_3 = Lambda(lambda x: x[..., 10:15], name="lambda_3")(x_in)
+        x_in_split_4 = Lambda(lambda x: x[..., 15:20], name="lambda_4")(x_in)
+
+        # different outputs of encoder
+        code_out_1 = shared_encoder(x_in_split_1)
+        code_out_2 = shared_encoder(x_in_split_2)
+        code_out_3 = shared_encoder(x_in_split_3)
+        code_out_4 = shared_encoder(x_in_split_4)
+
+        # concatenated output of the 4 different encoders
+        x_code_merge = Concatenate()([code_out_1, code_out_2, code_out_3, code_out_4])
+
+        # prepare encoder's input as camera + concatenated latent vector of all cameras
+        map_out_1 = shared_decoder(Concatenate()([code_out_1, x_code_merge]))
+        map_out_2 = shared_decoder(Concatenate()([code_out_2, x_code_merge]))
+        map_out_3 = shared_decoder(Concatenate()([code_out_3, x_code_merge]))
+        map_out_4 = shared_decoder(Concatenate()([code_out_4, x_code_merge]))
+
+        # merging all the encoders outputs, meaning we get a (M, M, num_pnts_per_wing * num_cams) confmaps
+        x_maps_merge = Concatenate()([map_out_1, map_out_2, map_out_3, map_out_4])
+
+        net = Model(inputs=x_in, outputs=x_maps_merge, name="head_tail_all_cams")
+        net.summary()
+        net.compile(optimizer=Adam(amsgrad=False),
+                    loss=self.loss_function)
+        return net
 
     def basic_nn(self):
         x_in = Input(self.image_size, name="x_in")
@@ -48,10 +111,61 @@ class Network:
         decoder = self.decoder2d((encoder.output_shape[1], encoder.output_shape[2], encoder.output_shape[3]),
                             self.number_of_output_channels, self.num_base_filters, self.num_blocks, self.kernel_size)
         decoder.summary()
-
         x_out = decoder(encoder(x_in))
 
         net = Model(inputs=x_in, outputs=x_out, name="basic_nn")
+        net.summary()
+        net.compile(optimizer=Adam(learning_rate=self.learning_rate),
+                    loss=self.loss_function)
+        return net
+
+    def coarse_per_wing(self):
+        self.num_blocks = 3  # important!
+        x_in = Input(self.image_size, name="x_in")
+        encoder_p1 = self.encoder2d_atrous((self.image_size[0], self.image_size[1], self.image_size[2]),
+                                           self.num_base_filters,
+                                           self.num_blocks, self.kernel_size,
+                                           self.dilation_rate,
+                                           self.dropout, add_name="1")
+        encoder_p1.summary()
+        decoder_p1 = self.decoder2d(
+            (encoder_p1.output_shape[1], encoder_p1.output_shape[2], encoder_p1.output_shape[3]),
+            self.number_of_output_channels, self.num_base_filters, self.num_blocks,
+            self.kernel_size, add_name="1")
+
+        decoder_p1.summary()
+        x_out = decoder_p1(encoder_p1(x_in))
+        net = Model(inputs=x_in, outputs=x_out, name="coarse_per_wing")
+        net.summary()
+        net.compile(optimizer=Adam(learning_rate=self.learning_rate),
+                    loss=self.loss_function)
+        return net
+
+    def C2F_per_wing(self):
+        x_in = Input(self.image_size, name="x_in")
+
+        # part 1 load a trained fixed model for the coarse estimation:
+        coarse_trained_model = r"coarse per wing sigma 6 model.h5"
+        trained_model = models.load_model(coarse_trained_model)
+        trained_model.trainable = False
+        x_out_p1 = trained_model(x_in)  # x_out_p1 is (192, 192, 7) confmaps of sigma 6
+
+        # part 2: run network on concatenated input (192, 192, 4) + (192, 192, 7) = (192, 192, 11)
+        x_in_p2 = Concatenate()([x_in, x_out_p1])  # (192, 192, 4) cat (192, 192, 7) = (192, 192, 11)
+        # continue the same
+        encoder_p2 = self.encoder2d_atrous((x_in_p2.shape[1], x_in_p2.shape[2], x_in_p2.shape[3]),
+                                        self.num_base_filters,
+                                        self.num_blocks, self.kernel_size,
+                                        self.dilation_rate,
+                                        self.dropout, add_name="2")
+        encoder_p2.summary()
+        decoder_p2 = self.decoder2d((encoder_p2.output_shape[1], encoder_p2.output_shape[2], encoder_p2.output_shape[3]),
+                                 self.number_of_output_channels, self.num_base_filters, self.num_blocks,
+                                 self.kernel_size, add_name="2")
+        decoder_p2.summary()
+        x_out = decoder_p2(encoder_p2(x_in_p2))
+
+        net = Model(inputs=x_in, outputs=x_out, name="C2F_per_wing")
         net.summary()
         net.compile(optimizer=Adam(learning_rate=self.learning_rate),
                     loss=self.loss_function)
@@ -101,7 +215,6 @@ class Network:
         net.compile(optimizer=Adam(amsgrad=False),
                     loss=self.loss_function)
         return net
-
 
     def all_3_cams(self):
         x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
@@ -163,7 +276,6 @@ class Network:
                     loss=self.loss_function)
         # loss="categorical_crossentropy")
         return net
-
 
     def all_4_cams(self):
         x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
@@ -231,7 +343,7 @@ class Network:
         return net
 
     @staticmethod
-    def encoder2d_atrous(img_size, filters, num_blocks, kernel_size, dilation_rate, dropout):
+    def encoder2d_atrous(img_size, filters, num_blocks, kernel_size, dilation_rate, dropout, add_name=""):
         x_in = Input(img_size)
         dilation_rate = (dilation_rate, dilation_rate)
         for block_ind in range(num_blocks):
@@ -260,10 +372,10 @@ class Network:
         x_out = Conv2D(filters * (2 ** num_blocks), kernel_size, dilation_rate=dilation_rate,
                        padding="same", activation="relu")(x_out)
         x_out = Dropout(dropout)(x_out)
-        return Model(inputs=x_in, outputs=x_out, name="Encoder2DAtrous")
+        return Model(inputs=x_in, outputs=x_out, name=f"Encoder2DAtrous{add_name}")
 
     @staticmethod
-    def decoder2d(input_shape, num_output_channels, filters, num_blocks, kernel_size):
+    def decoder2d(input_shape, num_output_channels, filters, num_blocks, kernel_size, add_name=""):
         x_in = Input(input_shape)
         for block_ind in range(num_blocks - 1, 0, -1):
             if block_ind == (num_blocks - 1):
@@ -284,4 +396,5 @@ class Network:
                                 activation="linear",
                                 kernel_initializer="glorot_normal")(x_out)
 
-        return Model(inputs=x_in, outputs=x_out, name="Decoder2D")
+        return Model(inputs=x_in, outputs=x_out, name=f"Decoder2D{add_name}")
+

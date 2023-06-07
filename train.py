@@ -1,3 +1,5 @@
+import numpy as np
+
 from constants import *
 import json
 import preprocessor
@@ -10,6 +12,7 @@ from datetime import date
 from time import time
 
 # configuration.json file of parameters to save all the parameters: in jason format
+
 
 class Trainer:
     def __init__(self, configuration_path):
@@ -35,10 +38,16 @@ class Trainer:
         custom_per_wing = f"_trained_on_wing_rank_{self.wing_rank}" if self.model_type == PER_WING_1_SIZE_RANK else ""
         self.run_name = f"{self.model_type}_{date.today().strftime('%b %d')}{custom_per_wing}"
         self.run_path = self.create_run_folders()
+        self.save_configuration()
 
         # do preprocessing according to the model type
         self.preprocessor.do_preprocess()
         self.box, self.confmaps = self.preprocessor.get_box(), self.preprocessor.get_confmaps()
+
+        # take only the 3 time channels and the head tail inds
+        # self.box = self.box[...]
+        # self.confmaps = self.confmaps[..., 2:]
+
         # self.visualize_box_confmaps()
 
         # get the right cnn architecture
@@ -67,7 +76,7 @@ class Trainer:
         print("creating generators - done!")
 
     def train(self):
-        self.save_configuration()
+
         self.model.save(os.path.join(self.run_path, "initial_model.h5"))
         epoch0 = 0
         t0_train = time()
@@ -133,9 +142,24 @@ class Trainer:
         """ visualize the input to the network """
         import matplotlib.pyplot as plt
         import matplotlib
+        matplotlib.use('TkAgg')
+
         num_images = self.box.shape[0]
         for image in range(num_images):
             print(image)
+            if self.model_type == HEAD_TAIL_ALL_CAMS:
+                fig, axs = plt.subplots(2, 2)
+                axs = axs.flatten()
+                flies = self.box[image, ...]
+                confmaps = self.confmaps[image, ...]
+                for i, ax in enumerate(axs):
+                    fly_inds = np.array([0, 1, 2]) + i*3
+                    confmaps_inds = np.array([0, 1]) + i*2
+                    image = flies[..., fly_inds]
+                    image[..., 1] += np.sum(confmaps[..., confmaps_inds], axis=-1)
+                    ax.imshow(image)
+                plt.show()
+                continue
             fig = plt.figure(figsize=(8, 8))
             fly = self.box[image, :, :, 1]
             masks = np.zeros((192, 192))
@@ -159,7 +183,6 @@ class Trainer:
                 a = 0
             img[:, :, 0] = masks
 
-            matplotlib.use('TkAgg')
             plt.imshow(img)
             plt.show()
 

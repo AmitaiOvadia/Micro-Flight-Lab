@@ -479,11 +479,12 @@ class Predictions:
             print("Error: Output path already exists.")
             return
 
-        self.preprocess_box()
-        self.add_masks()
+        # self.preprocess_box()
+        # self.add_masks()
 
         # adding the using the right left right order
-        # self.box = np.transpose(h5py.File("box_to_save_movie_17.h5", "r")["/box"][:], [0, 3, 1, 2])
+        box_to_pred_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\box_to_save_movie_17.h5"
+        self.box = np.transpose(h5py.File(box_to_pred_path, "r")["/box"][:], [0, 3, 1, 2])
 
         self.adjust_masks_size()
         if self.is_video:
@@ -555,50 +556,7 @@ class Predictions:
 
             Ypk_right = np.concatenate((Ypk_right_1, Ypk_right_2, Ypk_right_3, Ypk_right_4), axis=1)
             Ypk = np.concatenate((Ypk_left, Ypk_right), axis=-1)
-        elif self.model_type == ALL_CAMS_AND_3_GOOD_CAMS:
-            per_wing_model_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\per wing model\PER_WING_SMALL_WINGS_MODEL_Apr 29\best_model.h5"
-            per_wing_model = Predictions.get_pose_estimation_model(per_wing_model_path)
-            Ypk_left_small_wing_cam, _, _, _ = Predictions.predict_Ypk(self.left_input_small_wing_cam,
-                                                        batch_size,
-                                                        per_wing_model)
-            Ypk_left_3cams, _, _, _ = Predictions.predict_Ypk(self.left_input_3_cams,
-                                                        batch_size,
-                                                        self.pose_estimation_model)
 
-            Ypk_left_3cams_1 = np.expand_dims(Ypk_left_3cams[:, :, 0:7], 1)
-            Ypk_left_3cams_2 = np.expand_dims(Ypk_left_3cams[:, :, 7:14], 1)
-            Ypk_left_3cams_3 = np.expand_dims(Ypk_left_3cams[:, :, 14:21], 1)
-            Ypk_left_3cams = np.concatenate((Ypk_left_3cams_1, Ypk_left_3cams_2, Ypk_left_3cams_3), axis=1)
-
-            Ypk_left = np.zeros((Ypk_left_small_wing_cam.shape[0], self.num_cams, Ypk_left_small_wing_cam.shape[1],
-                                  Ypk_left_small_wing_cam.shape[2]))
-            for frame in range(self.num_frames):
-                small_wing_ind = self.left_input_small_wing_cams_inds[frame]
-                Ypk_left[frame, small_wing_ind, ...] = Ypk_left_small_wing_cam[frame, ...]
-                cams_inds_3 = np.delete(np.arange(self.num_cams), np.where(np.arange(self.num_cams) == small_wing_ind))
-                Ypk_left[frame, cams_inds_3, ...] = Ypk_left_3cams[frame, ...]
-            ## right input
-            Ypk_right_small_wing_cam, _, _, _ = Predictions.predict_Ypk(self.right_input_small_wing_cam,
-                                                                       batch_size,
-                                                                       per_wing_model)
-            Ypk_right_3cams, _, _, _ = Predictions.predict_Ypk(self.right_input_3_cams,
-                                                              batch_size,
-                                                              self.pose_estimation_model)
-
-            Ypk_right_3cams_1 = np.expand_dims(Ypk_right_3cams[:, :, 0:7], 1)
-            Ypk_right_3cams_2 = np.expand_dims(Ypk_right_3cams[:, :, 7:14], 1)
-            Ypk_right_3cams_3 = np.expand_dims(Ypk_right_3cams[:, :, 14:21], 1)
-            Ypk_right_3cams = np.concatenate((Ypk_right_3cams_1, Ypk_right_3cams_2, Ypk_right_3cams_3), axis=1)
-
-            Ypk_right = np.zeros((Ypk_right_small_wing_cam.shape[0], self.num_cams, Ypk_right_small_wing_cam.shape[1],
-                                 Ypk_right_small_wing_cam.shape[2]))
-            for frame in range(self.num_frames):
-                small_wing_ind = self.right_input_small_wing_cams_inds[frame]
-                Ypk_right[frame, small_wing_ind, ...] = Ypk_right_small_wing_cam[frame, ...]
-                cams_inds_3 = np.delete(np.arange(self.num_cams), np.where(np.arange(self.num_cams) == small_wing_ind))
-                Ypk_right[frame, cams_inds_3, ...] = Ypk_right_3cams[frame, ...]
-
-            Ypk = np.concatenate((Ypk_left, Ypk_right), axis=-1)
 
         self.Ypk = Ypk
         self.prediction_runtime = time() - preds_time
@@ -612,40 +570,67 @@ if __name__ == "__main__":
     # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
     # wings
 
-    model_type = PER_WING
+    # model_type = PER_WING
     # model_type = TWO_WINGS_TOGATHER
-    # model_type = ALL_CAMS
+    model_type = ALL_CAMS
     # model_type = BODY_POINTS
     # model_type = ALL_CAMS_AND_3_GOOD_CAMS
 
     wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
     # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
 
-    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 60 roni\movie_60_1501_2500_ds_3tc_7tj.h5"
-    pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\TRAIN_ON_3_GOOD_CAMERAS_MODEL_Mar 30\best_model.h5"
+    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\movie_17_1401_2000_ds_3tc_7tj.h5"
+    folder_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\all cameras ansemble"
 
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 60 roni\PER_WING_3_good_cams_predictions.h5"
-    predictions = Predictions(
-        box_path_no_masks,
-        model_type,
-        out_path,
-        pose_estimation_model_path_wings,
-        wings_detection_model_path,
-        is_video=True
-    )
-    predictions.run_predict_box()
+    for i in range(5,10):
+        partial_subfolder = f"seed {i}"
+        for subfolder in os.listdir(folder_path):
+            if partial_subfolder in subfolder:
+                print(subfolder)
+                pose_estimation_model_path_wings = rf"{folder_path}\{subfolder}\best_model.h5"
+                out_path = rf"{folder_path}\{subfolder}\predictions_over_movie_17.h5"
+                # Break the inner loop to avoid duplicates
+                predictions = Predictions(
+                    box_path_no_masks,
+                    model_type,
+                    out_path,
+                    pose_estimation_model_path_wings,
+                    wings_detection_model_path,
+                    is_video=True
+                )
+                predictions.run_predict_box()
+                del predictions
+                break
+    #
+    # pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\All cameras togather\ALL_CAMS_Apr 02_01 seed 0\best_model.h5"
+    # out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\roni movie 6\ALL_CAMS_predictions.h5"
+    # predictions = Predictions(
+    #     box_path_no_masks,
+    #     model_type,
+    #     out_path,
+    #     pose_estimation_model_path_wings,
+    #     wings_detection_model_path,
+    #     is_video=True
+    # )
+    # predictions.run_predict_box()
 
-    model_type = BODY_POINTS
-    pose_estimation_model_path_body = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\body parts model\body_parts_model_dilation_2\best_model.h5"
-    out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 60 roni\BODY_PNTS_predictions.h5"
-    predictions = Predictions(
-        box_path_no_masks,
-        model_type,
-        out_path,
-        pose_estimation_model_path_body,
-        wings_detection_model_path
-    )
-    predictions.run_predict_box()
+    # model_type = BODY_POINTS
+    # pose_estimation_model_path_body = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\head tail only\HEAD_TAIL_PER_CAM_May 04\best_model.h5"
+    # out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\roni movie 6\head_tail_only_predictions.h5"
+    # predictions = Predictions(
+    #     box_path_no_masks,
+    #     model_type,
+    #     out_path,
+    #     pose_estimation_model_path_body,
+    #     wings_detection_model_path,
+    #     is_video=True
+    # )
+    # predictions.run_predict_box()
+
+
+
+
+
 
 # path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\box_random_frames_dataset_agreed_masks.h5"
 # self.box = h5py.File(path, "r")["/box"][:]
