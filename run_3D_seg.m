@@ -52,8 +52,13 @@ for frame=1:num_frames
         row = row + y;
         if cam == 1  row = 801 - row; end
         col = col + x;
+        
+        seg_a = [row, col];
+        seg_b = masks_r_inds;
+        insct = get_num_intersect_pixels(seg_a, seg_b);
+        
         mask = inds2mask(mask_shape, [row, col]);
-        figure; imshow(mask + mask_r * 0.5)
+%         figure; imshow(mask + mask_r * 0.5)
         a=0;
     end
 end
@@ -63,57 +68,113 @@ end
 cameras = [1,2,3; 4,5,6; 7,8,9; 10,11,12];
 wings_segs = struct (); % create an empty struct
 for frame=1:num_frames
+    real_fr = real_inds(frame);
     for cam=1:num_cams
         image = permute(squeeze(box(frame, cameras(cam, :), :, :)), [2,3,1]); 
+        crop = double(squeeze(cropzone(frame, cam, :)));
+        x = crop(2); y = crop(1);
         for wing=1:num_wings
+            mask = squeeze(masks(frame, cam, :, :, wing));
+            [ys, xs] = find(mask);
+%             image(:, :, 2) = squeeze(image(:, :, 2)) + 0.5*mask;  % for display       
+            ys = ys + y;
+            if cam == 1  ys = 801 - ys; end
+            xs = xs + x;
+            orig_wing_seg = [ys, xs, ones(size(xs))];
+            wings_segs.frame (frame).cam (cam).wing_orig {wing} = orig_wing_seg;
+            
+            % get the roni segmentations
+            if wing == 1
+                mask_r_inds = seg.wing1{cam}(real_fr).indIm(:, [1,2]); 
+            elseif wing == 2
+                mask_r_inds = seg.wing2{cam}(real_fr).indIm(:, [1,2]);
+            end
 
-            mask_a = sum(squeeze(masks(frame, cam, :, :, :)), 3);
-            [row, col] = find(mask_a);
-            row = row + y;
-            if cam == 1  row = 801 - row; end
-            col = col + x;
-
-            mask = double(squeeze(masks(frame, cam, :, :, wing)));
-            image(:, :, 2) = squeeze(image(:, :, 2)) + 0.5*mask;  % for display 
-            [ys, xs] = ind2sub (size (mask), find(mask));
-            CM = [mean(xs), mean(ys)];
-            wing_seg = [ys, xs, ones(size(xs))];
-            wings_segs.frame (frame).cam (cam).wing_cropped(wing).wing_inds{wing} = wing_seg;
-            wings_segs.frame (frame).cam (cam).wing_cropped(wing).wing_CM{wing} = CM;
-            x = double(cropzone(frame,cam,2));
-            y = double(cropzone(frame,cam,1));
-            wing_seg(:, 1) = wing_seg(:, 1) + x;
-            wing_seg(:, 2) = wing_seg(:, 2) + y;
-            CM(1) = CM(1) + x;
-            CM(2) = CM(2) + y;
-            % here create a field of wings_segs.frame.cam.wing = wing_seg
-            wings_segs.frame (frame).cam (cam).wing_orig {wing} = wing_seg;
-            wings_segs.frame (frame).cam (cam).wing_cropped(wing).wing_CM{wing} = CM;
-        end
-        if frame == 1
-            figure;
-            imshow(image);
-            a=0;
+            % check if intersects with rony masks
+            mask_r_1 = seg.wing1{cam}(real_fr).indIm(:, [1,2]);
+            mask_r_2 = seg.wing2{cam}(real_fr).indIm(:, [1,2]);
+            [C, ia, ib] = intersect(mask_r_2, orig_wing_seg(:, [1,2]), 'rows');
+            answer = size(C, 1);
         end
     end
 end
+%%
 
-%% adjusting right left 
+
+%% improve masks algorithem
+%{
+the algorithm explained:
+    for frame 1:
+        find the camera with largets wings, fix as left and right.
+    for every frame
+        - find left right oreder in each camera from reconstruction and fix
+        - find wing recnstruction from 2 best cameras for each wing
+        - reproject to 2 other cameras
+        
+%}
 for frame=1:num_frames
-    % then deside on left and right 
-    wings_sz = zeros(4,3);
-    all_masks = squeeze(masks(frame, :, :, :, :)); 
+    % find which to flip
+    cameras_to_flip = find_cams_to_switch(masks, wings_segs, frame, easy);
+    % flip in masks array and in wings_segs
+    [masks, wings_segs] = flip_cameras(wings_segs, frame, masks, cameras_to_flip);
+    % get hull of 2 best cameras, and back-project to other 2 cameras
+    all_4_masks = squeeze(masks(frame, :,:,:,:));
+    all_4_masks_sizes = zeros(num_cams, num_wings);
     for cam=1:num_cams
-        wing1_size = nnz(squeeze(all_masks(cam, :, :, 1)));
-        wing2_size = nnz(squeeze(all_masks(cam, :, :, 2)));
-        combined_sz = wing1_size * wing2_size;
-        wings_sz(cam,1) = wing1_size;
-        wings_sz(cam,2) = wing2_size;
-        wings_sz(cam,3) = combined_sz;
+        for wing=1:num_wings
+            mask_size = nnz(squeeze(all_4_masks(cam, :, :, wing)));
+            all_4_masks_sizes(cam, wing) = mask_size;
+        end
     end
-    [M, chosen_cam] = max(wings_sz(:, 3));
-    all_cams = (1:num_cams);
-    cameras_to_test = all_cams(all_cams ~= chosen_cam);
+    max_values = max(all_4_masks_sizes);
+    sorted = sort(all_4_masks_sizes, 'descend');
+    a=0;
+
+end
+
+%% local functions
+
+function [masks, wings_segs] = flip_cameras(wings_segs, frame, masks, cameras_to_flip)
+    % flip cameras in wings_segs and all_4_masks 
+    all_4_masks = squeeze(masks(frame, :, :, :, :));
+    num_cams = size(all_4_masks, 1);
+    for cam=1:num_cams
+        if ismember(cam, cameras_to_flip) 
+            % switch in segmentations struct
+            wing1 = wings_segs.frame(frame).cam(cam).wing_orig{1};
+            wing2 = wings_segs.frame(frame).cam(cam).wing_orig{2};
+            wings_segs.frame(frame).cam(cam).wing_orig{1} = wing2;
+            wings_segs.frame(frame).cam(cam).wing_orig{2} = wing1;
+            % switch in all_4_masks
+            mask1 = all_4_masks(cam, :, :, 1);
+            mask2 = all_4_masks(cam, :, :, 2);
+            all_4_masks(cam, :, :, 1) = mask2;
+            all_4_masks(cam, :, :, 2) = mask1;
+        end
+    end
+    masks(frame, :, :, :, :) = all_4_masks;
+end
+
+% find which cameras to flip
+function cameras_to_flip = find_cams_to_switch(masks, wings_segs, frame, easy)
+    % still didnt resolve the case of frame 1 vs other frames initialization
+    all_4_masks = squeeze(masks(frame, :, :, :, :)); 
+    num_cams = size(all_4_masks, 1);
+    num_wings = size(all_4_masks, 4);
+    [chosen_cam, cameras_to_test] = find_best_wings_cam(all_4_masks);
+    switch_chosen_cam = false;
+    if frame > 1
+        prev_mask1 = squeeze(masks(frame - 1, chosen_cam, :, :, 1));
+        cur_mask1 = squeeze(masks(frame, chosen_cam, :, :, 1));
+        prev_mask2 = squeeze(masks(frame - 1, chosen_cam, :, :, 2));
+        cur_mask2 = squeeze(masks(frame, chosen_cam, :, :, 2));
+        % find the scores for switch vs not switch
+        yes_switch = nnz(prev_mask1 & cur_mask1) + nnz(prev_mask2 & cur_mask2);
+        no_switch = nnz(prev_mask1 & cur_mask2) + nnz(prev_mask2 & cur_mask1);
+        if yes_switch > no_switch  % do switch to chosen camera
+            switch_chosen_cam = true;
+        end
+    end
     which_to_flip = [[0,0,0]; [0,0,1]; [0,1,0]; [0,1,1];... 
                        [1,0,0]; [1,0,1]; [1,1,0]; [1,1,1]];
     num_of_options = size(which_to_flip, 1);
@@ -122,28 +183,84 @@ for frame=1:num_frames
     for cam = 1:num_cams
         for wing=1:num_wings
             xyz = wings_segs.frame (frame).cam (cam).wing_orig {wing};
-            xyz(:, 2) = 801 - xyz(:, 2);
             all_segs.cam(cam).wing(wing).inds = xyz;
         end
     end
-
+    % switch the chosen camera in all_segs if needed
+    if switch_chosen_cam
+        wing1 = all_segs.cam(cam).wing(1).inds; 
+        wing2 = all_segs.cam(cam).wing(2).inds;
+        all_segs.cam(cam).wing(1).inds = wing2;
+        all_segs.cam(cam).wing(2).inds = wing1;
+    end
+%     best_recon_left = []; best_recon_right = []; score_op = 0;
     for op=1:num_of_options
-        all_segs_test = cell2struct (struct2cell (all_segs), fieldnames (all_segs));  % deepcopy
+        all_segs_test = get_struct_copy(all_segs);  % deepcopy
         cams_to_flip = which_to_flip(op, :);
         for cam=1:size(cameras_to_test,2)
             if cams_to_flip(cam) == 1
-                wing1 = all_segs_test.cam(cam).wing(1).inds;
-                wing2 = all_segs_test.cam(cam).wing(2).inds;
-                all_segs_test.cam(cam).wing(1).inds = wing2;
-                all_segs_test.cam(cam).wing(2).inds = wing1;
+                cam_to_flip = cameras_to_test(cam);
+                wing1 = all_segs_test.cam(cam_to_flip).wing(1).inds;
+                wing2 = all_segs_test.cam(cam_to_flip).wing(2).inds;
+                all_segs_test.cam(cam_to_flip).wing(1).inds = wing2;
+                all_segs_test.cam(cam_to_flip).wing(2).inds = wing1;
             end
         end
-        
-        recon = get_wing_recon(all_segs_test, easy, 1);
-        a=0;
-    
-    
+
+        recon_left = get_wing_recon(all_segs_test, easy, 1);
+        recon_right = get_wing_recon(all_segs_test, easy, 2);
+        score_op = size(recon_left, 1) + size(recon_right, 1);
+        if score_op > max(scores)
+            best_recon_left = recon_left;
+            best_recon_right = recon_right;
+        end
+        scores(op) = score_op;
     end
+    [M, best_op_ind] = max(scores);
+    best_op = logical(which_to_flip(best_op_ind, :));
+    cameras_to_flip = cameras_to_test(best_op);  % add the chosen camera to switch
+    if switch_chosen_cam
+        cameras_to_flip = [cameras_to_flip, chosen_cam];
+    end
+%     if mod(frame, 5) == 0
+%         if size(best_recon_right, 1) > 0
+%             recon = best_recon_right;
+%         else
+%             recon = best_recon_left;
+%         end
+%         figure;
+%         plot3(recon(:,1),recon(:,2),recon(:,3),'r*');
+%     end
+end
+
+
+function [chosen_cam, cameras_to_test] = find_best_wings_cam(all_4_masks)
+        num_cams = size(all_4_masks, 1);
+        wings_sz = zeros(4,3);
+        for cam=1:num_cams
+            wing1_size = nnz(squeeze(all_4_masks(cam, :, :, 1)));
+            wing2_size = nnz(squeeze(all_4_masks(cam, :, :, 2)));
+            combined_sz = wing1_size * wing2_size;
+            wings_sz(cam,1) = wing1_size;
+            wings_sz(cam,2) = wing2_size;
+            wings_sz(cam,3) = combined_sz;
+        end
+        [M, chosen_cam] = max(wings_sz(:, 3));
+        all_cams = (1:num_cams);
+        cameras_to_test = all_cams(all_cams ~= chosen_cam);
+    end
+
+
+
+function copy_of_struct = get_struct_copy(strct)
+    copy_of_struct = cell2struct (struct2cell (strct), fieldnames (strct));
+end
+
+function intersecting_pixels = get_num_intersect_pixels(sega, segb)
+     C = [sega; segb]; % Concatenate A and B
+    [~, ~, ic] = unique(C, 'rows', 'stable'); % Find unique rows and indices
+    n = accumarray(ic, 1); % Count occurrences of each row
+    intersecting_pixels = sum(n(n > 1)); % Sum the counts of rows that appear more than once
 end
 
 
@@ -169,6 +286,10 @@ function hull_recon = get_wing_recon(seg, easy, which_wing)
     wing2 = seg.cam(2).wing(which_wing).inds;
     wing3 = seg.cam(3).wing(which_wing).inds;
     wing4 = seg.cam(4).wing(which_wing).inds;
+    if size(wing1, 1) == 0 || size(wing2, 1) == 0 || size(wing3, 1) == 0 || size(wing4, 1)==0
+        hull_recon = double.empty(0,3);
+        return;
+    end
     hullRec.im4hull.sprs.all = {wing1, wing2, wing3, wing4};
 %     part(:, 1) = 800 - part(:, 1);
     hullRec.FindSeed('all');
