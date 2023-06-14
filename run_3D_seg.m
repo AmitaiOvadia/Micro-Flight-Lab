@@ -12,11 +12,11 @@ segmented_dataset_file = "C:\Users\amita\PycharmProjects\pythonProject\vision\tr
 easy_wand_path = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\SelectFramesForLable\Dark2022MoviesHulls\hull\hull_Reorder\wand_data1+2_23_05_2022_skip5_easyWandData.mat"
 
 %% movie 8
-mov = 8
-path = 'C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example';
-nameOFeasyFile = 'wand_data1_19_05_2022_skip5_easyWandData';
-segmented_dataset_file = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example\movie_8_2001_2500_ds_3tc_7tj.h5";
-easy_wand_path = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example\wand_data1_19_05_2022_skip5_easyWandData.mat"
+% mov = 8
+% path = 'C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example';
+% nameOFeasyFile = 'wand_data1_19_05_2022_skip5_easyWandData';
+% segmented_dataset_file = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example\movie_8_2001_2500_ds_3tc_7tj.h5";
+% easy_wand_path = "C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example\wand_data1_19_05_2022_skip5_easyWandData.mat"
 
 
 
@@ -66,6 +66,13 @@ for frame=1:num_frames
     for cam=1:num_cams
         image = permute(squeeze(box(frame, cameras(cam, :), :, :)), [2,3,1]); 
         for wing=1:num_wings
+
+            mask_a = sum(squeeze(masks(frame, cam, :, :, :)), 3);
+            [row, col] = find(mask_a);
+            row = row + y;
+            if cam == 1  row = 801 - row; end
+            col = col + x;
+
             mask = double(squeeze(masks(frame, cam, :, :, wing)));
             image(:, :, 2) = squeeze(image(:, :, 2)) + 0.5*mask;  % for display 
             [ys, xs] = ind2sub (size (mask), find(mask));
@@ -141,7 +148,7 @@ end
 
 
 function mask = inds2mask(mask_size, mask_inds)
-        inds = sub2ind(mask_size, mask_inds(:, 2), mask_inds(:, 1));
+        inds = sub2ind(mask_size, mask_inds(:, 1), mask_inds(:, 2));
         mask = zeros(mask_size);
         mask(inds) = 1;
 end
