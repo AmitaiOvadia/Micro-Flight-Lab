@@ -31,6 +31,8 @@ class Preprocessor:
         self.fly_with_right_mask = np.append(self.time_channels, self.right_mask_ind)
 
         self.num_samples = None
+        if self.model_type == HEAD_TAIL_ALL_CAMS or self.model_type == HEAD_TAIL_PER_CAM or self.model_type == BODY_PARTS_MODEL:
+            self.mix_with_test = False
         if self.debug_mode:
             self.box = self.box[:, :10, :, :, :, :]
             self.confmaps = self.confmaps[:, :10, :, :, :, :]
@@ -62,7 +64,7 @@ class Preprocessor:
         Y = self.preprocess(Y, permute=None)
         if X.shape[0] != 2:
             X = X.T
-        if Y.shape[0] != 2:
+        if Y.shape[0] != 2 or Y.shape[1] == 192:
             Y = Y.T
         return X, Y
 
@@ -310,7 +312,6 @@ class Preprocessor:
         self.box = np.concatenate(cam_boxes, axis=-1)
         self.confmaps = np.concatenate(cam_confmaps, axis=-1)
 
-
     def do_reshape_per_wing(self):
         """ reshape input to a per wing model input """
         box_0, confmaps_0 = self.split_per_wing(self.box[0], self.confmaps[0], PER_WING_MODEL, RANDOM_TRAIN_SET)
@@ -321,7 +322,7 @@ class Preprocessor:
         if self.model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
             n = 3 if self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL else 2
             self.box, self.confmaps, _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, n)
-        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS:
+        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS or self.model_type == HEAD_TAIL_ALL_CAMS:
             n = 3 if self.model_type == ALL_CAMS_AND_3_GOOD_CAMS else 4
             if n == 3:
                 self.box, self.confmaps,  _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, n)
@@ -392,14 +393,52 @@ class Preprocessor:
     def get_preprocces_function(self):
         if self.model_type == ALL_POINTS_MODEL or self.model_type == HEAD_TAIL or self.model_type == TWO_WINGS_TOGATHER:
             return self.reshape_to_cnn_input
-        elif self.model_type == PER_WING_MODEL or self.model_type == VGG_PER_WING:
+        elif self.model_type == PER_WING_MODEL or self.model_type == C2F_PER_WING or \
+                self.model_type == COARSE_PER_WING or self.model_type == VGG_PER_WING or self.model_type == HOURGLASS:
             return self.do_reshape_per_wing
         elif self.model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
             return self.do_reshape_per_wing
         elif self.model_type == BODY_PARTS_MODEL:
             return self.reshape_to_body_parts
-        elif self.model_type == ALL_CAMS or ALL_CAMS_AND_3_GOOD_CAMS or self.model_type == PER_WING_SMALL_WINGS_MODEL:
+        elif self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS or self.model_type == PER_WING_SMALL_WINGS_MODEL:
             return self.do_reshape_per_wing
+        elif self.model_type == HEAD_TAIL_ALL_CAMS:
+            return self.do_preprocess_HEAD_TAIL_ALL_CAMS
+        elif self.model_type == HEAD_TAIL_PER_CAM:
+            return self.do_preprocess_HEAD_TAIL_PER_CAM
+
+    def do_preprocess_HEAD_TAIL_PER_CAM(self):
+        # self.box = self.box[..., :3]
+        self.box = np.concatenate((self.box[0, ...],
+                                   self.box[1, ...]))
+        self.box = np.concatenate((self.box[:, 0, ...],
+                                   self.box[:, 1, ...],
+                                   self.box[:, 2, ...],
+                                   self.box[:, 3, ...]), axis=0)
+        self.confmaps = np.concatenate((self.confmaps[0, ...],
+                                        self.confmaps[1, ...]))
+        self.confmaps = np.concatenate((self.confmaps[:, 0, ...],
+                                        self.confmaps[:, 1, ...],
+                                        self.confmaps[:, 2, ...],
+                                        self.confmaps[:, 3, ...]), axis=0)
+        self.num_samples = self.box.shape[0]
+
+    def do_preprocess_HEAD_TAIL_ALL_CAMS(self):
+        # self.box = self.box[..., :3]
+        self.box = np.concatenate((self.box[0, ...],
+                                   self.box[1, ...]))
+        self.box = np.concatenate((self.box[:, 0, ...],
+                                   self.box[:, 1, ...],
+                                   self.box[:, 2, ...],
+                                   self.box[:, 3, ...]), axis=-1)
+        self.confmaps = np.concatenate((self.confmaps[0, ...],
+                                        self.confmaps[1, ...]))
+        self.confmaps = np.concatenate((self.confmaps[:, 0, ...],
+                                        self.confmaps[:, 1, ...],
+                                        self.confmaps[:, 2, ...],
+                                        self.confmaps[:, 3, ...]), axis=-1)
+        self.num_samples = self.box.shape[0]
+
 
     @staticmethod
     def preprocess(X, permute=(0, 3, 2, 1)):

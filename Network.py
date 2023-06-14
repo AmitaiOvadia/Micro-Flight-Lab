@@ -5,9 +5,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, Add, MaxPooling2D, Concatenate, Lambda, Reshape, \
                                     Activation, Dropout
 import tensorflow as tf
-
 from tensorflow.keras.optimizers import Adam
-import tensorflow.keras.backend as K
 
 
 class Network:

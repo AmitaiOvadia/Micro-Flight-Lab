@@ -37,9 +37,9 @@ def load_dataset(data_path, X_dset="box", Y_dset="confmaps", permute=(0, 3, 2, 1
     X = preprocess(X, permute=None)
     Y = preprocess(Y, permute=None)
     if X.shape[0] != 2:
-        X = np.transpose(X, [5, 4, 3, 2, 1, 0])
-    if Y.shape[0] != 2:
-        Y = np.transpose(Y, [5, 4, 3, 2, 1, 0])
+        X = X.T
+    if Y.shape[0] != 2 or Y.shape[1] == 192:
+        Y = Y.T
     return X, Y
 
 
@@ -82,32 +82,21 @@ def test_generators(data_path):
     image_size = confmaps.shape[-2]
     num_channels_img = box.shape[-1]
     num_channels_confmap = confmaps.shape[-1]
-    box = box.reshape([-1, image_size, image_size, num_channels_img])
-    confmaps = confmaps.reshape([-1, image_size, image_size, num_channels_confmap])
-
-    # box = box.reshape([-1, 4, image_size, image_size, num_channels_img])
-    # confmaps = confmaps.reshape([-1, 4, image_size, image_size, num_channels_confmap])
-    #
-    # box = box[:, :, :, :, :-1]
-    # confmaps = confmaps[:, :, :, :, :7]
-    #
-    # box_1 = box[:, 0, :, :, :]
-    # box_2 = box[:, 1, :, :, :]
-    # box_3 = box[:, 2, :, :, :]
-    # box_4 = box[:, 3, :, :, :]
-    # box = np.concatenate((box_1, box_2, box_3, box_4), axis=-1)
-    #
-    # confmaps_1 = confmaps[:, 0, :, :, :]
-    # confmaps_2 = confmaps[:, 1, :, :, :]
-    # confmaps_3 = confmaps[:, 2, :, :, :]
-    # confmaps_4 = confmaps[:, 3, :, :, :]
-    # confmaps = np.concatenate((confmaps_1, confmaps_2, confmaps_3, confmaps_4), axis=-1)
-
+    box = box[..., :3]
+    box = np.concatenate((box[0, ...],
+                               box[1, ...]))
+    box = np.concatenate((box[:, 0, ...],
+                               box[:, 1, ...],
+                               box[:, 2, ...],
+                               box[:, 3, ...]), axis=0)
+    confmaps = np.concatenate((confmaps[0, ...],
+                                    confmaps[1, ...]))
+    confmaps = np.concatenate((confmaps[:, 0, ...],
+                                    confmaps[:, 1, ...],
+                                    confmaps[:, 2, ...],
+                                    confmaps[:, 3, ...]), axis=0)
+    box = box[..., :3]
     matplotlib.use('TkAgg')
-    example_img = np.transpose(box[0, :, :, [0, 2, 4]], [2, 1, 0])
-    plt.imshow(example_img, cmap='gray')
-    plt.show()
-
     seed = 0
     batch_size = 8
 
@@ -125,8 +114,8 @@ def test_generators(data_path):
     datagen_x = ImageDataGenerator(**data_gen_args)
     datagen_y = ImageDataGenerator(**data_gen_args)
     # prepare iterator
-    datagen_x.fit(box[:10, :, :, :], augment=True, seed=seed)
-    datagen_y.fit(confmaps[:10, :, :, :], augment=True, seed=seed)
+    datagen_x.fit(box[:40, :, :, :], augment=True, seed=seed)
+    datagen_y.fit(confmaps[:40, :, :, :], augment=True, seed=seed)
     flow_box = datagen_x.flow(box, batch_size=batch_size, seed=seed)
     flow_conf = datagen_y.flow(confmaps, batch_size=batch_size, seed=seed)
     matplotlib.use('TkAgg')
@@ -138,8 +127,8 @@ def test_generators(data_path):
             batch_x = flow_box.next()
             batch_y = flow_conf.next()
             # convert to unsigned integers for viewing
-            image = batch_x[0][:, :, 1]
-            conf = np.sum(np.squeeze(batch_y[0][:, :, :7]), axis=-1)
+            image = batch_x[1][:, :, 1]
+            conf = np.sum(np.squeeze(batch_y[1][:, :, :7]), axis=-1)
             # plot raw pixel data
             plt.imshow(image + conf, cmap='gray')
         # show the figure
@@ -149,5 +138,5 @@ def test_generators(data_path):
 
 if __name__ == '__main__':
     # data_path = "trainset_random_14_pts_yolo_masks.h5"
-    data_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\Work_W_Leap\datasets\main datasets\random frames\training\dataset_random_frames_7_channels_ds_5tc_14tj.h5"
+    data_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\train_set_head_tail.h5"
     test_generators(data_path)

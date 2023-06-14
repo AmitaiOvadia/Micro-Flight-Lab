@@ -15,13 +15,12 @@ from time import time
 from ultralytics import YOLO
 # import open3d as o3d
 from scipy.ndimage import binary_dilation, binary_closing
-from scipy.spatial.distance import pdist
-from scipy.ndimage.measurements import center_of_mass
-from scipy.spatial import ConvexHull
-import matplotlib
-
+# from scipy.spatial.distance import pdist
+# from scipy.ndimage.measurements import center_of_mass
+# from scipy.spatial import ConvexHull
+# import matplotlib
+import cv2
 import preprocessor
-from traingulation.triangulation_2D_3D import calculate_all_possible_triangulations
 from constants import *
 
 TWO_WINGS_TOGATHER = "TWO_WINGS_TOGATHER"
@@ -56,24 +55,6 @@ CAM3_RIGHT = [10, 11, 12, 14]
 CAM4_RIGHT = [15, 16, 17, 19]
 
 
-# def adjust_masks_size(box, train_or_predict):
-#     """ adjust the size of the wings masks """
-#     if train_or_predict == "TRAIN":
-#         num_training_samples = box.shape[0]
-#         for image_num in range(num_training_samples):
-#             mask = box[image_num, :, :, 3]
-#             # non_0_1 = np.count_nonzero(mask)
-#             adjusted_mask = adjust_mask(mask)
-#             # non_0_2 = np.count_nonzero(adjusted_mask)
-#             box[image_num, :, :, 3] = adjusted_mask
-#             # matplotlib.use('TkAgg')
-#             # plt.imshow(adjusted_mask - mask)
-#             # plt.show()
-#     if train_or_predict == "PREDICT":
-#         pass
-#     return box
-
-
 class Predictions:
 
     def __init__(self,
@@ -93,8 +74,8 @@ class Predictions:
         self.out_path = out_path
         self.wings_detection_model_path = wings_detection_model_path
         self.is_video = is_video
-        self.cam_matrices = loadmat(CAMERAS_MATRICES_PATH)['projection_matrices']
-        self.rotation_matrix = loadmat(ROTATION_MATRIX_PATH)['rotation_mat']
+        # self.cam_matrices = loadmat(CAMERAS_MATRICES_PATH)['projection_matrices']
+        # self.rotation_matrix = loadmat(ROTATION_MATRIX_PATH)['rotation_mat']
         # self.desired_times_channels = times_channels
         # self.time_span = 7 if self.desired_times_channels == 3 else 14
         self.box = self.get_box()
@@ -169,49 +150,75 @@ class Predictions:
         """ Add masks to the dataset using yolov8 segmentation model """
         new_box = np.zeros((self.num_frames, self.num_cams * self.num_channels, self.im_size, self.im_size))
         if self.num_times_channels == 3:
-            for frame in range(self.num_frames):
-                for cam in range(self.num_cams):
-                    print(f"frame number {frame}, cam number {cam}")
-                    img_3_ch = self.box[frame, np.array([0, 1, 2]) + self.num_times_channels * cam, :, :]
-                    img_3_ch = np.transpose(img_3_ch, [1, 2, 0])
-                    masks = self.get_masks(img_3_ch)
-                    new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
-                    new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch,
-                                                                                                       [2, 0, 1])
-                    # show the image
-                    # if frame >= 6:
-                    #     imtoshow = new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :]
-                    #     imtoshow = np.transpose(imtoshow, [1, 2, 0])
-                    #     mask_1 = new_box[frame, 3 + self.num_channels * cam, :, :]
-                    #     mask_2 = new_box[frame, 4 + self.num_channels * cam, :, :]
-                    #     imtoshow[:, :, 1] += mask_1
-                    #     imtoshow[:, :, 1] += mask_2
-                    #     matplotlib.use('TkAgg')
-                    #     plt.imshow(imtoshow)
-                    #     plt.show()
+            for cam in range(self.num_cams):
+                print(f"finds wings for camera number {cam+1}")
+                img_3_ch_all = self.box[:, np.array([0, 1, 2]) + self.num_times_channels * cam, :, :]
+                new_box[:, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = img_3_ch_all
+                img_3_ch_all = np.transpose(img_3_ch_all, [0, 2, 3, 1])
+                img_3_ch_input = np.round(img_3_ch_all * 255)
+                img_3_ch_input = [img_3_ch_input[i] for i in range(self.num_frames)]
+                results = self.wings_detection_model(img_3_ch_input)
+                masks = np.zeros((self.num_frames, self.im_size, self.im_size, 2))
+                for frame in range(self.num_frames):
+                    masks_2 = np.zeros((self.im_size, self.im_size, 2))
+                    result = results[frame]
+                    boxes = result.boxes.data.numpy()
+                    inds_to_keep = self.eliminate_close_vectors(boxes, 10)
+                    num_wings_found = np.count_nonzero(inds_to_keep)
+                    if num_wings_found > 0:
+                        masks_found = result.masks.data.numpy()[inds_to_keep, :, :]
+                    for wing in range(min(num_wings_found, 2)):
+                        mask = masks_found[wing, :, :]
+                        score = result.boxes.data[wing, 4]
+                        masks_2[:, :, wing] = mask
+                    masks[frame, :, :, :] = masks_2
+                new_box[:, np.array([3, 4]) + self.num_channels * cam, :, :] = np.transpose(masks, [0, 3, 1, 2])
+            self.box = new_box
+            return
 
-        elif self.num_times_channels == 5:
-            for frame in range(self.num_frames):
-                for cam in range(self.num_cams):
-                    print(f"frame number {frame}, cam number {cam}")
-                    img_5_ch = self.box[frame, np.array([0, 1, 2, 3, 4]) + self.num_times_channels * cam, :, :]
-                    img_5_ch = np.transpose(img_5_ch, [1, 2, 0])
-                    img_3_ch = img_5_ch[:, :, [1, 2, 3]]
-                    masks = self.get_masks(img_3_ch)
-                    new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
-                    new_box[frame, np.array([0, 1, 2, 3, 4]) + self.num_channels * cam, :, :] = np.transpose(img_5_ch,
-                                                                                                             [2, 0, 1])
-                    # show the image
-                    # imtoshow = new_box[frame, np.array([0, 2, 4]) + self.num_channels * cam, :, :]
-                    # imtoshow = np.transpose(imtoshow, [1, 2, 0])
-                    # mask_1 = new_box[frame, 5 + self.num_channels * cam, :, :]
-                    # mask_2 = new_box[frame, 6 + self.num_channels * cam, :, :]
-                    # imtoshow[:, :, 1] += mask_1
-                    # imtoshow[:, :, 1] += mask_2
-                    # matplotlib.use('TkAgg')
-                    # plt.imshow(imtoshow)
-                    # plt.show()
-        self.box = new_box
+            # for frame in range(self.num_frames):
+            #     for cam in range(self.num_cams):
+            #         print(f"frame number {frame}, cam number {cam}")
+            #         img_3_ch = self.box[frame, np.array([0, 1, 2]) + self.num_times_channels * cam, :, :]
+            #         img_3_ch = np.transpose(img_3_ch, [1, 2, 0])
+            #         masks = self.get_masks(img_3_ch)
+            #         new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
+            #         new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :] = np.transpose(img_3_ch,
+            #                                                                                            [2, 0, 1])
+        #             # show the image
+        #             # if frame >= 6:
+        #             imtoshow = new_box[frame, np.array([0, 1, 2]) + self.num_channels * cam, :, :]
+        #             imtoshow = np.transpose(imtoshow, [1, 2, 0])
+        #             mask_1 = new_box[frame, 3 + self.num_channels * cam, :, :]
+        #             mask_2 = new_box[frame, 4 + self.num_channels * cam, :, :]
+        #             imtoshow[:, :, 1] += mask_1
+        #             imtoshow[:, :, 1] += mask_2
+        #             matplotlib.use('TkAgg')
+        #             plt.imshow(imtoshow)
+        #             plt.show()
+        #
+        # elif self.num_times_channels == 5:
+        #     for frame in range(self.num_frames):
+        #         for cam in range(self.num_cams):
+        #             print(f"frame number {frame}, cam number {cam}")
+        #             img_5_ch = self.box[frame, np.array([0, 1, 2, 3, 4]) + self.num_times_channels * cam, :, :]
+        #             img_5_ch = np.transpose(img_5_ch, [1, 2, 0])
+        #             img_3_ch = img_5_ch[:, :, [1, 2, 3]]
+        #             masks = self.get_masks(img_3_ch)
+        #             new_box[frame, self.num_times_channels + np.array([0, 1]) + self.num_channels * cam, :, :] = masks
+        #             new_box[frame, np.array([0, 1, 2, 3, 4]) + self.num_channels * cam, :, :] = np.transpose(img_5_ch,
+        #                                                                                                      [2, 0, 1])
+        #             # show the image
+        #             imtoshow = new_box[frame, np.array([0, 2, 4]) + self.num_channels * cam, :, :]
+        #             imtoshow = np.transpose(imtoshow, [1, 2, 0])
+        #             mask_1 = new_box[frame, 5 + self.num_channels * cam, :, :]
+        #             mask_2 = new_box[frame, 6 + self.num_channels * cam, :, :]
+        #             imtoshow[:, :, 1] += mask_1
+        #             imtoshow[:, :, 1] += mask_2
+        #             matplotlib.use('TkAgg')
+        #             plt.imshow(imtoshow)
+        #             plt.show()
+        # self.box = new_box
 
     @staticmethod
     def eliminate_close_vectors(matrix, threshold):
@@ -248,6 +255,7 @@ class Predictions:
         for wing in range(min(num_wings_found, 2)):
             mask = masks_found[wing, :, :]
             score = results.boxes.data[wing, 4]
+            mask = cv2.resize(mask, (192, 192), interpolation=cv2.INTER_CUBIC)
             masks_2[wing, :, :] = mask
             # else:
             # print(f"score = {score}")
@@ -479,13 +487,12 @@ class Predictions:
             print("Error: Output path already exists.")
             return
 
-        # self.preprocess_box()
-        # self.add_masks()
+        self.preprocess_box()
+        self.add_masks()
 
         # adding the using the right left right order
-        box_to_pred_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\box_to_save_movie_17.h5"
-        self.box = np.transpose(h5py.File(box_to_pred_path, "r")["/box"][:], [0, 3, 1, 2])
-
+        # box_to_pred_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\box_to_save_movie_17.h5"
+        # self.box = np.transpose(h5py.File(box_to_pred_path, "r")["/box"][:], [0, 3, 1, 2])
         self.adjust_masks_size()
         if self.is_video:
             self.fix_masks()
@@ -570,40 +577,16 @@ if __name__ == "__main__":
     # box_path_no_masks = r"movie_1_1701_2200_500_frames_3tc_7tj_no_masks.h5"
     # wings
 
-    # model_type = PER_WING
+    model_type = PER_WING
     # model_type = TWO_WINGS_TOGATHER
-    model_type = ALL_CAMS
+    # model_type = ALL_CAMS
     # model_type = BODY_POINTS
     # model_type = ALL_CAMS_AND_3_GOOD_CAMS
 
-    wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
-    # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_1301_2300_ds_3tc_7tj.h5"
-
-    box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 17\movie_17_1401_2000_ds_3tc_7tj.h5"
-    folder_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\all cameras ansemble"
-
-    for i in range(5,10):
-        partial_subfolder = f"seed {i}"
-        for subfolder in os.listdir(folder_path):
-            if partial_subfolder in subfolder:
-                print(subfolder)
-                pose_estimation_model_path_wings = rf"{folder_path}\{subfolder}\best_model.h5"
-                out_path = rf"{folder_path}\{subfolder}\predictions_over_movie_17.h5"
-                # Break the inner loop to avoid duplicates
-                predictions = Predictions(
-                    box_path_no_masks,
-                    model_type,
-                    out_path,
-                    pose_estimation_model_path_wings,
-                    wings_detection_model_path,
-                    is_video=True
-                )
-                predictions.run_predict_box()
-                del predictions
-                break
-    #
-    # pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\All cameras togather\ALL_CAMS_Apr 02_01 seed 0\best_model.h5"
-    # out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\roni movie 6\ALL_CAMS_predictions.h5"
+    # wings_detection_model_path = "wings_detection_yolov8_weights_13_3.pt"
+    # box_path_no_masks = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\movies datasets\movie 14\dataset_movie_14_frames_301_1300_ds_3tc_7tj.h5"
+    # pose_estimation_model_path_wings = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\TRAIN_ON_3_GOOD_CAMERAS_MODEL_Mar 30\best_model.h5"
+    # out_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\train on 3 good cameras\TRAIN_ON_3_GOOD_CAMERAS_MODEL_Mar 30\movie_14_301_1300_predictions.h5"
     # predictions = Predictions(
     #     box_path_no_masks,
     #     model_type,
@@ -613,6 +596,43 @@ if __name__ == "__main__":
     #     is_video=True
     # )
     # predictions.run_predict_box()
+
+    wings_detection_model_path = "wings_detection_yolov8_weights.pt"
+    box_path_no_masks = r"dataset_movie_14_frames_301_1300_ds_3tc_7tj.h5"
+    pose_estimation_model_path_wings = r"pose_estiamtion_per_wing_model.h5"
+    out_path = r"predictions_mov_14.h5"
+    predictions = Predictions(
+        box_path_no_masks,
+        model_type,
+        out_path,
+        pose_estimation_model_path_wings,
+        wings_detection_model_path,
+        is_video=True
+    )
+    predictions.run_predict_box()
+
+    # folder_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\all cameras ansemble"
+    #
+    # for i in range(5,10):
+    #     partial_subfolder = f"seed {i}"
+    #     for subfolder in os.listdir(folder_path):
+    #         if partial_subfolder in subfolder:
+    #             print(subfolder)
+    #             pose_estimation_model_path_wings = rf"{folder_path}\{subfolder}\best_model.h5"
+    #             out_path = rf"{folder_path}\{subfolder}\predictions_over_movie_17.h5"
+    #             # Break the inner loop to avoid duplicates
+    #             predictions = Predictions(
+    #                 box_path_no_masks,
+    #                 model_type,
+    #                 out_path,
+    #                 pose_estimation_model_path_wings,
+    #                 wings_detection_model_path,
+    #                 is_video=True
+    #             )
+    #             predictions.run_predict_box()
+    #             del predictions
+    #             break
+    # #
 
     # model_type = BODY_POINTS
     # pose_estimation_model_path_body = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\head tail only\HEAD_TAIL_PER_CAM_May 04\best_model.h5"
