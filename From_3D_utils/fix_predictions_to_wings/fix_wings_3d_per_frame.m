@@ -1,21 +1,24 @@
-function [predictions, box] = fix_wings_3d_per_frame(predictions, easyWandData, cropzone, box, seg_scores)
+function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(predictions, body_parts_2D, easyWandData, cropzone, box, seg_scores)
     %[cam1, cam2, cam3]
-    which_to_flip = [[0,0,0];[0,0,1];[0,1,0];[0,1,1];[1,0,0];[1,0,1];[1,1,0];[1,1,1]];
+    which_to_flip = logical([[0,0,0];[0,0,1];[0,1,0];[0,1,1];[1,0,0];[1,0,1];[1,1,0];[1,1,1]]);
     num_of_options = size(which_to_flip, 1);
     test_preds = predictions(:, :, :, :);
     num_frames = size(test_preds, 1);
     num_joints = size(test_preds, 3);
+    im_size = size(box, 1);
     cam_inds=1:size(predictions,2);
     num_cams = size(predictions,2);
     left_inds = 1:num_joints/2; right_inds = (num_joints/2+1:num_joints);
+    inds = [left_inds; right_inds];
     aranged_predictions = predictions;
-    aranged_box = box;
-    masks = permute(squeeze(box(:, :, [2,3], :, :)), [5,4,2,1,3]); 
+    masks = permute(squeeze(box(:, :, [2,3], :, :)), [5,4,1,2,3]); 
+    %% fix right-left consistency
     for frame = 1:num_frames
         all_4_masks = squeeze(masks(frame,:,:,:,:));
         all_4_masks_scores = squeeze(seg_scores(frame, :,:)); 
-        [chosen_cam, cameras_to_test, wings_sz] = find_best_wings_cam(all_4_masks, all_4_masks_scores);
-        if frame > 1
+%         [chosen_cam, cams_to_check, wings_sz] = find_best_wings_cam(all_4_masks, all_4_masks_scores);
+        chosen_cam = 1; cams_to_check = (2:4);
+        if frame > 1   % fix let-right of the chosen camera
             prev_mask1 = squeeze(masks(frame - 1, chosen_cam, :, :, 1));
             cur_mask1 = squeeze(masks(frame, chosen_cam, :, :, 1));
             prev_mask2 = squeeze(masks(frame - 1, chosen_cam, :, :, 2));
@@ -34,24 +37,33 @@ function [predictions, box] = fix_wings_3d_per_frame(predictions, easyWandData, 
                 right_pnts = aranged_predictions(frame, chosen_cam, right_inds, :);
                 aranged_predictions(frame, chosen_cam, left_inds, :) = right_pnts;
                 aranged_predictions(frame, chosen_cam, right_inds, :) = left_pnts;
+                % switch scores
+                score_1 = seg_scores(frame, chosen_cam, 1);
+                score_2 = seg_scores(frame, chosen_cam, 2);
+                seg_scores(frame, chosen_cam, 1) = score_2;
+                seg_scores(frame, chosen_cam, 2) = score_1;
+
             end
         end
-        all_cams = (1:num_cams);
-        cams_to_check = all_cams(all_cams ~= chosen_cam);
         frame_scores = zeros(num_of_options, 1);
-        for option = 1:num_of_options
+        % loop on every option of other cameras, flip the cameras, and get the score 
+        for option = 1:num_of_options  
             test_preds_i = aranged_predictions(frame, :, :, :);
-            cams_to_flip = which_to_flip(option, :);
-            %% flip the relevant cameras
-             for cam=cams_to_check
-                if cams_to_flip(cam) == 1
-                    left_wings_preds = test_preds_i(:, cam, left_inds, :);
-                    right_wings_preds = test_preds_i(:, cam, right_inds, :);
-                    test_preds_i(:, cam, right_inds, :) = left_wings_preds;
-                    test_preds_i(:, cam, left_inds, :) = right_wings_preds;
-                end
-             end 
-            [~, ~ ,test_3d_pts] = get_3d_pts_rays_intersects(test_preds_i, easyWandData, cropzone, cam_inds);
+            cams_to_flip_inds = which_to_flip(option, :);
+            if option ~= 1  % 1 is [0,0,0] means don't flip any camera
+                cams_to_flip = cams_to_check(cams_to_flip_inds);
+                %% flip the relevant cameras
+                 for cam=cams_to_check
+                    if ismember(cam, cams_to_flip)
+                        left_wings_preds = test_preds_i(:, cam, left_inds, :);
+                        right_wings_preds = test_preds_i(:, cam, right_inds, :);
+                        test_preds_i(:, cam, right_inds, :) = left_wings_preds;
+                        test_preds_i(:, cam, left_inds, :) = right_wings_preds;
+                    end
+                 end 
+            end
+            crop = cropzone(:, :, frame);
+            [~, ~ ,test_3d_pts] = get_3d_pts_rays_intersects(test_preds_i, easyWandData, crop, cam_inds);
             test_3d_pts = squeeze(test_3d_pts);
             total_boxes_volume = 0;
             for pnt=1:num_joints
@@ -70,23 +82,79 @@ function [predictions, box] = fix_wings_3d_per_frame(predictions, easyWandData, 
         end
         [M,I] = min(frame_scores,[],'all');
         winning_option = which_to_flip(I, :);
-        for cam=1:4
-            if winning_option(cam) == 1
+        if I == 1
+            continue
+        end
+        cams_to_flip = cams_to_check(winning_option);
+        for cam=cams_to_check
+            if ismember(cam, cams_to_flip)
                 % switch left and right prediction indexes
-                left_wings_preds = squeeze(predictions(frame, cam, left_inds, :));
-                right_wings_preds = squeeze(predictions(frame, cam, right_inds, :));
-                aranged_predictions(frame, cam, right_inds, :) = left_wings_preds;
-                aranged_predictions(frame, cam, left_inds, :) = right_wings_preds;
-                % switch box
-                first_masks = aranged_box(:, :, 2, cam, frame);
-                second_masks = aranged_box(:, :, 3, cam, frame);
-                aranged_box(:, :, 2, cam, frame) = second_masks;
-                aranged_box(:, :, 3, cam, frame) = first_masks;
+                mask1 = masks(frame, cam, :, :, 1);
+                mask2 = masks(frame, cam, :, :, 2);
+                masks(frame, cam, :, :, 1) = mask2;
+                masks(frame, cam, :, :, 2) = mask1;
+                % switch predictions
+                left_pnts = aranged_predictions(frame, cam, left_inds, :);
+                right_pnts = aranged_predictions(frame, cam, right_inds, :);
+                aranged_predictions(frame, cam, left_inds, :) = right_pnts;
+                aranged_predictions(frame, cam, right_inds, :) = left_pnts;
+                % switch scores
+                score_1 = seg_scores(frame, cam, 1);
+                score_2 = seg_scores(frame, cam, 2);
+                seg_scores(frame, cam, 1) = score_2;
+                seg_scores(frame, cam, 2) = score_1;
             end
         end
     end
     predictions = aranged_predictions;
-    box = aranged_box;
+    %% create new wings masks based on 3D back-projection
+    points_3D = zeros(num_joints, num_frames, 3);
+    for frame=1:num_frames
+        crop = cropzone(:,:,frame);
+        preds_i = predictions(frame, :,:,:);
+        [~, ~ ,all_pns_3D] = get_3d_pts_rays_intersects(preds_i, easyWandData, crop, cam_inds);
+        avarage_points_i = get_avarage_points_3d(all_pns_3D, 1, 1.5);
+        points_3D(:, frame, :) = avarage_points_i;
+    end
+    points_3D_sm = smooth_3d_points(points_3D, 3, 0.9999995);
+    points_2D_proj = from_3D_pts_to_pixels(points_3D_sm, easyWandData, cropzone);  % get the bach-projections
+    new_masks = zeros(size(masks));
+    for frame=1:num_frames
+        for cam=1:num_cams
+            for wing=1:2
+                wing_inds = inds(wing, :);
+                wing_pnts = double(squeeze(points_2D_proj(frame, cam,wing_inds, :)));
+                k = convhull(wing_pnts(:,1),wing_pnts(:,2));
+                new_mask = poly2mask(wing_pnts(k,1),wing_pnts(k,2),im_size,im_size);
+                se = strel('disk',5);
+                % Dilate the binary image using the disk-shaped structuring element
+                new_mask = imdilate(new_mask,se);
+                new_masks(frame, cam, :, :, wing) = new_mask;
+            end
+        end
+    end
+    %%
+    masks_per = permute(new_masks, [3,4,5,2,1]);
+    box(:, :, [2,3], :, :) = masks_per;
+    %% find wing joints sides
+    for frame=1:num_frames
+        for cam=1:num_cams
+             left_wj = squeeze(body_parts_2D(frame, cam, 1, :)); 
+             right_wj = squeeze(body_parts_2D(frame, cam, 2, :)); 
+
+             left_mask = squeeze(box(:,:,2,cam, frame));
+             right_mask = squeeze(box(:,:,3,cam, frame));
+             dist_r2r  = get_distance_from_mask_to_point(right_mask, right_wj);
+             dist_r2l = get_distance_from_mask_to_point(right_mask, left_wj);
+             dist_l2l  = get_distance_from_mask_to_point(left_mask, left_wj);
+             dist_l2r = get_distance_from_mask_to_point(left_mask, right_wj);
+             if dist_r2l < dist_r2r || dist_l2r < dist_l2l
+                % switch body points location 
+                body_parts_2D(frame, cam, 1, :) = right_wj;
+                body_parts_2D(frame, cam, 2, :) = left_wj;
+             end
+        end
+    end
 end
 
 
