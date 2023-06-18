@@ -26,14 +26,6 @@ function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(
             l2r_dist = get_points_distance(cur_left_pts, prev_right_pts);
             r2l_dist = get_points_distance(cur_right_pts, prev_left_pts);
             do_switch = l2l_dist + r2r_dist >= l2r_dist + r2l_dist;
-            
-%             prev_mask1 = squeeze(masks(frame - 1, chosen_cam, :, :, 1));
-%             cur_mask1 = squeeze(masks(frame, chosen_cam, :, :, 1));
-%             prev_mask2 = squeeze(masks(frame - 1, chosen_cam, :, :, 2));
-%             cur_mask2 = squeeze(masks(frame, chosen_cam, :, :, 2));
-%             % find the scores for switch vs not switch
-%             no_switch = nnz(prev_mask1 & cur_mask1) + nnz(prev_mask2 & cur_mask2);
-%             yes_switch = nnz(prev_mask1 & cur_mask2) + nnz(prev_mask2 & cur_mask1);
             if do_switch  % do switch to chosen camera
                 % switch masks
                 mask1 = masks(frame, chosen_cam, :, :, 1);
@@ -115,9 +107,34 @@ function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(
         end
     end
     predictions = aranged_predictions;
+    %% find wing joints sides
+    for frame=1:num_frames
+        for cam=1:num_cams
+             left_wj = squeeze(body_parts_2D(frame, cam, 1, :)); 
+             right_wj = squeeze(body_parts_2D(frame, cam, 2, :)); 
+             left_mask = squeeze(masks(frame, cam, :, :, 1));
+             right_mask = squeeze(masks(frame, cam, :, :, 2));
+             dist_r2r  = get_distance_from_mask_to_point(right_mask, right_wj);
+             dist_r2l = get_distance_from_mask_to_point(right_mask, left_wj);
+             dist_l2l  = get_distance_from_mask_to_point(left_mask, left_wj);
+             dist_l2r = get_distance_from_mask_to_point(left_mask, right_wj);
+             if dist_r2l < dist_r2r || dist_l2r < dist_l2l
+                % switch body points location 
+                body_parts_2D(frame, cam, 1, :) = right_wj;
+                body_parts_2D(frame, cam, 2, :) = left_wj;
+             end
+        end
+    end
+    
     %% create new wings masks based on 3D back-projection
-    points_3D = zeros(num_joints, num_frames, 3);
-    [~, ~ ,all_pts_3D] = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone, cam_inds);
+    add_wings_joints_to_masks = true;
+    if add_wings_joints_to_masks
+        aranged_predictions(:, :, (num_joints+1:num_joints+2), :) = body_parts_2D(:, :, [1,2], :);
+        left_inds(num_joints/2+1) = num_joints+1;
+        right_inds(num_joints/2+1) = num_joints+2;
+        inds = [left_inds; right_inds];
+    end
+    [~, ~ ,all_pts_3D] = get_3d_pts_rays_intersects(aranged_predictions, easyWandData, cropzone, cam_inds);
     points_3D = get_avarage_points_3d(all_pts_3D, 1, 1.5);
     points_3D_sm = smooth_3d_points(points_3D, 3, 0.9999995);
     points_2D_proj = from_3D_pts_to_pixels(points_3D_sm, easyWandData, cropzone);  % get the bach-projections
@@ -139,25 +156,7 @@ function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(
     %%
     masks_per = permute(new_masks, [3,4,5,2,1]);
     box(:, :, [2,3], :, :) = masks_per;
-    %% find wing joints sides
-    for frame=1:num_frames
-        for cam=1:num_cams
-             left_wj = squeeze(body_parts_2D(frame, cam, 1, :)); 
-             right_wj = squeeze(body_parts_2D(frame, cam, 2, :)); 
-
-             left_mask = squeeze(box(:,:,2,cam, frame));
-             right_mask = squeeze(box(:,:,3,cam, frame));
-             dist_r2r  = get_distance_from_mask_to_point(right_mask, right_wj);
-             dist_r2l = get_distance_from_mask_to_point(right_mask, left_wj);
-             dist_l2l  = get_distance_from_mask_to_point(left_mask, left_wj);
-             dist_l2r = get_distance_from_mask_to_point(left_mask, right_wj);
-             if dist_r2l < dist_r2r || dist_l2r < dist_l2l
-                % switch body points location 
-                body_parts_2D(frame, cam, 1, :) = right_wj;
-                body_parts_2D(frame, cam, 2, :) = left_wj;
-             end
-        end
-    end
+    
 end
 
 function dist = get_points_distance(pnts_1, pnts_2)
