@@ -14,19 +14,27 @@ function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(
     masks = permute(squeeze(box(:, :, [2,3], :, :)), [5,4,1,2,3]); 
     %% fix right-left consistency
     for frame = 1:num_frames
-        all_4_masks = squeeze(masks(frame,:,:,:,:));
-        all_4_masks_scores = squeeze(seg_scores(frame, :,:)); 
-%         [chosen_cam, cams_to_check, wings_sz] = find_best_wings_cam(all_4_masks, all_4_masks_scores);
+       % [chosen_cam, cams_to_check, wings_sz] = find_best_wings_cam(squeeze(masks(frame,:,:,:,:)), queeze(seg_scores(frame, :,:)));
         chosen_cam = 1; cams_to_check = (2:4);
         if frame > 1   % fix let-right of the chosen camera
-            prev_mask1 = squeeze(masks(frame - 1, chosen_cam, :, :, 1));
-            cur_mask1 = squeeze(masks(frame, chosen_cam, :, :, 1));
-            prev_mask2 = squeeze(masks(frame - 1, chosen_cam, :, :, 2));
-            cur_mask2 = squeeze(masks(frame, chosen_cam, :, :, 2));
-            % find the scores for switch vs not switch
-            no_switch = nnz(prev_mask1 & cur_mask1) + nnz(prev_mask2 & cur_mask2);
-            yes_switch = nnz(prev_mask1 & cur_mask2) + nnz(prev_mask2 & cur_mask1);
-            if yes_switch > no_switch  % do switch to chosen camera
+            prev_left_pts = squeeze(aranged_predictions(frame - 1, chosen_cam, left_inds, :));
+            cur_left_pts = squeeze(aranged_predictions(frame, chosen_cam, left_inds, :));
+            prev_right_pts = squeeze(aranged_predictions(frame - 1, chosen_cam, right_inds, :));
+            cur_right_pts = squeeze(aranged_predictions(frame, chosen_cam, right_inds, :));
+            l2l_dist = get_points_distance(cur_left_pts, prev_left_pts);
+            r2r_dist = get_points_distance(cur_right_pts, prev_right_pts);
+            l2r_dist = get_points_distance(cur_left_pts, prev_right_pts);
+            r2l_dist = get_points_distance(cur_right_pts, prev_left_pts);
+            do_switch = l2l_dist + r2r_dist >= l2r_dist + r2l_dist;
+            
+%             prev_mask1 = squeeze(masks(frame - 1, chosen_cam, :, :, 1));
+%             cur_mask1 = squeeze(masks(frame, chosen_cam, :, :, 1));
+%             prev_mask2 = squeeze(masks(frame - 1, chosen_cam, :, :, 2));
+%             cur_mask2 = squeeze(masks(frame, chosen_cam, :, :, 2));
+%             % find the scores for switch vs not switch
+%             no_switch = nnz(prev_mask1 & cur_mask1) + nnz(prev_mask2 & cur_mask2);
+%             yes_switch = nnz(prev_mask1 & cur_mask2) + nnz(prev_mask2 & cur_mask1);
+            if do_switch  % do switch to chosen camera
                 % switch masks
                 mask1 = masks(frame, chosen_cam, :, :, 1);
                 mask2 = masks(frame, chosen_cam, :, :, 2);
@@ -109,13 +117,8 @@ function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(
     predictions = aranged_predictions;
     %% create new wings masks based on 3D back-projection
     points_3D = zeros(num_joints, num_frames, 3);
-    for frame=1:num_frames
-        crop = cropzone(:,:,frame);
-        preds_i = predictions(frame, :,:,:);
-        [~, ~ ,all_pns_3D] = get_3d_pts_rays_intersects(preds_i, easyWandData, crop, cam_inds);
-        avarage_points_i = get_avarage_points_3d(all_pns_3D, 1, 1.5);
-        points_3D(:, frame, :) = avarage_points_i;
-    end
+    [~, ~ ,all_pts_3D] = get_3d_pts_rays_intersects(predictions, easyWandData, cropzone, cam_inds);
+    points_3D = get_avarage_points_3d(all_pts_3D, 1, 1.5);
     points_3D_sm = smooth_3d_points(points_3D, 3, 0.9999995);
     points_2D_proj = from_3D_pts_to_pixels(points_3D_sm, easyWandData, cropzone);  % get the bach-projections
     new_masks = zeros(size(masks));
@@ -157,6 +160,9 @@ function [predictions, box, body_parts_2D, seg_scores] = fix_wings_3d_per_frame(
     end
 end
 
+function dist = get_points_distance(pnts_1, pnts_2)
+    dist = mean(vecnorm(pnts_1 - pnts_2, 2,2));
+end
 
 function [chosen_cam, cameras_to_test, wings_sz] = find_best_wings_cam(all_4_masks, all_4_masks_scores)
         num_cams = size(all_4_masks, 1);
