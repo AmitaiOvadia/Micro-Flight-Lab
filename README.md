@@ -13,7 +13,7 @@ https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/384ee016-2b9a-
   
 https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/02db3f7f-05dc-4b3e-93ae-7f5ce32bedf7
 
-- The last step is turing this noisy 4-view detection of each point, and turn it into 3D
+- The last step is turing this noisy 4-view detection of each point, into a 3D representation. 
 - This is done by deciding each frame, based on various parameters and considerations, which 2 cameras have the best view of the point and triangulate them using the known camera matrices
 
 https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/36312bc5-5c23-465d-b67f-c4249900ffb0
