@@ -4,7 +4,8 @@
 
 - **This is an example of a raw movie that comes out of the lab cameras system in [Micro-Flight Lab](https://www.beatus-lab.org/)**
 - **My goal is to turn these vidoes into a simple 3D simulation of the flies' flight**
-- I do it using Python for the deep learning pipeline in 2D, and MATLAB for the 3D analysis part. 
+- I do it using <img src="https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54" width="80" height="22"> for the deep learning pipeline in 2D, and <img src="https://img.shields.io/badge/matlab-%23007ACC.svg?style=for-the-badge&logo=matlab&logoColor=white" width="80" height="22">
+ for the 3D analysis part. 
 
 https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/384ee016-2b9a-4778-8791-9f7e31606523
   
