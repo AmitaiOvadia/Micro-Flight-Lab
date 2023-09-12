@@ -18,4 +18,4 @@ https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/02db3f7f-05dc-
 
 https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/36312bc5-5c23-465d-b67f-c4249900ffb0
 
-- From this 3D detections, we I can extract flight data as the wing and body pitch, row and yaw.
+- From this 3D detections, we I can extract flight data as the wing and body pitch, roll and yaw.
