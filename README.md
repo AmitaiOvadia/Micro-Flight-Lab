@@ -5,9 +5,11 @@
 - **This is an example of a raw movie that comes out of the lab cameras system in [Micro-Flight Lab](https://www.beatus-lab.org/)**
 - **My goal is to turn these vidoes into a simple 3D simulation of the flies' flight**
 - I do it using **Python** for the deep learning pipeline in 2D, and **MATLAB** for the 3D analysis part. 
-
-https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/384ee016-2b9a-4778-8791-9f7e31606523
   
+
+https://github.com/AmitaiOvadia/Micro-Flight-Lab/assets/101287679/371827fa-6307-4b1d-a0cb-cc824d7cfc20
+
+
 -  **This is done by detecting interest points on the wings and body in each camera, using a deep learning pipleline**
 -  First I detect the wings using a YOLOV8 instance segmentation model trained on a custom dataset
 -  Then, I feed the image + wing mask into a trained pose estimation CNN to find feature points on the body and wings:
