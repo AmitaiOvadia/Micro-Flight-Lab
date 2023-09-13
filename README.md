@@ -1,5 +1,5 @@
 <h1>
-  Lab Code repositiry
+  Lab Code
 </h1>
 
 - **This is an example of a raw movie that comes out of the lab cameras system in [Micro-Flight Lab](https://www.beatus-lab.org/)**
