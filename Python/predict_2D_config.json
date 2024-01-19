@@ -1,0 +1,24 @@
+
+
+{
+"wings detection model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\utils\\wings_segmentation\\YOLO models\\yolo_weights_6_1_24.pt",
+"box path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\datasets\\movies datasets\\movie 14\\movie_14_800_1799_ds_3tc_7tj.h5",
+"wings pose estimation model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\3 good cameras\\MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03\\best_model.h5",
+"wings pose estimation model path second path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\example datasets\\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_03\\predicted_points_and_box.h5",
+ "head tail pose estimation model path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\head tail only\\HEAD_TAIL_800_frames_7_11\\best_model.h5",
+"out path" : "example datasets\\movie_14_18_pnts_problematic_frames.h5",
+ "base output path" : "example datasets",
+
+
+"number of cameras": 4,
+"number of time channels": 3,
+"model type": "WINGS_AND_BODY_SAME_MODEL",
+"model type second pass": "",
+"mask increase": 1,
+"is video": 1,
+"batch size": 8,
+"body parts to predict": "WINGS_AND_BODY",
+"number of joints": 18,
+"predict again using reprojected masks": 1,
+"2D to 3D config path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\2D_to_3D_config.json"
+}
