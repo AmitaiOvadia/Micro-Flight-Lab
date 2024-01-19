@@ -1,7 +1,10 @@
 from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, LambdaCallback, Callback
 from scipy.io import loadmat, savemat
+import tensorflow as tf
 from viz import show_pred, show_confmap_grid, plot_history
+from tensorflow.keras.optimizers import Adam
 import os
+from tensorflow.keras.losses import MeanSquaredError
 
 
 class LossHistory(Callback):
@@ -22,6 +25,66 @@ class LossHistory(Callback):
 
         # Plot graph
         plot_history(self.history, save_path=os.path.join(self.run_path, "history.png"))
+
+
+class CustomCallback(Callback):
+    def __init__(self, model, loss_a, loss_b, switch_epoch):
+        super().__init__()
+        self.model = model
+        self.loss_a = loss_a
+        self.loss_b = loss_b
+        self.switch_epoch = switch_epoch
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if epoch == self.switch_epoch:
+            self.model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss=self.loss_b)
+
+    @staticmethod
+    def tf_find_peaks(x):
+        """ Finds the maximum value in each channel and returns the location and value.
+        Args:
+            x: rank-4 tensor (samples, height, width, channels)
+
+        Returns:
+            peaks: rank-3 tensor (samples, [x, y, val], channels)
+        """
+
+        # Store input shape
+        in_shape = tf.shape(x)
+
+        # Flatten height/width dims
+        flattened = tf.reshape(x, [in_shape[0], -1, in_shape[-1]])
+
+        # Find peaks in linear indices
+        idx = tf.argmax(flattened, axis=1)
+
+        # Convert linear indices to subscripts
+        rows = tf.math.floordiv(tf.cast(idx, tf.int32), in_shape[1])
+        cols = tf.math.floormod(tf.cast(idx, tf.int32), in_shape[1])
+
+        # Dumb way to get actual values without indexing
+        vals = tf.math.reduce_max(flattened, axis=1)
+
+        # Return N x 3 x C tensor
+        pred = tf.stack([
+            tf.cast(cols, tf.float32),
+            tf.cast(rows, tf.float32),
+            vals],
+            axis=1)
+        return pred
+
+    @staticmethod
+    def pointwize_loss(y_true, y_pred):
+        """
+        Args:
+            y_true: ground truth confmaps
+            y_pred: predicted confmaps
+        Returns: loss (float)
+
+        """
+        true_peaks = CustomCallback.tf_find_peaks(y_true)
+        pred_peaks = CustomCallback.tf_find_peaks(y_pred)
+        return tf.losses.mean_squared_error(true_peaks, pred_peaks)
 
 
 class CallBacks:

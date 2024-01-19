@@ -11,7 +11,7 @@ from scipy.ndimage import rotate, gaussian_filter, shift
 def preprocess(X, permute=(0, 3, 2, 1)):
     """ Normalizes input data. """
 
-    # Add singleton dim for single images
+    # Add singleton dim for single train_images
     if X.ndim == 3:
         X = X[None, ...]
 
@@ -123,7 +123,7 @@ def test_generators(data_path):
         for i in range(9):
             # define subplot
             plt.subplot(330 + 1 + i)
-            # generate batch of images
+            # generate batch of train_images
             batch_x = flow_box.next()
             batch_y = flow_conf.next()
             # convert to unsigned integers for viewing
@@ -138,5 +138,5 @@ def test_generators(data_path):
 
 if __name__ == '__main__':
     # data_path = "trainset_random_14_pts_yolo_masks.h5"
-    data_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\train_set_head_tail.h5"
+    data_path = r"/train_set_head_tail.h5"
     test_generators(data_path)

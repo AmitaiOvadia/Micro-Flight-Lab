@@ -43,8 +43,8 @@ class Augmentor:
         # prepare iterator
         datagen_x.fit(box, augment=True, seed=self.seed)
         datagen_y.fit(confmaps, augment=True, seed=self.seed)
-        flow_box = datagen_x.flow(box, batch_size=self.batch_size, seed=self.seed)
-        flow_conf = datagen_y.flow(confmaps, batch_size=self.batch_size, seed=self.seed)
+        flow_box = datagen_x.flow(box, batch_size=self.batch_size, seed=self.seed, shuffle=False)
+        flow_conf = datagen_y.flow(confmaps, batch_size=self.batch_size, seed=self.seed, shuffle=False)
         train_generator = zip(flow_box, flow_conf)
         return train_generator
 
@@ -72,6 +72,12 @@ class Augmentor:
 
         def custom_augmentations(img):
             """get an image of shape (height, width, num_channels) and return augmented image"""
+            # if img.shape[-1] == 4:
+            #     import matplotlib.pyplot as plt
+            #     import matplotlib
+            #     matplotlib.use('TkAgg')
+            #     plt.imshow(img[:,:,1] + img[:,:,3])
+            #     plt.show()
             do_horizontal_flip = bool(np.random.randint(2)) and can_horizontal_flip
             do_vertical_flip = bool(np.random.randint(2)) and can_vertical_flip
             rotation_angle = np.random.randint(-rotation_range, rotation_range)

@@ -77,7 +77,7 @@ def show_pred(net, X, Y, joint_idx=0, alpha_pred=0.7, save_path=None, show_figur
 
 
 def gallery(array, ncols=4):
-    """ Utility function for tiling a set of images into a grid. """
+    """ Utility function for tiling a set of train_images into a grid. """
     array = np.transpose(array.squeeze(), (2, 0, 1))
     nindex, height, width = array.shape
     nrows = int(np.ceil(nindex / ncols))

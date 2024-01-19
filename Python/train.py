@@ -1,5 +1,3 @@
-import numpy as np
-
 from constants import *
 import json
 import preprocessor
@@ -10,8 +8,11 @@ import shutil
 import CallBacks
 from datetime import date
 from time import time
+import sys
+from tensorflow.keras.optimizers import Adam
+from Network import PointWiseLoss
 
-# configuration.json file of parameters to save all the parameters: in jason format
+# train_config.json file of parameters to save all the parameters: in jason format
 
 
 class Trainer:
@@ -29,6 +30,7 @@ class Trainer:
             self.clean = bool(config["clean"])
             self.debug_mode = bool(config["debug mode"])
             self.wing_rank = config["rank wing size"]
+            self.epochs_pointwise_loss = config["epochs pointwise loss"]
             self.preprocessor = preprocessor.Preprocessor(config)
 
         if self.debug_mode:
@@ -43,10 +45,6 @@ class Trainer:
         # do preprocessing according to the model type
         self.preprocessor.do_preprocess()
         self.box, self.confmaps = self.preprocessor.get_box(), self.preprocessor.get_confmaps()
-
-        # take only the 3 time channels and the head tail inds
-        # self.box = self.box[...]
-        # self.confmaps = self.confmaps[..., 2:]
 
         # self.visualize_box_confmaps()
 
@@ -92,12 +90,11 @@ class Trainer:
             callbacks=self.callbacks_list,
             validation_steps=None
         )
-        elapsed_train = time() - t0_train
-        print("Total runtime: %.1f mins" % (elapsed_train / 60))
-
         # Save final model
         self.model.history = self.history_callback.history
-        self.model.save(os.path.join(self.run_path, "final_model.h5"))
+        self.model.save(os.path.join(self.run_path, "final_confmaps_model.h5"))
+        elapsed_train = time() - t0_train
+        print("Total runtime first loss: %.1f mins" % (elapsed_train / 60))
 
     def save_configuration(self):
         with open(f"{self.run_path}/configuration.json", 'w') as file:
@@ -188,6 +185,9 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    trainer = Trainer("configuration.json")
+    config_path = sys.argv[1]  # get the first argument
+    print(config_path)
+    trainer = Trainer(config_path)
     trainer.train()
+
 

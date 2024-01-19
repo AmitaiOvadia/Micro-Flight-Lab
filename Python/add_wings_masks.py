@@ -40,15 +40,15 @@ class Add_Masks:
     def save_masks_to_h5(self):
         f = h5py.File(self.box_path, "a")
 
-        masks_dset = f.create_dataset("masks", data=self.masks.astype("int32"),  compression="gzip",
+        masks_dset = f.create_dataset("train_masks", data=self.masks.astype("int32"),  compression="gzip",
                                       compression_opts=1)
-        masks_dset.attrs["description"] = "masks for each wing in each camera, order (left right) still unfixed, " \
+        masks_dset.attrs["description"] = "train_masks for each wing in each camera, order (left right) still unfixed, " \
                                           "image of zeros for no mask"
         masks_dset.attrs["dims"] = "(num_frames, num_cams, im_size, im_size, 2)"
 
         masks_dset = f.create_dataset("scores", data=self.scores, compression="gzip",
                                       compression_opts=1)
-        masks_dset.attrs["description"] = "a score from 0->1 for each mask (left right according to masks order)"
+        masks_dset.attrs["description"] = "a score from 0->1 for each mask (left right according to train_masks order)"
         masks_dset.attrs["dims"] = f"{self.scores.shape}"
 
         masks_dset = f.create_dataset("boxes", data=self.boxes, compression="gzip",
@@ -59,7 +59,7 @@ class Add_Masks:
         f.close()
 
     def run_masks_detection(self):
-        """ add masks to the self.masks array """
+        """ add train_masks to the self.train_masks array """
         if self.num_times_channels == 3:
             for cam in range(self.num_cams):
                 print(f"finds wings for camera number {cam + 1}")
@@ -103,5 +103,5 @@ class Add_Masks:
 
 if __name__ == "__main__":
     box_path = r"C:\Users\amita\OneDrive\Desktop\micro-flight-lab\micro-flight-lab\Utilities\segmentation 3D\example\movie_8_2001_2500_ds_3tc_7tj.h5"
-    model_path = "wings_detection_yolov8_weights_13_3.pt"
+    model_path = "wings_segmentation/YOLO models/wings_detection_yolov8_weights_13_3.pt"
     add_masks_obj = Add_Masks(model_path, box_path).detect_masks_and_save()

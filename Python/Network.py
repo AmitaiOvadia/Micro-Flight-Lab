@@ -3,10 +3,11 @@ from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras import models
 from tensorflow.keras.layers import *
 from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, Add, MaxPooling2D, Concatenate, Lambda, Reshape, \
-                                    Activation, Dropout
+                                    Activation, Dropout, LeakyReLU, BatchNormalization
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 
+ALPHA = 0.01
 
 class Network:
     def __init__(self, config, image_size, number_of_output_channels):
@@ -21,13 +22,14 @@ class Network:
         self.loss_function = config["loss_function"]
         self.dilation_rate = config["dilation rate"]
         self.dropout = config["dropout ratio"]
+        self.batches_per_epoch = config["batches per epoch"]
         self.model = self.config_model()
 
     def get_model(self):
         return self.model
 
     def config_model(self):
-        if self.model_type == ALL_CAMS:
+        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_18_POINTS:
             model = self.all_4_cams()
         elif self.model_type == ALL_CAMS_AND_3_GOOD_CAMS:
             model = self.all_3_cams()
@@ -39,8 +41,6 @@ class Network:
             model = self.C2F_per_wing()
         elif self.model_type == COARSE_PER_WING:
             model = self.coarse_per_wing()
-        elif self.model_type == HOURGLASS:
-            model = self.hourglass()
         else:
             model = self.basic_nn()
         return model
@@ -337,8 +337,21 @@ class Network:
         net.summary()
         net.compile(optimizer=Adam(amsgrad=False),
                     loss=self.loss_function)
-        # loss="categorical_crossentropy")
         return net
+
+    def resnet50_encoder_shallow_decoder(self):
+        encoder = tf.keras.applications.ResNet50(
+            include_top=False, weights=None, input_shape=self.image_size)
+        x_out = Conv2DTranspose(self.number_of_output_channels,
+                                kernel_size=self.kernel_size, strides=2, padding="same",
+                                activation=LeakyReLU(alpha=ALPHA),
+                                kernel_initializer="glorot_normal")(encoder)
+        net = Model(inputs=encoder.input, outputs=x_out)
+        net.summary()
+        net.compile(optimizer=Adam(amsgrad=False),
+                    loss=self.loss_function)
+        return net
+
 
     @staticmethod
     def encoder2d_atrous(img_size, filters, num_blocks, kernel_size, dilation_rate, dropout, add_name=""):
@@ -347,14 +360,13 @@ class Network:
         for block_ind in range(num_blocks):
             if block_ind == 0:
                 x_out = Conv2D(filters * (2 ** block_ind), kernel_size, dilation_rate=dilation_rate,
-                               padding="same", activation="relu")(x_in)
-
+                               padding="same", activation=LeakyReLU(alpha=ALPHA))(x_in)
             else:
                 x_out = Conv2D(filters * (2 ** block_ind), kernel_size, dilation_rate=dilation_rate,
-                               padding="same", activation="relu")(x_out)
+                               padding="same", activation=LeakyReLU(alpha=ALPHA))(x_out)
 
             x_out = Conv2D(filters * (2 ** block_ind), kernel_size, dilation_rate=dilation_rate,
-                           padding="same", activation="relu")(x_out)
+                           padding="same", activation=LeakyReLU(alpha=ALPHA))(x_out)
 
             x_out = Conv2D(filters * (2 ** block_ind), kernel_size, dilation_rate=dilation_rate,
                            padding="same", activation="linear")(x_out)
@@ -364,11 +376,13 @@ class Network:
             x_out = Dropout(dropout)(x_out)
 
         x_out = Conv2D(filters * (2 ** num_blocks), kernel_size, dilation_rate=dilation_rate,
-                       padding="same", activation="relu")(x_out)
+                       padding="same", activation=LeakyReLU(alpha=ALPHA))(x_out)
+
         x_out = Conv2D(filters * (2 ** num_blocks), kernel_size, dilation_rate=dilation_rate,
-                       padding="same", activation="relu")(x_out)
+                       padding="same", activation=LeakyReLU(alpha=ALPHA))(x_out)
+
         x_out = Conv2D(filters * (2 ** num_blocks), kernel_size, dilation_rate=dilation_rate,
-                       padding="same", activation="relu")(x_out)
+                       padding="same", activation=LeakyReLU(alpha=ALPHA))(x_out)
         x_out = Dropout(dropout)(x_out)
         return Model(inputs=x_in, outputs=x_out, name=f"Encoder2DAtrous{add_name}")
 
@@ -378,16 +392,17 @@ class Network:
         for block_ind in range(num_blocks - 1, 0, -1):
             if block_ind == (num_blocks - 1):
                 x_out = Conv2DTranspose(filters * (2 ** (block_ind)), kernel_size=kernel_size, strides=2,
-                                        padding="same", activation="relu",
+                                        padding="same", activation=LeakyReLU(alpha=ALPHA),
                                         kernel_initializer="glorot_normal")(x_in)
             else:
                 x_out = Conv2DTranspose(filters * (2 ** (block_ind)), kernel_size=kernel_size, strides=2,
-                                        padding="same", activation="relu",
+                                        padding="same", activation=LeakyReLU(alpha=ALPHA),
                                         kernel_initializer="glorot_normal")(x_out)
 
-            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same", activation="relu")(
+            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same", activation=LeakyReLU(alpha=ALPHA))(
                 x_out)
-            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same", activation="relu")(
+
+            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same", activation=LeakyReLU(alpha=ALPHA))(
                 x_out)
 
         x_out = Conv2DTranspose(num_output_channels, kernel_size=kernel_size, strides=2, padding="same",
@@ -396,3 +411,75 @@ class Network:
 
         return Model(inputs=x_in, outputs=x_out, name=f"Decoder2D{add_name}")
 
+
+class PointWiseLoss(tf.keras.losses.Loss):
+    def __init__(self):
+        super().__init__()
+        self.pointwize_loss = PointWiseLoss.pointwize_loss
+
+    def call(self, y_true, y_pred):
+        return self.pointwize_loss
+
+    @staticmethod
+    def tf_find_peaks(x):
+        """ Finds the maximum value in each channel and returns the location and value.
+        Args:
+            x: rank-4 tensor (samples, height, width, channels)
+
+        Returns:
+            peaks: rank-3 tensor (samples, [x, y, val], channels)
+        """
+
+        # Store input shape
+        in_shape = tf.shape(x)
+
+        # Flatten height/width dims
+        flattened = tf.reshape(x, [in_shape[0], -1, in_shape[-1]])
+
+        # Find peaks in linear indices
+        idx = tf.argmax(flattened, axis=1)
+
+        # Convert linear indices to subscripts
+        rows = tf.math.floordiv(tf.cast(idx, tf.int32), in_shape[1])
+        cols = tf.math.floormod(tf.cast(idx, tf.int32), in_shape[1])
+
+        # Dumb way to get actual values without indexing
+        vals = tf.math.reduce_max(flattened, axis=1)
+
+        # Return N x 3 x C tensor
+        pred = tf.stack([
+            tf.cast(cols, tf.float32),
+            tf.cast(rows, tf.float32),
+            vals],
+            axis=1)
+        return pred
+
+    @staticmethod
+    def _calculate_heatmap_keypoints(linspace, heatmaps):
+        h_y = tf.reduce_sum(linspace * tf.reduce_sum(heatmaps, axis=-2), axis=-2) / tf.reduce_sum(heatmaps,
+                                                                                                  axis=[-3, -2])
+        h_x = tf.reduce_sum(linspace * tf.reduce_sum(heatmaps, axis=-3), axis=-2) / tf.reduce_sum(heatmaps,
+                                                                                                  axis=[-3, -2])
+
+        return tf.transpose(tf.stack([h_x - 1, h_y - 1], axis=1), [0, 2, 1])
+
+    @staticmethod
+    def find_peaks(heatmaps):
+        # height = heatmaps.shape[1]
+        height = 192
+        linspace = tf.range(1, height + 1, dtype='float32')
+        linspace = tf.reshape(linspace, (height, 1))
+        return PointWiseLoss._calculate_heatmap_keypoints(linspace, heatmaps)
+
+    @staticmethod
+    def pointwize_loss(y_true, y_pred):
+        """
+        Args:
+            y_true: ground truth confmaps
+            y_pred: predicted confmaps
+        Returns: loss (float)
+
+        """
+        true_peaks = PointWiseLoss.find_peaks(y_true)
+        pred_peaks = PointWiseLoss.find_peaks(y_pred)
+        return tf.losses.mean_squared_error(true_peaks, pred_peaks)
