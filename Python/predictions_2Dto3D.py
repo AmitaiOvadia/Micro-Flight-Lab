@@ -13,12 +13,13 @@ import matplotlib.pyplot as plt
 matplotlib.use('TkAgg')
 from validation import Validation
 from scipy.signal import hilbert
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import gaussian_filter1d, binary_dilation
 from skimage.morphology import disk, erosion, dilation
 from scipy.ndimage import distance_transform_edt
 from scipy.interpolate import make_smoothing_spline
 from scipy.signal import medfilt
 from constants import *
+from scipy.optimize import curve_fit
 
 WHICH_TO_FLIP = np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]]).astype(bool)
 SIDE_POINTS = [7, 15]
@@ -62,9 +63,14 @@ class From2Dto3D:
             self.conf_preds = self.load_conf_pred()
             self.set_attributes()
             self.triangulate = Triangulate(self.config)
+            print(f"number of frames: {self.num_frames}")
+            print("finding body masks")
             self.body_masks, self.body_distance_transform = self.set_body_masks()
+            self.body_sizes = self.get_body_sizes()
             if self.need_left_right_alignment:
+                print("started fixing right and left")
                 self.fix_wings_3D_per_frame()
+                print("finished fixing right and left")
             self.neto_wings_masks, self.wings_size = self.get_neto_wings_masks()
 
         elif load_from == H5_FILE:
@@ -86,8 +92,6 @@ class From2Dto3D:
             self.neto_wings_masks = h5py.File(self.h5_path, "r")["/neto_wings_masks"][:]
             self.wings_size = h5py.File(self.h5_path, "r")["/wings_size"][:]
             pass
-
-
 
     def set_attributes(self):
         self.image_size = self.box.shape[-2]
@@ -125,9 +129,36 @@ class From2Dto3D:
     def load_data_from_h5(self, h5_path):
         pass
 
-    def get_points_3D(self):
-        points_3D = self.choose_best_score_2_cams()
-        return points_3D
+    def get_points_3D(self, alpha=None):
+        if alpha is None:
+            scores1 = []
+            scores2 = []
+            alphas = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+            print("start choosing 3D points")
+            for alpha in alphas:
+                points_3D_i = self.choose_best_score_2_cams(alpha=alpha)
+                smoothed_3D_i = self.smooth_3D_points(points_3D_i)
+                score1 = self.get_validation_score(points_3D_i)
+                score2 = self.get_validation_score(smoothed_3D_i)
+                print(f"alpha = {alpha} score1 is {score1}, score2 is {score2}")
+                scores1.append(score1)
+                scores2.append(score2)
+            min_alpha_ind = np.argmin(scores2)
+            min_alpha = alphas[min_alpha_ind]
+            points_3D_chosen = self.choose_best_score_2_cams(min_alpha)
+            print("finish choosing 3D points")
+            return points_3D_chosen
+        else:
+            points_3D_i = self.choose_best_score_2_cams(alpha=alpha)
+            smoothed_3D_i = self.smooth_3D_points(points_3D_i)
+            score1 = self.get_validation_score(points_3D_i)
+            score2 = self.get_validation_score(smoothed_3D_i)
+            print(f"alpha = {alpha} score1 is {score1}, score2 is {score2}")
+            return points_3D_i
+
+    def get_body_sizes(self):
+        body_sizes = np.count_nonzero(self.body_masks, axis=(-2, -1))
+        return body_sizes
 
     def do_smooth_3D_points(self, points_3D):
         return self.smooth_3D_points(points_3D)
@@ -175,18 +206,27 @@ class From2Dto3D:
             for cam in cameras_to_flip:
                 self.flip_camera(cam, frame)
 
-    def get_reprojection_masks(self, points_3D):
+    def get_reprojected_points(self, smoothed=True):
+        _points_3D = self.get_points_3D()
+        if smoothed:
+            _points_3D = self.smooth_3D_points(_points_3D)
+        return self.triangulate.get_reprojections(_points_3D, self.cropzone)
+
+    def get_reprojection_masks(self, points_3D, extend_mask_radius=4):
         points_2D_reprojected = self.triangulate.get_reprojections(points_3D, self.cropzone)
         reprojected_masks = np.zeros_like(self.neto_wings_masks)
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
+                fly = self.box[frame, cam, :, :, 1]
                 for wing in range(2):
                     points_inds = self.wings_pnts_inds[wing, :]
                     mask = np.zeros((self.image_size, self.image_size))
                     wing_pnts = np.round(points_2D_reprojected[frame, cam, points_inds, :]).astype(int)
                     mask[wing_pnts[:, 1], wing_pnts[:, 0]] = 1
-                    mask = convex_hull_image(mask)
-                    mask = dilation(mask, footprint=np.ones((4, 4)))
+                    mask = convex_hull_image(mask)  # todo switch
+                    mask = binary_dilation(mask, iterations=extend_mask_radius)
+                    mask = np.logical_and(mask, fly)
+                    mask = binary_dilation(mask, iterations=3)
                     reprojected_masks[frame, cam, :, :, wing] = mask
         return reprojected_masks
 
@@ -213,7 +253,6 @@ class From2Dto3D:
 
     def get_neto_wings_masks(self):
         neto_wings = np.zeros((self.num_frames, self.num_cams, self.image_size, self.image_size, 2))
-        wings_size = np.zeros((self.num_frames, self.num_cams, 2))
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
                 body_mask = self.body_masks[frame, cam, ...]
@@ -224,7 +263,7 @@ class From2Dto3D:
                     intersection = np.logical_and(wing_mask, body_and_other_wing_mask)
                     neto_wing = wing_mask - intersection
                     neto_wings[frame, cam, :, :, wing_num] = neto_wing
-                    wings_size[frame, cam, wing_num] = np.count_nonzero(neto_wing)
+        wings_size = np.count_nonzero(neto_wings, axis=(2, 3))
         return neto_wings, wings_size
 
     def smooth_3D_points(self, points_3D):
@@ -234,7 +273,15 @@ class From2Dto3D:
                 vals = points_3D[:, pnt, axis]
                 # set lambda as the regularising parameters: smoothing vs close to data
                 lam = 300 if pnt in SIDE_POINTS else None
+                if pnt in SIDE_POINTS:
+                    pass
                 A = np.arange(vals.shape[0])
+                # if pnt in SIDE_POINTS:
+                #     d = 3
+                #     p = np.polyfit(A, vals, d)
+                #     smoothed = np.polyval(p, A)
+                #     points_3D_smoothed[:, pnt, axis] = smoothed
+                #     continue
                 # weight outliers
                 filtered_data = medfilt(vals, kernel_size=3)
                 # Compute the absolute difference between the original data and the filtered data
@@ -248,6 +295,13 @@ class From2Dto3D:
                 points_3D_smoothed[:, pnt, axis] = smoothed
         return points_3D_smoothed
 
+    @staticmethod
+    def poly_model(x, *coeffs, d=3):
+        y = 0
+        for i in range(d + 1):
+            y += coeffs[i] * x**(d - 1)
+        return y
+
     def choose_best_score_2_cams(self, alpha=0.7):
         """
         for each point rank the 4 different cameras by visibility, noise, size of mask, and choose the best 2
@@ -256,6 +310,21 @@ class From2Dto3D:
         envelope_2D = self.get_derivative_envelope_2D()
         points_3D = np.zeros((self.num_frames, self.num_joints, 3))
         for frame in range(self.num_frames):
+            # start with head and tail points
+            for ind in self.head_tail_inds:
+                body_sizes = self.body_sizes[frame, :]
+                candidates = points_3D_all[frame, ind, :, :]
+                max_size = np.max(body_sizes)
+                body_sizes_score = body_sizes / max_size
+                noise = envelope_2D[frame, :, ind] / np.max(envelope_2D[frame, :, ind])
+                noise_score = 1 - noise
+                scores = alpha * body_sizes_score + (1 - alpha) * noise_score
+                # scores = scores * visibility_score
+                cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
+                best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
+                best_3D_point = candidates[best_pair_ind]
+                points_3D[frame, ind, :] = best_3D_point
+
             for wing_num in range(2):
                 for pnt_num in self.wings_pnts_inds[wing_num, :]:
                     candidates = points_3D_all[frame, pnt_num, :, :]
@@ -264,25 +333,14 @@ class From2Dto3D:
                     masks_sizes_score = wings_size / max_size
                     noise = envelope_2D[frame, :, pnt_num] / np.max(envelope_2D[frame, :, pnt_num])
                     noise_score = 1 - noise
-
-                    # compute the visibility of the point
-                    # visibilities = np.zeros(self.num_cams,)
-                    # for cam in range(self.num_cams):
-                    #     body_dist_trn = self.body_distance_transform[frame, cam, :, :]
-                    #     point = self.preds_2D[frame, cam, pnt_num, :]
-                    #     px, py = point[0], point[1]
-                    #     visibility = body_dist_trn[py, px]
-                    #     visibilities[cam] = visibility
-                    # visibilities = visibilities / np.max(visibilities)
-                    # visibility_score = 1 - visibilities
-
                     scores = alpha * masks_sizes_score + (1 - alpha) * noise_score
                     # scores = scores * visibility_score
                     cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
                     best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
                     best_3D_point = candidates[best_pair_ind]
                     points_3D[frame, pnt_num, :] = best_3D_point
-        points_3D[:, self.head_tail_inds, :] = self.choose_average_points()[:, self.head_tail_inds, :]
+        # now find the
+        # points_3D[:, self.head_tail_inds, :] = self.choose_best_reprojection_error_points()[:, self.head_tail_inds, :]
         return points_3D
 
     def get_derivative_envelope_2D(self):
@@ -422,17 +480,64 @@ class From2Dto3D:
 
 if __name__ == '__main__':
     config_path = r"2D_to_3D_config.json"  # get the first argument
-    # predictor = From2Dto3D(configuration_path=config_path, load_from=CONFIG)
-    # predictor.save_data_to_h5()
+    predictor = From2Dto3D(configuration_path=config_path, load_from=CONFIG)
+    points_3D = predictor.get_points_3D(alpha=None)
+    smoothed_3D = predictor.smooth_3D_points(points_3D)
 
-    h5_file = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example " \
-              r"datasets\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_06\preprocessed_2D_to_3D.h5 "
-    save_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example " \
-              r"datasets\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_06"
-    predictor_3D = From2Dto3D(load_from=H5_FILE, h5_file_path=h5_file)
-    points_3D = predictor_3D.get_points_3D()
-    smoothed_points_3D = predictor_3D.smooth_3D_points(points_3D)
-    predictor_3D.save_points_3D(save_path, smoothed_points_3D)
-    predictor_3D.visualize_3D(smoothed_points_3D)
-    pass
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\
+    # 2D to 3D code\example datasets"
+    # # predictor.save_points_3D(path, points_3D)
+    # predictor.save_points_3D(path, smoothed_3D)
+    score1 = predictor.get_validation_score(points_3D)
+    score2 = predictor.get_validation_score(smoothed_3D)
+    print(f"score1 is {score1}, score2 is {score2}")
+    predictor.visualize_3D(points_3D)
+    predictor.visualize_3D(smoothed_3D)
+    # predictor.visualize_2D(predictor.get_reprojected_points(smoothed=True))
+    # predictor.save_data_to_h5()
+    # save_dir = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov29\movie_29_11_1969_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 30_02"
+    # predictor.save_points_3D(save_dir, smoothed_3D)
+
+    # h5_file = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example " \
+    #           r"datasets\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_06\preprocessed_2D_to_3D.h5 "
+    # save_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example " \
+    #           r"datasets\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_06"
+    # predictor_3D = From2Dto3D(load_from=H5_FILE, h5_file_path=h5_file)
+    # points_3D = predictor_3D.get_points_3D()
+    # smoothed_points_3D = predictor_3D.smooth_3D_points(points_3D)
+    # predictor_3D.save_points_3D(save_path, smoothed_points_3D)
+    # predictor_3D.visualize_3D(smoothed_points_3D)
+    # pass
     # predictor.get_all_rays_intersections_3D()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# compute the visibility of the point
+# visibilities = np.zeros(self.num_cams,)
+# for cam in range(self.num_cams):
+#     body_dist_trn = self.body_distance_transform[frame, cam, :, :]
+#     point = self.preds_2D[frame, cam, pnt_num, :]
+#     px, py = point[0], point[1]
+#     visibility = body_dist_trn[py, px]
+#     visibilities[cam] = visibility
+# visibilities = visibilities / np.max(visibilities)
+# visibility_score = 1 - visibilities
