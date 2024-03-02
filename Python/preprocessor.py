@@ -17,12 +17,15 @@ class Preprocessor:
         self.debug_mode = bool(config['debug mode'])
         self.wing_size_rank = config["rank wing size"]
         self.do_curriculum_learning = config["do curriculum learning"]
+        self.single_time_channel = bool(config["single time channel"])
         self.box, self.confmaps = self.load_dataset(self.data_path)
-
 
         if self.model_type == HEAD_TAIL_PER_CAM:
             self.box = self.box[:, :, :, :, :, :3]
-        self.num_frames = self.box.shape[1]
+
+        if self.single_time_channel:
+            self.box = self.box[..., [1, -2, -1]]
+        self.num_frames = self.box.shape[0]
         self.num_channels = self.box.shape[-1]
         self.preprocess_function = self.get_preprocces_function()
 
@@ -48,7 +51,7 @@ class Preprocessor:
             else:
                 self.box = self.box[:, :10, :, :, :, :]
                 self.confmaps = self.confmaps[:, :10, :, :, :, :]
-            self.num_frames = self.box.shape[1]
+            self.num_frames = self.box.shape[0]
             self.mix_with_test = False
 
     def get_box(self):
@@ -83,8 +86,9 @@ class Preprocessor:
     def get_preprocces_function(self):
         if self.model_type == ALL_POINTS_MODEL or self.model_type == HEAD_TAIL or self.model_type == TWO_WINGS_TOGATHER:
             return self.reshape_to_cnn_input
-        elif self.model_type == PER_WING_MODEL or self.model_type == C2F_PER_WING or \
-                self.model_type == COARSE_PER_WING or self.model_type == VGG_PER_WING or self.model_type == HOURGLASS:
+        elif self.model_type == PER_WING_MODEL or self.model_type == C2F_PER_WING \
+             or self.model_type == COARSE_PER_WING \
+                or self.model_type == VGG_PER_WING or self.model_type == HOURGLASS:
             return self.do_reshape_per_wing
         elif self.model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
             return self.do_reshape_per_wing
@@ -96,7 +100,8 @@ class Preprocessor:
             return self.do_preprocess_HEAD_TAIL_ALL_CAMS
         elif self.model_type == HEAD_TAIL_PER_CAM or self.model_type == HEAD_TAIL_PER_CAM_POINTS_LOSS:
             return self.do_preprocess_HEAD_TAIL_PER_CAM
-        elif self.model_type == MODEL_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS:
+        elif self.model_type == MODEL_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS or \
+                self.model_type == RESNET_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_PER_WING_VIT:
             return self.do_preprocess_18_pnts
         elif self.model_type == ALL_CAMS_18_POINTS:
             return self.reshape_for_ALL_CAMS_18_POINTS

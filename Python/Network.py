@@ -1,9 +1,10 @@
 from constants import *
+import vitPose
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras import models
 from tensorflow.keras.layers import *
 from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, Add, MaxPooling2D, Concatenate, Lambda, Reshape, \
-                                    Activation, Dropout, LeakyReLU, BatchNormalization
+                                    Activation, Dropout, LeakyReLU, BatchNormalization, Resizing
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 
@@ -41,9 +42,17 @@ class Network:
             model = self.C2F_per_wing()
         elif self.model_type == COARSE_PER_WING:
             model = self.coarse_per_wing()
+        elif self.model_type == MODEL_18_POINTS_PER_WING_VIT:
+            model = self.get_transformer()
+        elif self.model_type == RESNET_18_POINTS_PER_WING:
+            model = self.resnet50_encoder_shallow_decoder()
         else:
             model = self.basic_nn()
         return model
+
+    def get_transformer(self):
+        model_vit = vitPose.vision_transformer()
+        return model_vit
 
     def head_tail_all_cams(self):
         x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
@@ -300,15 +309,11 @@ class Network:
         # spliting input of 12 channels to 3 different cameras
         num_input_channels = self.image_size[-1]
         if num_input_channels == 16:
-            x_in_split_1 = Lambda(lambda x: x[..., 0:4], name="lambda_1")(x_in)
-            x_in_split_2 = Lambda(lambda x: x[..., 4:8], name="lambda_2")(x_in)
-            x_in_split_3 = Lambda(lambda x: x[..., 8:12], name="lambda_3")(x_in)
-            x_in_split_4 = Lambda(lambda x: x[..., 12:16], name="lambda_4")(x_in)
-        elif num_input_channels == 24:
-            x_in_split_1 = Lambda(lambda x: x[..., 0:6], name="lambda_1")(x_in)
-            x_in_split_2 = Lambda(lambda x: x[..., 6:12], name="lambda_2")(x_in)
-            x_in_split_3 = Lambda(lambda x: x[..., 12:18], name="lambda_3")(x_in)
-            x_in_split_4 = Lambda(lambda x: x[..., 18:24], name="lambda_4")(x_in)
+            x_in_split_1 = Lambda(lambda x: x[..., 0:4])(x_in)
+            x_in_split_2 = Lambda(lambda x: x[..., 4:8])(x_in)
+            x_in_split_3 = Lambda(lambda x: x[..., 8:12])(x_in)
+            x_in_split_4 = Lambda(lambda x: x[..., 12:16])(x_in)
+
         # different outputs of encoder
         code_out_1 = shared_encoder(x_in_split_1)
         code_out_2 = shared_encoder(x_in_split_2)
@@ -340,13 +345,39 @@ class Network:
         return net
 
     def resnet50_encoder_shallow_decoder(self):
+        x_in = Input(self.image_size, name="x_in")
+
+        # x_in = Resizing((self.image_size[0] * 2, self.image_size[0] * 2))(x_in)
+
         encoder = tf.keras.applications.ResNet50(
-            include_top=False, weights=None, input_shape=self.image_size)
-        x_out = Conv2DTranspose(self.number_of_output_channels,
+            include_top=False, weights=None, input_shape=self.image_size)(x_in)
+
+        decoder = Conv2DTranspose(encoder.shape[-1] // 2,
                                 kernel_size=self.kernel_size, strides=2, padding="same",
                                 activation=LeakyReLU(alpha=ALPHA),
                                 kernel_initializer="glorot_normal")(encoder)
-        net = Model(inputs=encoder.input, outputs=x_out)
+
+        decoder = Conv2DTranspose(decoder.shape[-1] // 2,
+                                  kernel_size=self.kernel_size, strides=2, padding="same",
+                                  activation=LeakyReLU(alpha=ALPHA),
+                                  kernel_initializer="glorot_normal")(decoder)
+
+        decoder = Conv2DTranspose(decoder.shape[-1] // 2,
+                                  kernel_size=self.kernel_size, strides=2, padding="same",
+                                  activation=LeakyReLU(alpha=ALPHA),
+                                  kernel_initializer="glorot_normal")(decoder)
+
+        decoder = Conv2DTranspose(decoder.shape[-1] // 2,
+                                  kernel_size=self.kernel_size, strides=2, padding="same",
+                                  activation=LeakyReLU(alpha=ALPHA),
+                                  kernel_initializer="glorot_normal")(decoder)
+
+        x_out = Conv2DTranspose(self.number_of_output_channels,
+                                  kernel_size=self.kernel_size, strides=2, padding="same",
+                                  activation=LeakyReLU(alpha=ALPHA),
+                                  kernel_initializer="glorot_normal")(decoder)
+
+        net = Model(inputs=x_in, outputs=x_out)
         net.summary()
         net.compile(optimizer=Adam(amsgrad=False),
                     loss=self.loss_function)

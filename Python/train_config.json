@@ -22,11 +22,12 @@
 
   "// preprocess parameters //" : 0,
   "rank wing size": 2,
-  "model type":  "TRAIN_ON_3_GOOD_CAMERAS_MODEL",
+  "model type":  "MODEL_18_POINTS_PER_WING_VIT",
   "test_path" : "-",
-  "data_path" : "training_datasets/random_trainset_201_frames_18_joints_reprojected_masks.h5",
+  "data_path" : "training_datasets/random_trainset_201_frames_18_joints.h5",
   "mix_with_test" : 0,
   "mask dilation" : 1,
+  "single time channel": 0,
 
   "// augmentations parameters //" : 0,
   "custom" : 1,

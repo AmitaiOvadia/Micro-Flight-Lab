@@ -165,7 +165,7 @@ class Trainer:
             except:
                 a = 0
             if self.model_type == ALL_POINTS_MODEL:
-                masks = np.sum(self.box[image, :, :, [3, 4]], axis=0)
+                masks = np.sum(self.box[image, :, :, [-2, -1]], axis=0)
             else:
                 try:
                     masks = self.box[image, :, :, 3]
