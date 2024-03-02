@@ -1,6 +1,7 @@
 
 import json
 import h5py
+import glob
 import numpy as np
 import os
 import scipy.signal
@@ -9,6 +10,8 @@ from scipy.stats import median_abs_deviation
 from traingulate import Triangulate
 import visualize
 import matplotlib
+from sklearn.decomposition import PCA
+
 import matplotlib.pyplot as plt
 matplotlib.use('TkAgg')
 from validation import Validation
@@ -72,6 +75,7 @@ class From2Dto3D:
                 self.fix_wings_3D_per_frame()
                 print("finished fixing right and left")
             self.neto_wings_masks, self.wings_size = self.get_neto_wings_masks()
+            self.all_3D_points_pairs, _, _ = self.get_all_3D_pnts_pairs(self.preds_2D, self.cropzone)
 
         elif load_from == H5_FILE:
             self.h5_path = h5_file_path
@@ -88,6 +92,7 @@ class From2Dto3D:
             self.triangulate = Triangulate(self.config)
             self.num_cams = self.config["number of cameras"]
             self.body_masks = h5py.File(self.h5_path, "r")["/body_masks"][:]
+            self.body_sizes = h5py.File(self.h5_path, "r")["/body_sizes"][:]
             self.body_distance_transform = h5py.File(self.h5_path, "r")["/body_distance_transform"][:]
             self.neto_wings_masks = h5py.File(self.h5_path, "r")["/neto_wings_masks"][:]
             self.wings_size = h5py.File(self.h5_path, "r")["/wings_size"][:]
@@ -124,6 +129,8 @@ class From2Dto3D:
                                       compression_opts=1)
             ds_box = f.create_dataset("conf_pred", data=self.conf_preds, compression="gzip",
                                       compression_opts=1)
+            ds_box = f.create_dataset("body_sizes", data=self.body_sizes, compression="gzip",
+                                      compression_opts=1)
         print(f"saved data to file in path:\n{h5_file_name}")
 
     def load_data_from_h5(self, h5_path):
@@ -133,7 +140,7 @@ class From2Dto3D:
         if alpha is None:
             scores1 = []
             scores2 = []
-            alphas = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+            alphas = [0.6, 0.7, 0.8, 0.9, 1]
             print("start choosing 3D points")
             for alpha in alphas:
                 points_3D_i = self.choose_best_score_2_cams(alpha=alpha)
@@ -147,14 +154,14 @@ class From2Dto3D:
             min_alpha = alphas[min_alpha_ind]
             points_3D_chosen = self.choose_best_score_2_cams(min_alpha)
             print("finish choosing 3D points")
-            return points_3D_chosen
+            return points_3D_chosen, min_alpha
         else:
-            points_3D_i = self.choose_best_score_2_cams(alpha=alpha)
-            smoothed_3D_i = self.smooth_3D_points(points_3D_i)
-            score1 = self.get_validation_score(points_3D_i)
-            score2 = self.get_validation_score(smoothed_3D_i)
-            print(f"alpha = {alpha} score1 is {score1}, score2 is {score2}")
-            return points_3D_i
+            points_3D_out = self.choose_best_score_2_cams(alpha=alpha)
+            # smoothed_3D_i = self.smooth_3D_points(points_3D_i)
+            # score1 = self.get_validation_score(points_3D_i)
+            # score2 = self.get_validation_score(smoothed_3D_i)
+            # print(f"alpha = {alpha} score1 is {score1}, score2 is {score2}")
+            return points_3D_out
 
     def get_body_sizes(self):
         body_sizes = np.count_nonzero(self.body_masks, axis=(-2, -1))
@@ -192,7 +199,8 @@ class From2Dto3D:
         # step 2: find which cameras needed to be flipped to minimize triangulation error, and flip them
         """
         chosen_camera = 0
-        cameras_to_check = np.arange(1, 4)
+        cameras_to_check = np.arange(0, 4)
+        cameras_to_check = cameras_to_check[np.where(cameras_to_check != chosen_camera)]
         for frame in range(self.num_frames):
             # step 1
             if frame > 0:
@@ -230,6 +238,142 @@ class From2Dto3D:
                     reprojected_masks[frame, cam, :, :, wing] = mask
         return reprojected_masks
 
+    def get_body_points_cloud(self):
+        n = 50000
+        head_tail_points = self.all_3D_points_pairs[:, [-2, -1], :, :]
+        self.x_body_from_cloud = np.zeros((self.num_frames, 3))
+        self.x_body_from_2_points = np.zeros((self.num_frames, 3))
+
+        self.center_of_mass_cloud = np.zeros((self.num_frames, 3))
+        self.center_of_mass_2_points = np.zeros((self.num_frames, 3))
+
+        for frame in range(self.num_frames):
+            head = np.mean(head_tail_points[frame, 1, :, :], axis=0)
+            tail = np.mean(head_tail_points[frame, 0, :, :], axis=0)
+
+            center = (head + tail) / 2
+            radius = np.linalg.norm(head - tail) / 2
+            radius = radius * 1.5
+            np.random.seed(0)
+            cube = np.random.uniform(-radius, radius, size=(n, 3))
+            cube = cube + center
+
+            cropzone = np.tile(self.cropzone[frame, ...], (cube.shape[0], 1, 1))
+
+            reprojections = np.squeeze(self.triangulate.get_reprojections(cube[:, np.newaxis, :], cropzone))
+            limit = self.body_masks.shape[-2:]
+            are_inside = (reprojections >= 0) & (reprojections < limit)
+            are_inside_all = np.all(are_inside, axis=(1, 2))
+
+            is_inside = [are_inside_all]
+            for cam in range(self.num_cams):
+                reprojections_cam = np.round(reprojections[:, cam, :]).astype(int)
+                reprojections_cam[~are_inside[:, cam, :]] = 0
+                mask = self.body_masks[frame, cam, :, :]
+                present = self.box[frame, cam, :, :, 1]
+                inside = mask[reprojections_cam[:, 1], reprojections_cam[:, 0]].astype(bool)
+                is_inside.append(inside)
+
+                # outside = np.bitwise_not(inside)
+                # outide_points = reprojections_cam[outside, :]
+                # inside_points = reprojections_cam[inside, :]
+                # plt.imshow(present, cmap='gray')  # Display the binary mask
+                # plt.scatter(inside_points[:, 0], inside_points[:, 1], color='red')  # Display the points
+                # plt.scatter(outide_points[:, 0], outide_points[:, 1], color='blue')
+                # plt.show()
+            is_inside = np.vstack(is_inside).T
+            is_inside = np.all(is_inside, axis=1)
+
+            fly_points = cube[is_inside]
+
+            # Perform PCA
+            pca = PCA(n_components=3)
+            pca.fit(fly_points)
+            # The principal axis is the first principal component
+            principal_axis = pca.components_[0]
+            # Project points onto the principal axis
+            projected_points = np.dot(fly_points - pca.mean_, principal_axis)
+            # Compute distances from the projected points to the original points
+            distances = np.linalg.norm(fly_points - pca.mean_ - projected_points[:, None] * principal_axis, axis=1)
+            # Compute the threshold for the top 10% furthest points
+            threshold = np.percentile(distances, 90)
+            # Identify outliers
+            outliers = distances > threshold
+            fly_points = fly_points[~outliers]
+
+            # fit again without the outliers
+            # pca.fit(fly_points)
+            pca = PCA(n_components=3)
+            pca.fit(fly_points)
+
+            # The principal axes are the principal components
+            principal_axes = pca.components_
+
+            # The sizes along the principal axes are the square roots of the eigenvalues
+            sizes = np.sqrt(pca.explained_variance_)
+
+            # Compute the center of mass of the points
+            center_of_mass = np.mean(fly_points, axis=0)
+
+            # Create a 3D plot
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            # Plot the points
+            ax.scatter(*fly_points.T, color='orange')
+            # Plot each principal axis
+            for i in range(3):
+                # Create a line for the i-th principal axis that goes through the center of mass
+                t = np.linspace(-sizes[i], sizes[i], 100)  # parameter for the line
+                line = center_of_mass + np.outer(t, principal_axes[i])
+
+                # Plot the line
+                ax.plot(*line.T)
+            points = np.vstack((tail, head))
+            # Plot the 2 points as red dots
+            ax.scatter(points[:, 0], points[:, 1], points[:, 2], color='red')
+            plt.show()
+            points = np.vstack((tail, head))
+            main1 = principal_axes[0]
+            main2 = (head - tail)/np.linalg.norm(head - tail)
+            self.x_body_from_cloud[frame, :] = main1
+            self.x_body_from_2_points[frame, :] = main2
+            self.center_of_mass_cloud[frame, :] = center_of_mass
+            self.center_of_mass_2_points[frame, :] = np.mean(points, axis=0)
+
+            # plt.figure()
+            # ax = plt.axes(projection='3d')
+            # points = np.vstack((tail, head))
+            # Plot the 2 points as red dots
+            # ax.scatter(points[:, 0], points[:, 1], points[:, 2], color='red')
+            # # Plot the points cloud as blue dots
+            # ax.scatter(fly_points[:, 0], fly_points[:, 1], fly_points[:, 2], color='orange')
+            # # Plot the cube cloud as orange dots
+            # # ax.scatter(cube[~is_inside, 0], cube[~is_inside, 1], cube[~is_inside, 2], color='blue')
+            # # Set the title and the labels of the axes
+            # ax.set_title('2 points and points cloud in 3D')
+            # ax.set_xlabel('x')
+            # ax.set_ylabel('y')
+            # ax.set_zlabel('z')
+            # # Show the plot
+            # plt.show()
+
+        axis = 1
+        plt.plot(self.x_body_from_cloud[:, axis], color='blue')
+        plt.plot(-self.x_body_from_2_points[:, axis], color='red')
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot the points from the first array
+        ax.scatter(*self.center_of_mass_cloud.T, color='blue')
+
+        # Plot the points from the second array
+        ax.scatter(*self.center_of_mass_2_points.T, color='red')
+
+        plt.show()
+
+        return 0
+
     def set_body_masks(self, opening_rad=6):
         """
         find the fly's body, and the distance transform for later analysis in every camera in 2D using segmentation
@@ -240,7 +384,7 @@ class From2Dto3D:
             for cam in range(self.num_cams):
                 fly_3_ch = self.box[frame, cam, :, :, :self.num_time_channels]
                 fly_3_ch_av = np.sum(fly_3_ch, axis=-1) / self.num_time_channels
-                binary_body = fly_3_ch_av >= 0.8
+                binary_body = fly_3_ch_av >= 0.7
                 selem = disk(opening_rad)
                 # Perform dilation
                 dilated = dilation(binary_body, selem)
@@ -266,30 +410,29 @@ class From2Dto3D:
         wings_size = np.count_nonzero(neto_wings, axis=(2, 3))
         return neto_wings, wings_size
 
-    def smooth_3D_points(self, points_3D):
+    @staticmethod
+    def smooth_3D_points(points_3D):
         points_3D_smoothed = np.zeros_like(points_3D)
-        for pnt in range(self.num_joints):
+        num_joints = points_3D_smoothed.shape[1]
+        for pnt in range(num_joints):
             for axis in range(3):
+                # print(pnt, axis)
                 vals = points_3D[:, pnt, axis]
                 # set lambda as the regularising parameters: smoothing vs close to data
-                lam = 300 if pnt in SIDE_POINTS else None
-                if pnt in SIDE_POINTS:
-                    pass
+                # lam = 300 if pnt in SIDE_POINTS else None
+                lam = None
                 A = np.arange(vals.shape[0])
-                # if pnt in SIDE_POINTS:
-                #     d = 3
-                #     p = np.polyfit(A, vals, d)
-                #     smoothed = np.polyval(p, A)
-                #     points_3D_smoothed[:, pnt, axis] = smoothed
-                #     continue
-                # weight outliers
-                filtered_data = medfilt(vals, kernel_size=3)
-                # Compute the absolute difference between the original data and the filtered data
-                diff = np.abs(vals - filtered_data)
-                # make the diff into weights in [0,1]
-                diff = diff / np.max(diff)
-                W = 1 - diff
-                W[W == 0] = 0.00001
+                if pnt in BODY_POINTS:
+                    vals = medfilt(vals, kernel_size=11)
+                    W = np.ones_like(vals)
+                else:
+                    filtered_data = medfilt(vals, kernel_size=3)
+                    # Compute the absolute difference between the original data and the filtered data
+                    diff = np.abs(vals - filtered_data)
+                    # make the diff into weights in [0,1]
+                    diff = diff / np.max(diff)
+                    W = 1 - diff
+                    W[W == 0] = 0.00001
                 spline = make_smoothing_spline(A, vals, w=W, lam=lam)
                 smoothed = spline(A)
                 points_3D_smoothed[:, pnt, axis] = smoothed
@@ -318,7 +461,8 @@ class From2Dto3D:
                 body_sizes_score = body_sizes / max_size
                 noise = envelope_2D[frame, :, ind] / np.max(envelope_2D[frame, :, ind])
                 noise_score = 1 - noise
-                scores = alpha * body_sizes_score + (1 - alpha) * noise_score
+                scores = body_sizes_score + noise_score
+                # scores = noise_score  # todo now the score is only noise
                 # scores = scores * visibility_score
                 cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
                 best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
@@ -473,42 +617,164 @@ class From2Dto3D:
         return h5py.File(self.points_2D_h5_path, "r")["/box"][:]
 
     @staticmethod
-    def save_points_3D(save_dir, points_to_save):
-        save_path = os.path.join(save_dir, "points_3D.npy")
+    def save_points_3D(save_dir, points_to_save, name="points_3D.npy"):
+        save_path = os.path.join(save_dir, name)
         np.save(save_path, points_to_save)
 
 
-if __name__ == '__main__':
-    config_path = r"2D_to_3D_config.json"  # get the first argument
-    predictor = From2Dto3D(configuration_path=config_path, load_from=CONFIG)
-    points_3D = predictor.get_points_3D(alpha=None)
-    smoothed_3D = predictor.smooth_3D_points(points_3D)
+def predict_3D_points_all(base_path, config_path):
+    # Create an empty list to store the file paths
+    file_list = []
 
-    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\
-    # 2D to 3D code\example datasets"
-    # # predictor.save_points_3D(path, points_3D)
-    # predictor.save_points_3D(path, smoothed_3D)
-    score1 = predictor.get_validation_score(points_3D)
-    score2 = predictor.get_validation_score(smoothed_3D)
+    # Loop through the subdirectories of A
+    for sub in ["mov1", "mov6", "mov8", "mov12", "mov20"]:
+        # Check if the subdirectory name starts with "movie"
+        dir_path = os.path.join(base_path, sub)
+        dirs = glob.glob(os.path.join(dir_path, "*"))
+        for dir in dirs:
+            if os.path.isdir(dir):
+                # Append it to the list
+                predicts_file = os.path.join(dir, "predicted_points_and_box_reprojected.h5")
+                if os.path.isfile(predicts_file):
+                    # Append it to the list
+                    file_list.append(predicts_file)
+                else:
+                    # Otherwise, append the file "predicted_points_and_box.h5" to the list
+                    predicts_file = os.path.join(dir, "predicted_points_and_box.h5")
+                    file_list.append(predicts_file)
+    # file_list = file_list[-1:]
+    for preds_file in file_list:
+        print(preds_file)
+        dir_path = os.path.dirname(preds_file)
+        with open(config_path) as C:
+            config_2D = json.load(C)
+            config_2D["2D predictions path"] = preds_file
+            config_2D["out path"] = dir_path
+        new_config_path = os.path.join(dir_path, 'configuration predict 3D.json')
+        with open(new_config_path, 'w') as file:
+            json.dump(config_2D, file, indent=4)
+        try:
+            predictor = From2Dto3D(configuration_path=new_config_path, load_from=CONFIG)
+            points_3D_all, _, _ = predictor.get_all_3D_pnts_pairs(predictor.preds_2D, predictor.cropzone)
+            predictor.save_points_3D(dir_path, points_3D_all, name="points_3D_all.npy")
+
+            points_3D, alpha = predictor.get_points_3D(alpha=None)
+            smoothed_3D = predictor.smooth_3D_points(points_3D)
+            predictor.save_points_3D(dir_path, points_3D, name="points_3D.npy")
+            predictor.save_points_3D(dir_path, smoothed_3D, name="points_3D_smoothed.npy")
+
+            # Open a new file called readme.txt in write mode
+            readme_path = os.path.join(dir_path, "README.txt")
+            score1 = predictor.get_validation_score(points_3D)
+            score2 = predictor.get_validation_score(smoothed_3D)
+            print(f"score1 is {score1}, score2 is {score2}")
+            with open(readme_path, "w") as f:
+                # Write some text into the file
+                f.write(f"The score for the points was {score1}\n")
+                f.write(f"The score for the smoothed points was {score2}\n")
+                f.write(f"the alpha was {alpha}\n")
+            # Close the file
+            f.close()
+        except:
+            print("************** failed ****************")
+
+
+def predict_3D_points_all_pairs(base_path):
+    # Create an empty list to store the file paths
+    file_list = []
+
+    # Loop through the subdirectories of A
+    dir_path = os.path.join(base_path)
+    dirs = glob.glob(os.path.join(dir_path, "*"))
+    for dir in dirs:
+        if os.path.isdir(dir):
+            # Append it to the list
+            predicts_file = os.path.join(dir, "points_3D_all.npy")
+            if os.path.isfile(predicts_file):
+                # Append it to the list
+                file_list.append(predicts_file)
+    arrays = []
+    for array_path in file_list:
+        arrays.append(np.load(array_path))
+    big_array = np.concatenate(arrays, axis=2)
+    return big_array
+
+
+def find_3D_points_from_ensemble(base_path):
+    big_array = predict_3D_points_all_pairs(base_path)
+
+    present = big_array
+    previous = np.roll(present, 1, axis=0)[1:-1, ...]
+    next_frame = np.roll(present, -1, axis=0)[1:-1, ...]
+    result = np.concatenate((present[1:-1, ...], previous, next_frame), axis=2)
+
+    mad = scipy.stats.median_abs_deviation(result, axis=2)
+    median = np.median(result, axis=2)
+    threshold = 2 * mad
+    # Create a boolean mask for the outliers
+    outliers_mask = np.abs(result - median[..., np.newaxis, :]) > threshold[..., np.newaxis, :]
+    array_with_nan = result.copy()
+    array_with_nan[outliers_mask] = np.nan
+    points_3D = np.nanmedian(array_with_nan, axis=2)
+
+    # result = present
+    # points_3D = np.median(result, axis=2)
+
+    smoothed_3D = From2Dto3D.smooth_3D_points(points_3D)
+
+    # plt.plot(smoothed_3D[:, -1, 0], color='r', linewidth=5)
+    # plt.plot(array_with_nan[:, -1, :, 0])
+    # plt.plot(points_3D[:, -1, 0], color='b', linewidth=5)
+
+    # score1 = From2Dto3D.get_validation_score(points_3D)
+    # score2 = From2Dto3D.get_validation_score(smoothed_3D)
+
+    # visualize.Visualizer.show_points_in_3D_projections(smoothed_3D)
+
+    From2Dto3D.save_points_3D(base_path, points_3D, name="points_3D_ensemble.npy")
+    From2Dto3D.save_points_3D(base_path, smoothed_3D, name="points_3D_smoothed_ensemble.npy")
+    readme_path = os.path.join(base_path, "README_scores_3D_ensemble.txt")
+    score1 = From2Dto3D.get_validation_score(points_3D)
+    score2 = From2Dto3D.get_validation_score(smoothed_3D)
     print(f"score1 is {score1}, score2 is {score2}")
-    predictor.visualize_3D(points_3D)
-    predictor.visualize_3D(smoothed_3D)
-    # predictor.visualize_2D(predictor.get_reprojected_points(smoothed=True))
-    # predictor.save_data_to_h5()
-    # save_dir = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov29\movie_29_11_1969_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 30_02"
-    # predictor.save_points_3D(save_dir, smoothed_3D)
+    with open(readme_path, "w") as f:
+        # Write some text into the file
+        f.write(f"The score for the points was {score1}\n")
+        f.write(f"The score for the smoothed points was {score2}\n")
+    # Close the file
+    f.close()
 
-    # h5_file = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example " \
-    #           r"datasets\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_06\preprocessed_2D_to_3D.h5 "
-    # save_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example " \
-    #           r"datasets\movie_14_800_1799_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 18_06"
-    # predictor_3D = From2Dto3D(load_from=H5_FILE, h5_file_path=h5_file)
-    # points_3D = predictor_3D.get_points_3D()
-    # smoothed_points_3D = predictor_3D.smooth_3D_points(points_3D)
-    # predictor_3D.save_points_3D(save_path, smoothed_points_3D)
-    # predictor_3D.visualize_3D(smoothed_points_3D)
-    # pass
-    # predictor.get_all_rays_intersections_3D()
+
+if __name__ == '__main__':
+    # config_file_path = r"2D_to_3D_config.json"
+    # predictor = From2Dto3D(CONFIG, configuration_path=config_file_path)
+    # p = predictor.get_body_points_cloud()
+
+    # path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
+     # get the first argument
+    #
+    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov20"
+    # find_3D_points_from_ensemble(movie_path)
+
+
+    # path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov9\movie_9_10_622_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 13\predicted_points_and_box.h5"
+    # box = h5py.File(path, "r")["/box"][:]
+    # points_2D = h5py.File(path, "r")["/positions_pred"][:]
+    # visualize.Visualizer.show_predictions_all_cams(box, points_2D)
+
+    path_box = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\movie_62_160_1888_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 17_05\predicted_points_and_box_reprojected.h5"
+    box = h5py.File(path_box, "r")["/box"][:]
+    path_orig = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\movie_62_160_1888_ds_3tc_7tj.h5"
+    cropzone = h5py.File(path_orig, "r")["/cropzone"][:]
+    F = From2Dto3D(CONFIG,
+                   configuration_path=r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\2D_to_3D_config.json")
+    points_3D = np.load(
+        r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\points_3D_ensemble.npy")
+    reprojections_2D = F.triangulate.get_reprojections(points_3D, cropzone)
+    plt.ion()
+    print("plotting reprojections")
+    visualize.Visualizer.show_predictions_all_cams(box, reprojections_2D)
+
 
 
 

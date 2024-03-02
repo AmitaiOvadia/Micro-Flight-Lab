@@ -30,7 +30,7 @@ class Triangulate:
 
     def load_camera_centers(self):
         return h5py.File(self.calibration_data_path, "r")["/camera_centers"][:]
-    ###
+
     def triangulate_2D_to_3D_svd(self, points_2D, cropzone):
         num_frames, _, num_joints, _ = points_2D.shape
         points_3D_all = np.zeros((num_frames, num_joints, 6, 3))
@@ -117,7 +117,6 @@ class Triangulate:
         points = points_h[..., :-1] / points_h[..., -1:]
         return points
 
-    ###
     def triangulate_2D_to_3D_rays_optimization(self, points_2D, cropzone):
         num_frames, _, num_points, _ = points_2D.shape
         points_2D_uncropped = self.get_uncropped_xy1(points_2D, cropzone)

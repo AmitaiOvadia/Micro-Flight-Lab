@@ -1,10 +1,12 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colors
-from matplotlib.widgets import Slider
+from matplotlib.widgets import Slider, Button
 from skimage import morphology
 from scipy.spatial import ConvexHull
 import h5py
+import plotly.graph_objects as go
+import plotly.io as pio
 
 class Visualizer:
     @staticmethod
@@ -206,6 +208,7 @@ class Visualizer:
         def update(val):
             ax.cla()  # Clear the current axes
             frame = int(slider.val)
+            points_to_plot = points[[frame], :, :]
             for i in range(num_points):
                 ax.scatter(points[frame, i, 0], points[frame, i, 1], points[frame, i, 2], c=color_array[i])
             for i, j in connections:
@@ -214,6 +217,8 @@ class Visualizer:
             ax.set_xlim([x_min, x_max])
             ax.set_ylim([y_min, y_max])
             ax.set_zlim([z_min, z_max])
+            ax.set_box_aspect([1, 1, 1])  # Equal aspect ratio for 3D plot
+
             fig.canvas.draw_idle()
 
         slider.on_changed(update)
@@ -229,7 +234,103 @@ class Visualizer:
 
         # Initial plot
         update(0)
+        plt.show()
 
+    @staticmethod
+    def show_points_in_3D_projections(points):
+        # Assuming points is your (N, M, 3) array
+        # Calculate the limits of the plot
+        x_min, y_min, z_min = points.min(axis=(0, 1))
+        x_max, y_max, z_max = points.max(axis=(0, 1))
+
+        # Create a color array
+        num_points = points.shape[1]
+        color_array = colors.hsv_to_rgb(np.column_stack((np.linspace(0, 1, num_points), np.ones((num_points, 2)))))
+
+        fig = plt.figure(figsize=(20, 20))  # Adjust the figure size here
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Set the limits of the plot
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max])
+        ax.set_zlim([z_min, z_max])
+
+        # Define the connections between points
+
+        connections = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (0, 6),
+                       (8, 9), (9, 10), (10, 11), (11, 12), (12, 13), (13, 14), (8, 14),
+                       (7, 15),
+                       (16, 17)]
+
+        # Create the slider
+        axframe = plt.axes([0.2, 0.02, 0.65, 0.03], facecolor='lightgoldenrodyellow')
+        slider = Slider(axframe, 'Frame', 0, len(points) - 1, valinit=0, valstep=1)
+
+        # Create the play button
+        axplay = plt.axes([0.85, 0.95, 0.1, 0.03])
+        button = Button(axplay, 'Play', color='lightgoldenrodyellow', hovercolor='0.975')
+
+        # Create the speed control
+        axspeed = plt.axes([0.05, 0.95, 0.1, 0.03], facecolor='lightgoldenrodyellow')
+        speed = Slider(axspeed, 'Speed', 0.5, 100, valinit=10, valstep=0.5)
+
+        def update(val):
+            ax.cla()  # Clear the current axes
+            frame = int(slider.val)
+            points_to_plot = points[frame, :, :]
+            for i in range(num_points):
+                ax.scatter(points_to_plot[i, 0], points_to_plot[i, 1], points_to_plot[i, 2], c=color_array[i])
+            for i, j in connections:
+                ax.plot(points_to_plot[[i, j], 0], points_to_plot[[i, j], 1], points_to_plot[[i, j], 2], c='k')
+            ax.set_xlim([x_min, x_max])
+            ax.set_ylim([y_min, y_max])
+            ax.set_zlim([z_min, z_max])
+            fig.canvas.draw_idle()
+
+            # Plot the projections on the walls
+            # XY plane
+            ax.scatter(points_to_plot[:, 0], points_to_plot[:, 1], z_min, c=color_array, alpha=0.2)
+            # XZ plane
+            ax.scatter(points_to_plot[:, 0], y_min, points_to_plot[:, 2], c=color_array, alpha=0.2)
+            # YZ plane
+            ax.scatter(x_min, points_to_plot[:, 1], points_to_plot[:, 2], c=color_array, alpha=0.2)
+
+            # Plot the connections on the projections
+            # XY plane
+            for i, j in connections:
+                ax.plot(points_to_plot[[i, j], 0], points_to_plot[[i, j], 1], [z_min, z_min], c='b', alpha=0.5)
+            # XZ plane
+            for i, j in connections:
+                ax.plot(points_to_plot[[i, j], 0], [y_min, y_min], points_to_plot[[i, j], 2], c='b', alpha=0.5)
+            # YZ plane
+            for i, j in connections:
+                ax.plot([x_min, x_min], points_to_plot[[i, j], 1], points_to_plot[[i, j], 2], c='b', alpha=0.5)
+            fig.canvas.draw_idle()
+
+        def play(event):
+            # Play the animation by updating the slider value
+            nonlocal slider
+            for i in range(slider.valmin, slider.valmax + 1):
+                slider.set_val(i)
+                # Adjust the speed according to the slider value
+                plt.pause(1 / speed.val)
+
+        # Connect the update functions to the widgets
+        slider.on_changed(update)
+        button.on_clicked(play)
+        speed.on_changed(update)
+
+        # Function to handle keyboard events
+        def handle_key_event(event):
+            if event.key == 'right':
+                slider.set_val(min(slider.val + 1, slider.valmax))
+            elif event.key == 'left':
+                slider.set_val(max(slider.val - 1, slider.valmin))
+
+        fig.canvas.mpl_connect('key_press_event', handle_key_event)
+
+        # Initial plot
+        update(0)
         plt.show()
 
     @staticmethod
@@ -410,28 +511,110 @@ class Visualizer:
         box = np.concatenate((x1, x2, x3, x4), axis=1)
         return box
 
+    @staticmethod
+    def create_movie_plot(com, x_body, y_body, points_3D, start_frame, title):
+        left_tip = points_3D[:, 3, :]
+        right_tip = points_3D[:, 3 + 8, :]
+        frame0 = 340 - start_frame
+        frame_40_ms = frame0 + 40 * 16
+        interval = 70
+        # Create traces
+        marker_size = 2
+        mode = 'lines'
+        trace_com = go.Scatter3d(x=com[:, 0], y=com[:, 1], z=com[:, 2], mode='markers', name='Center of Mass',
+                                 marker=dict(size=marker_size), line=dict(width=5))
+        trace_left_tip = go.Scatter3d(x=left_tip[:, 0], y=left_tip[:, 1], z=left_tip[:, 2], mode=mode,
+                                      name='left tip', marker=dict(size=marker_size), line=dict(width=5))
+        trace_right_tip = go.Scatter3d(x=right_tip[:, 0], y=right_tip[:, 1], z=right_tip[:, 2], mode=mode,
+                                       name='right tip', marker=dict(size=marker_size), line=dict(width=5))
+        # Create markers
+        marker_start = go.Scatter3d(x=[com[0, 0]], y=[com[0, 1]], z=[com[0, 2]], mode='markers',
+                                    marker=dict(size=8, color='red'), name='start')
+        marker_start_dark = go.Scatter3d(x=[com[frame0, 0]], y=[com[frame0, 1]], z=[com[frame0, 2]], mode='markers',
+                                         marker=dict(size=8, color='orange'), name='start dark')
+        marker_40_ms = go.Scatter3d(x=[com[frame_40_ms, 0]], y=[com[frame_40_ms, 1]], z=[com[frame_40_ms, 2]],
+                                    mode='markers', marker=dict(size=8, color='yellow'), name='+ 40 ms')
+        # Create quiver plot
+        name = 'body yaw pitch'
+        size = 0.003
+
+        quiver_x_body, qx_points = Visualizer.get_orientation_scatter(com, interval, 'x body', size, x_body,
+                                                                      points_color='orange')
+        quiver_y_body, qy_points = Visualizer.get_orientation_scatter(com, interval, 'y body', size, y_body,
+                                                                      points_color='blue')
+        # Create a figure and add the traces
+        fig = go.Figure(
+            data=[trace_com, trace_left_tip, trace_right_tip, marker_start, marker_start_dark, marker_40_ms,
+                  quiver_x_body, quiver_y_body, qx_points, qy_points])
+        # Update the scene
+        scene = dict(camera=dict(eye=dict(x=1., y=1, z=1)),
+                     xaxis=dict(nticks=10),
+                     yaxis=dict(nticks=10),
+                     zaxis=dict(nticks=10),
+                     aspectmode='data'  # This makes the axes equal
+                     )
+        fig.update_scenes(scene)
+        fig.update_layout(
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="right",
+                x=0.01,
+                font=dict(
+                    size=16,  # This enlarges the labels
+                    color="black"
+                )
+            )
+        )
+        # Write the figure to an HTML file
+        pio.write_html(fig, title)
+
+    @staticmethod
+    def get_orientation_scatter(com, interval, name, size, x_body, points_color='red'):
+        x_quiver = []
+        y_quiver = []
+        z_quiver = []
+        x_points = []
+        y_points = []
+        z_points = []
+        for i in range(0, len(com), interval):
+            start = [com[i, j] - size / 2 * x_body[i, j] for j in range(3)]
+            end = [com[i, j] + size / 2 * x_body[i, j] for j in range(3)]
+            x_quiver.extend([start[0], end[0], None])
+            y_quiver.extend([start[1], end[1], None])
+            z_quiver.extend([start[2], end[2], None])
+            x_points.extend([start[0], end[0]])
+            y_points.extend([start[1], end[1]])
+            z_points.extend([start[2], end[2]])
+        quiver_x_body = go.Scatter3d(x=x_quiver, y=y_quiver, z=z_quiver, mode='lines',
+                                     line=dict(color='black', width=5),
+                                     name=name)
+        points = go.Scatter3d(x=x_points, y=y_points, z=z_points, mode='markers',
+                              marker=dict(color=points_color, size=5),
+                              name=name + ' points')
+        return quiver_x_body, points
+
 
 if __name__ == '__main__':
     # display movie
-    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov7\movie_7_10_4000_ds_3tc_7tj.h5"
-    # movie_path =r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov24\movie_24_10_3023_ds_3tc_7tj.h5"
-    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov1\movie_1_200_1177_ds_3tc_7tj.h5"
-    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov1\movie_1_150_1227_ds_3tc_7tj.h5"
-    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov7\movie_7_10_4000_ds_3tc_7tj.h5"
-    movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov10\movie_10_10_1899_ds_3tc_7tj.h5"
-    Visualizer.display_movie_from_path(movie_path)
 
-    # display 3D poitns
-    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov27\movie_27_12_4000_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 30\points_3D.npy"
-    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov29\movie_29_11_1969_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 30_02\points_3D.npy"
-    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov24\movie_24_10_3023_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 31\points_3D.npy"
-    # points_3D = np.load(points_path)
-    # Visualizer.show_points_in_3D(points_3D)
+    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov62\movie_62_160_1888_ds_3tc_7tj.h5"
+    # Visualizer.display_movie_from_path(movie_path)
+
+    # display 3D points
+    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov6\movie_6_100_498_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 13\points_3D.npy"
+    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov6\points_3D_smoothed_ensemble.npy"
+    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov10\movie_10_130_1666_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 09\points_3D.npy"
+    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\points_3D_ensemble.npy"
+    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_ensemble.npy"
+    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_smoothed_ensemble.npy"
+    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_ensemble.npy"
+    points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\points_3D_ensemble.npy"
+    points_3D = np.load(points_path)
+    Visualizer.show_points_in_3D(points_3D[:200])
 
     # display box and 2D predictions
-    # path = "G:\\My Drive\\Amitai\\one halter experiments 23-24.1.2024\\experiment 24-1-2024 undisturbed\\arranged movies\\mov1\\movie_1_150_1227_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 31_01\\predicted_points_and_box.h5"
-    # path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov24\movie_24_10_3023_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jan 31\predicted_points_and_box.h5"
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\mov61_d2\movie_61_2356_2342_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 23\predicted_points_and_box_reprojected.h5"
     # box = h5py.File(path, "r")["/box"][:]
     # points_2D = h5py.File(path, "r")["/positions_pred"][:]
     # Visualizer.show_predictions_all_cams(box, points_2D)
-    

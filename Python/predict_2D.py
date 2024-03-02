@@ -11,7 +11,7 @@ import os
 from tensorflow import keras
 from tensorflow.keras.layers import Lambda
 from scipy.interpolate import make_smoothing_spline
-
+from skimage import util, measure
 import tensorflow as tf
 # from training import preprocess
 # from leap.utils import find_weights, find_best_weights, preprocess
@@ -62,9 +62,10 @@ class Predictor2D:
             self.base_output_path = config["base output path"]
             self.json_2D_3D_path = config["2D to 3D config path"]
 
-        first_frame = 50
-        last_frame = 1080
+        first_frame = 0
+        last_frame = -1
         self.box = self.get_box()[first_frame:last_frame]
+        self.masks_flag = True if self.box.shape[-1] == 5 else False
         # Visualizer.display_movie_from_box(np.copy(self.box))
         self.cropzone = self.get_cropzone()[first_frame:last_frame]
         self.im_size = self.box.shape[2]
@@ -94,15 +95,16 @@ class Predictor2D:
         t0 = time()
         self.run_path = self.create_run_folders()
         self.preprocess_box()
-        self.align_time_channels()
+        if not self.masks_flag:
+            self.clean_images()
+            self.align_time_channels()
         # Visualizer.display_movie_from_box(np.copy(self.box))
-
         self.preprocess_masks()
         preprocessing_time = time() - t0
         preds_time = time()
         print("preprocess [%.1fs]" % preprocessing_time)
         self.predicted_points = self.predict_method()
-
+        print("finish predict")
         self.prediction_runtime = 0
         self.save_predictions_to_h5()
         # Visualizer.show_predictions_all_cams(self.box, self.predicted_points)
@@ -112,24 +114,41 @@ class Predictor2D:
             self.predict_method = self.choose_predict_method()
             return_model_peaks = False if self.model_type == ALL_CAMS_PER_WING else True
             self.wings_pose_estimation_model = \
-                self.get_pose_estimation_model(self.wings_pose_estimation_model_path_second_pass, return_model_peaks=return_model_peaks)
+                self.get_pose_estimation_model(self.wings_pose_estimation_model_path_second_pass,
+                                               return_model_peaks=return_model_peaks)
             json_2D_to_3D_config = self.create_2D_3D_config()
             print("starting reprojection masks")
-            predictor = predictions_2Dto3D.From2Dto3D(load_from=CONFIG, configuration_path=json_2D_to_3D_config)
+            predictor = predictions_2Dto3D.From2Dto3D(load_from=CONFIG,
+                                                      configuration_path=json_2D_to_3D_config)
             points_3D = predictor.choose_best_score_2_cams()
             smoothed_3D = predictor.smooth_3D_points(points_3D)
-            reprojection_masks = predictor.get_reprojection_masks(smoothed_3D, self.mask_increase_reprojected)
+            reprojection_masks = predictor.get_reprojection_masks(smoothed_3D,
+                                                                  self.mask_increase_reprojected)
             predictor.box[..., [3, 4]] = reprojection_masks
             self.box = predictor.box
             print("created reprojection masks")
             self.predicted_points = self.predict_method()
             self.save_predictions_to_h5()
 
-        Visualizer.show_predictions_all_cams(self.box, self.predicted_points)
+        # Visualizer.show_predictions_all_cams(self.box, self.predicted_points)
         self.prediction_runtime = time() - preds_time
         self.total_runtime = time() - t0
         print("Predicted [%.1fs]" % self.prediction_runtime)
         print("Prediction performance: %.3f FPS" % (self.num_frames * self.num_cams / self.prediction_runtime))
+
+    def clean_images(self):
+        for frame in range(self.num_frames):
+            for cam in range(self.num_cams):
+                for channel in range(3):
+                    image = self.box[frame, cam, :, :, channel]
+                    binary = np.where(image >= 0.1, 1, 0)
+                    label = measure.label(binary)
+                    props = measure.regionprops(label)
+                    sizes = [prop.area for prop in props]
+                    largest = np.argmax(sizes)
+                    fly_component = np.where(label == largest + 1, 1, 0)
+                    image = image * fly_component
+                    self.box[frame, cam, :, :, channel] = image
 
     def align_time_channels(self):
         all_shifts = np.zeros((self.num_frames, self.num_cams, 2, 2))
@@ -151,8 +170,12 @@ class Predictor2D:
                     A = np.arange(vals.shape[0])
                     filtered = medfilt(vals, kernel_size=11)
                     # all_shifts_smoothed[:, cam, time_channel, axis] = filtered
-                    spline = make_smoothing_spline(A, filtered, lam=10000)
-                    smoothed = spline(A)
+                    try:
+                        spline = make_smoothing_spline(A, filtered, lam=10000)
+                        smoothed = spline(A)
+                    except:
+                        smoothed = filtered
+                        print(f"spline failed in cam {cam} time channel {time_channel} and axis {axis}")
                     all_shifts_smoothed[:, cam, time_channel, axis] = smoothed
                     pass
 
@@ -173,77 +196,10 @@ class Predictor2D:
         CM = center_of_mass(im)
         return np.array(CM)
 
-    # def align_time_channels1(self):
-    #     main_channel = self.box[..., self.num_times_channels // 2]
-    #     CM_points = np.zeros((self.num_frames, self.num_cams, 2))
-    #     for frame in range(self.num_frames):
-    #         for cam in range(self.num_cams):
-    #             if frame == 254 and cam == 2:
-    #                 pass
-    #
-    #             fly = main_channel[frame, cam, :, :]
-    #             # fly_3_ch = self.box[frame, cam, ...]
-    #             # body = np.sum(fly_3_ch, axis=-1) / fly_3_ch.shape[-1]
-    #             # body[body < 0.8] = 0
-    #             [cm_y, cm_x] = center_of_mass(fly)
-    #             # plt.imshow(fly, cmap='gray')
-    #             # plt.scatter(cm_x, cm_y, c='r', marker='o')
-    #             # plt.show()
-    #             # uncrop
-    #             cm_y_uncropped = self.cropzone[frame, cam, 0] + cm_y
-    #             cm_x_uncropped = self.cropzone[frame, cam, 1] + cm_x
-    #
-    #             CM_points[frame, cam, :] = [cm_x_uncropped, cm_y_uncropped]
-    #
-    #     # get the translation needed for each frame
-    #     # past, future, x, y
-    #     shift_needed = np.zeros((self.num_frames, self.num_cams, 2, 2))
-    #     BUFFER = 30
-    #     for frame in range(BUFFER, self.num_frames - BUFFER):
-    #         for cam in range(self.num_cams):
-    #
-    #
-    #             cur_frame_cm = CM_points[frame, cam, :]
-    #             centers_in_buffer = CM_points[frame - BUFFER:frame + BUFFER, cam, :]
-    #             num_axis = centers_in_buffer.shape[1]
-    #             for axis in range(num_axis):
-    #                 vals = centers_in_buffer[:, axis]
-    #                 # set lambda as the regularising parameters: smoothing vs close to data
-    #                 A = np.arange(vals.shape[0])
-    #                 # filtered = medfilt(vals, kernel_size=3)
-    #                 d = 2
-    #                 p = np.polyfit(A, vals, d)
-    #                 smoothed = np.polyval(p, A)
-    #
-    #                 # smoothed = filtered  # just check if filterded is maybe better
-    #
-    #                 cm_frame_smoothed = smoothed[BUFFER]
-    #                 cm_future = smoothed[BUFFER + 7]
-    #                 cm_past = smoothed[BUFFER - 7]
-    #                 shift_needed_past = cm_frame_smoothed - cm_past
-    #                 shift_needed_future = cm_frame_smoothed - cm_future
-    #                 shift_needed[frame, cam, 0, axis] = shift_needed_past
-    #                 shift_needed[frame, cam, 1, axis] = shift_needed_future
-    #
-    #     # align the frames
-    #     for frame in range(self.num_frames):
-    #         for cam in range(self.num_cams):
-    #             past_future = np.transpose(self.box[frame, cam, :, :, [0, 2]], [1, 2, 0])
-    #             shifted_past_future = np.zeros_like(past_future)
-    #             for time_channel in range(2):
-    #                 shift_x, shift_y = shift_needed[frame, cam, time_channel, :]
-    #                 shift_to_do = (shift_y, shift_x)
-    #                 shifted = shift(past_future[:, :, time_channel], shift_to_do, order=2)
-    #                 shifted_past_future[:, :, time_channel] = shifted
-    #
-    #             self.box[frame, cam, :, :, 0] = shifted_past_future[:, :, 0]
-    #             self.box[frame, cam, :, :, 2] = shifted_past_future[:, :, 1]
-    #
-    #     Visualizer.display_movie_from_box(self.box)
-
     def preprocess_masks(self):
         if self.points_to_predict == WINGS or self.points_to_predict == WINGS_AND_BODY:
-            self.add_masks()
+            if not self.masks_flag:
+                self.add_masks()
             self.adjust_masks_size()
             if self.is_video:
                 self.fix_masks()
@@ -347,7 +303,7 @@ class Predictor2D:
             return self.predict_wings_and_body
 
     def predict_all_cams_per_wing(self):
-        n = 10
+        n = 8
         print(f"started predicting projected masks, split box into {n} parts")
         splited_box = np.array_split(self.box, n)
         all_points = []
@@ -388,7 +344,7 @@ class Predictor2D:
         all_points = []
         for cam in range(self.num_cams):
             input = self.box[:, cam, ...]
-            points_cam_i, _, _, _ = predictor.predict_Ypk(input, self.batch_size, self.wings_pose_estimation_model)
+            points_cam_i, _, _, _ = self.predict_Ypk(input, self.batch_size, self.wings_pose_estimation_model)
             all_points.append(points_cam_i[np.newaxis, ...])
         wings_and_body_pnts = np.concatenate(all_points, axis=0)
         wings_and_body_pnts = np.transpose(wings_and_body_pnts, [1, 0, 3, 2])
@@ -413,11 +369,18 @@ class Predictor2D:
     def predict_wings(self):
         Ypks = []
         for cam in range(self.num_cams):
+            print(f"predict camera {cam + 1}")
             Ypks_per_wing = []
             for wing in range(2):
-                input = np.take(self.box, [0, 1, 2, self.num_times_channels + wing], axis=4)
-                input = input[:, cam, ...]
-                Ypk, _, _, _ = predictor.predict_Ypk(input, self.batch_size, self.wings_pose_estimation_model)
+                input = np.transpose(self.box[:, cam, :, :, [0, 1, 2, self.num_times_channels + wing]], [1, 2, 3, 0])
+                # split for memory limit
+                n = 1
+                input_split = np.array_split(input, n)
+                Ypk = []
+                for i in range(n):
+                    Ypk_i, _, _, _ = self.predict_Ypk(input_split[i], self.batch_size, self.wings_pose_estimation_model)
+                    Ypk.append(Ypk_i)
+                Ypk = np.concatenate(Ypk, axis=0)
                 Ypks_per_wing.append(Ypk)
             Ypk_cam = np.concatenate((Ypks_per_wing[0], Ypks_per_wing[1]), axis=-1)
             Ypk_cam = np.expand_dims(Ypk_cam, axis=1)
@@ -430,7 +393,7 @@ class Predictor2D:
         Ypks = []
         for cam in range(self.num_cams):
             input = self.box[:, cam, :, :, :self.num_times_channels]
-            Ypk_cam, _, _, _ = predictor.predict_Ypk(input, self.batch_size, self.head_tail_pose_estimation_model)
+            Ypk_cam, _, _, _ = self.predict_Ypk(input, self.batch_size, self.head_tail_pose_estimation_model)
             Ypk_cam = np.expand_dims(Ypk_cam, axis=1)
             Ypks.append(Ypk_cam)
         Ypk_all = np.concatenate(Ypks, axis=1)
@@ -441,12 +404,20 @@ class Predictor2D:
         """ Add train_masks to the dataset using yolov8 segmentation model """
         new_box = np.zeros((self.num_frames, self.num_cams, self.im_size, self.im_size, self.num_times_channels + 2))
         for cam in range(self.num_cams):
-            print(f"finds wings1 for camera number {cam+1}")
+            print(f"finds wings for camera number {cam+1}")
             img_3_ch_all = self.box[:, cam, :, :, :]
             new_box[:, cam, :, :, :self.num_times_channels] = img_3_ch_all
-            img_3_ch_input = np.round(img_3_ch_all * 255)
-            img_3_ch_input = [img_3_ch_input[i] for i in range(self.num_frames)]
-            results = self.wings_detection_model(img_3_ch_input)
+            # split to avoid memory limit
+            n = 5
+            img_3_ch_all_split = np.array_split(img_3_ch_all, n)
+            results = []
+            for i in range(n):
+                img_3_ch_i = img_3_ch_all_split[i]
+                img_3_ch_input = np.round(img_3_ch_i * 255)
+                img_3_ch_input = [img_3_ch_input[i] for i in range(img_3_ch_input.shape[0])]
+                results_i = self.wings_detection_model(img_3_ch_input)
+                results.append(results_i)
+            results = sum(results, [])
             masks = np.zeros((self.num_frames, self.im_size, self.im_size, 2))
             for frame in range(self.num_frames):
                 masks_2 = np.zeros((self.im_size, self.im_size, 2))
@@ -521,6 +492,9 @@ class Predictor2D:
 
     def get_box(self):
         box = h5py.File(self.box_path, "r")["/box"]
+        if len(box.shape) == 5:
+            print("box already has wings masks")
+            return box
         box = np.transpose(box, (0, 3, 2, 1))
         x1 = np.expand_dims(box[:, :, :, 0:3], axis=1)
         x2 = np.expand_dims(box[:, :, :, 3:6], axis=1)
@@ -548,6 +522,7 @@ class Predictor2D:
             self.box = self.box[None, ...]
         if self.box.dtype == "uint8" or np.max(self.box) > 1:
             self.box = self.box.astype("float32") / 255
+
 
     @staticmethod
     def adjust_mask(mask, radius=3):
@@ -647,7 +622,86 @@ class Predictor2D:
         return inds_to_del
 
 
+def config_1(config):
+    # 3 good cameras 1
+    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\3 good cameras\MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03\best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again using reprojected masks"] = 0
+    return config
+
+
+def config_2(config):
+    # 3 good cameras 2
+    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\3 good cameras\MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03_01\best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again using reprojected masks"] = 0
+    return config
+
+
+def config_3(config):
+    # 2 passes reprojected masks
+    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\per wing\MODEL_18_POINTS_PER_WING_Jan 11_03\best_model.h5"
+    config["wings pose estimation model path second path"] = "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\per wing\\MODEL_18_POINTS_PER_WING_Jan 20\\best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again using reprojected masks"] = 1
+    return config
+
+
+def config_4(config):
+    # 2 passes reprojected masks, all cameras model
+    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\per wing\MODEL_18_POINTS_PER_WING_Jan 11_03\best_model.h5"
+    config["wings pose estimation model path second path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\4 cameras\concatenated encoder\ALL_CAMS_18_POINTS_Jan 20_01\best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "ALL_CAMS_PER_WING"
+    config["predict again using reprojected masks"] = 1
+    return config
+
+
+def predict_all_movies(base_path, config_path_2D):
+    import predictions_2Dto3D
+    file_list = []
+    # movies_dir = 'movies'
+    # os.listdir(base_path)
+    dirs = ['mov6', 'mov8', 'mov12', 'mov20', 'mov24', 'mov25', 'mov26', 'mov27', 'mov29']
+    for sub_dir in dirs:
+        # Join the subdirectory name with the movies_dir path
+        sub_dir_path = os.path.join(base_path, sub_dir)
+        # Check if the subdirectory is actually a directory
+        if os.path.isdir(sub_dir_path):
+            # Loop over all the files in the subdirectory
+            for file in os.listdir(sub_dir_path):
+                # Check if the file name starts with 'movie' and ends with '.h5'
+                if file.startswith('movie') and file.endswith('.h5'):
+                    # Join the file name with the subdirectory path
+                    file_path = os.path.join(sub_dir_path, file)
+                    # Append the full path of the file to the list
+                    file_list.append(file_path)
+
+    config_functions = [config_1, config_2, config_3, config_4]
+    for movie_path in file_list:
+        print(movie_path)
+        for model in range(len(config_functions)):
+            dir_path = os.path.dirname(movie_path)
+            with open(config_path_2D) as C:
+                config_2D = json.load(C)
+                config_2D["box path"] = movie_path
+                config_2D["base output path"] = dir_path
+                config_func = config_functions[model]
+                config_2D = config_func(config_2D)
+            new_config_path = os.path.join(dir_path, 'configuration predict 2D.json')
+            with open(new_config_path, 'w') as file:
+                json.dump(config_2D, file, indent=4)
+            try:
+                predictor = Predictor2D(new_config_path)
+                predictor.run_predict_2D()
+            except:
+                print("************** failed ****************")
+
+
 if __name__ == '__main__':
     config_path = r"predict_2D_config.json"  # get the first argument
-    predictor = Predictor2D(config_path)
-    predictor.run_predict_2D()
+    # predictor = Predictor2D(config_path)
+    # predictor.run_predict_2D()
+    base_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
+    predict_all_movies(base_path, config_path)
