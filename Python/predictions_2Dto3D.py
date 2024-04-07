@@ -13,7 +13,7 @@ import matplotlib
 from sklearn.decomposition import PCA
 
 import matplotlib.pyplot as plt
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 from validation import Validation
 from scipy.signal import hilbert
 from scipy.ndimage import gaussian_filter1d, binary_dilation
@@ -30,22 +30,6 @@ ALPHA = 0.7
 
 
 class From2Dto3D:
-    """
-    this is a predictions class that will encapsulate all the data arrays and the functions regarding the 2D and 3D
-    predicted points.
-    It will hold the data of:
-    * 2D raw predictions
-    * related fly train_images
-    * wings1 train_masks
-    * predictions scores for each point in 2D
-
-    It will perform the following functionalities:
-    * body segmentation
-    * orienting the 2D right and left to 3D world right and left
-    * getting the 3D triangulations of each point from all the 6 possible pairs
-    * get 'best' 3D point for each 2D point from multiple views synthesis
-    * apply smoothing and outlier removal
-    """
 
     def __init__(self, load_from=CONFIG, h5_file_path="", configuration_path=""):
         """
@@ -627,7 +611,7 @@ def predict_3D_points_all(base_path, config_path):
     file_list = []
 
     # Loop through the subdirectories of A
-    for sub in ["mov1", "mov6", "mov8", "mov12", "mov20"]:
+    for sub in ["mov29"]:
         # Check if the subdirectory name starts with "movie"
         dir_path = os.path.join(base_path, sub)
         dirs = glob.glob(os.path.join(dir_path, "*"))
@@ -642,7 +626,7 @@ def predict_3D_points_all(base_path, config_path):
                     # Otherwise, append the file "predicted_points_and_box.h5" to the list
                     predicts_file = os.path.join(dir, "predicted_points_and_box.h5")
                     file_list.append(predicts_file)
-    # file_list = file_list[-1:]
+    file_list = file_list[1:]
     for preds_file in file_list:
         print(preds_file)
         dir_path = os.path.dirname(preds_file)
@@ -681,7 +665,8 @@ def predict_3D_points_all(base_path, config_path):
 
 def predict_3D_points_all_pairs(base_path):
     # Create an empty list to store the file paths
-    file_list = []
+    all_points_file_list = []
+    points_3D_file_list = []
 
     # Loop through the subdirectories of A
     dir_path = os.path.join(base_path)
@@ -689,15 +674,27 @@ def predict_3D_points_all_pairs(base_path):
     for dir in dirs:
         if os.path.isdir(dir):
             # Append it to the list
-            predicts_file = os.path.join(dir, "points_3D_all.npy")
-            if os.path.isfile(predicts_file):
+            all_points_file = os.path.join(dir, "points_3D_all.npy")
+            points_3D_file = os.path.join(dir, "points_3D.npy")
+            if os.path.isfile(all_points_file):
                 # Append it to the list
-                file_list.append(predicts_file)
-    arrays = []
-    for array_path in file_list:
-        arrays.append(np.load(array_path))
-    big_array = np.concatenate(arrays, axis=2)
-    return big_array
+                all_points_file_list.append(all_points_file)
+            if os.path.isfile(points_3D_file):
+                points_3D_file_list.append(points_3D_file)
+    all_points_arrays = []
+    points_3D_arrays = []
+    for array_path in all_points_file_list:
+        all_points_arrays.append(np.load(array_path))
+
+    for array_path in points_3D_file_list:
+        points = np.load(array_path)
+        points = points[:, :, np.newaxis, :]
+        points_3D_arrays.append(points)
+
+    big_array_all_points = np.concatenate(all_points_arrays, axis=2)
+    big_array_3D_points = np.concatenate(points_3D_arrays, axis=2)
+
+    return big_array_3D_points
 
 
 def find_3D_points_from_ensemble(base_path):
@@ -707,6 +704,8 @@ def find_3D_points_from_ensemble(base_path):
     previous = np.roll(present, 1, axis=0)[1:-1, ...]
     next_frame = np.roll(present, -1, axis=0)[1:-1, ...]
     result = np.concatenate((present[1:-1, ...], previous, next_frame), axis=2)
+
+    result = present
 
     mad = scipy.stats.median_abs_deviation(result, axis=2)
     median = np.median(result, axis=2)
@@ -729,13 +728,13 @@ def find_3D_points_from_ensemble(base_path):
     # score1 = From2Dto3D.get_validation_score(points_3D)
     # score2 = From2Dto3D.get_validation_score(smoothed_3D)
 
-    # visualize.Visualizer.show_points_in_3D_projections(smoothed_3D)
+    # visualize.Visualizer.show_points_in_3D_projections(points_3D)
 
+    score1 = From2Dto3D.get_validation_score(points_3D)
+    score2 = From2Dto3D.get_validation_score(smoothed_3D)
     From2Dto3D.save_points_3D(base_path, points_3D, name="points_3D_ensemble.npy")
     From2Dto3D.save_points_3D(base_path, smoothed_3D, name="points_3D_smoothed_ensemble.npy")
     readme_path = os.path.join(base_path, "README_scores_3D_ensemble.txt")
-    score1 = From2Dto3D.get_validation_score(points_3D)
-    score2 = From2Dto3D.get_validation_score(smoothed_3D)
     print(f"score1 is {score1}, score2 is {score2}")
     with open(readme_path, "w") as f:
         # Write some text into the file
@@ -746,15 +745,14 @@ def find_3D_points_from_ensemble(base_path):
 
 
 if __name__ == '__main__':
-    # config_file_path = r"2D_to_3D_config.json"
-    # predictor = From2Dto3D(CONFIG, configuration_path=config_file_path)
-    # p = predictor.get_body_points_cloud()
+    config_file_path = r"2D_to_3D_config.json"
+    base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
+    predict_3D_points_all(base_path, config_file_path)
 
-    # path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
-     # get the first argument
-    #
-    # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov20"
-    # find_3D_points_from_ensemble(movie_path)
+    base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
+    for movie in ["mov29"]:
+        movie_path = os.path.join(base_path, movie)
+        find_3D_points_from_ensemble(movie_path)
 
 
     # path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov9\movie_9_10_622_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 13\predicted_points_and_box.h5"
@@ -762,18 +760,18 @@ if __name__ == '__main__':
     # points_2D = h5py.File(path, "r")["/positions_pred"][:]
     # visualize.Visualizer.show_predictions_all_cams(box, points_2D)
 
-    path_box = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\movie_62_160_1888_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 17_05\predicted_points_and_box_reprojected.h5"
-    box = h5py.File(path_box, "r")["/box"][:]
-    path_orig = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\movie_62_160_1888_ds_3tc_7tj.h5"
-    cropzone = h5py.File(path_orig, "r")["/cropzone"][:]
-    F = From2Dto3D(CONFIG,
-                   configuration_path=r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\2D_to_3D_config.json")
-    points_3D = np.load(
-        r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\points_3D_ensemble.npy")
-    reprojections_2D = F.triangulate.get_reprojections(points_3D, cropzone)
-    plt.ion()
-    print("plotting reprojections")
-    visualize.Visualizer.show_predictions_all_cams(box, reprojections_2D)
+    # path_box = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\movie_10_130_1666_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Mar 05\predicted_points_and_box_reprojected.h5"
+    # box = h5py.File(path_box, "r")["/box"][:]
+    # path_orig = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\movie_10_130_1666_ds_3tc_7tj.h5"
+    # cropzone = h5py.File(path_orig, "r")["/cropzone"][:]
+    # F = From2Dto3D(CONFIG,
+    #                configuration_path=r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\2D_to_3D_config.json")
+    # points_3D = np.load(
+    #     r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\points_3D_smoothed_ensemble.npy")
+    # reprojections_2D = F.triangulate.get_reprojections(points_3D, cropzone)
+    # plt.ion()
+    # print("plotting reprojections")
+    # visualize.Visualizer.show_predictions_all_cams(box[:400], reprojections_2D[:400])
 
 
 

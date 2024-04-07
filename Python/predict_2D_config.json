@@ -1,12 +1,12 @@
 
 
 {
- "box path" : "G:\\My Drive\\Amitai\\one halter experiments 23-24.1.2024\\experiment 24-1-2024 undisturbed\\arranged movies\\mov2\\movie_2_115_544_ds_3tc_7tj.h5",
-"wings detection model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\utils\\wings_segmentation\\YOLO models\\yolo_weights_6_1_24.pt",
-"wings pose estimation model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\3 good cameras\\MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03_01\\best_model.h5",
-"wings pose estimation model path second path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\per wing\\MODEL_18_POINTS_PER_WING_Jan 20\\best_model.h5",
- "head tail pose estimation model path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\head tail only\\HEAD_TAIL_800_frames_7_11\\best_model.h5",
- "base output path": "G:\\My Drive\\Amitai\\one halter experiments 23-24.1.2024\\experiment 24-1-2024 undisturbed\\arranged movies\\mov2",
+ "box path" : "",
+"wings detection model path" : "yolo weights/yolo_weights_6_1_24.pt",
+"wings pose estimation model path" : "",
+"wings pose estimation model path second path": "",
+ "head tail pose estimation model path": "",
+ "base output path": "",
 
 
 "number of cameras": 4,
@@ -20,5 +20,9 @@
 "body parts to predict": "WINGS_AND_BODY",
 "number of joints": 18,
 "predict again using reprojected masks": 1,
-"2D to 3D config path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\2D_to_3D_config.json"
+"2D to 3D config path": "2D_to_3D_config.json",
+"calibration data path": "calibration file.h5",
+"align right left": 1,
+"IMAGE_HEIGHT": 800,
+"IMAGE_WIDTH": 1280
 }

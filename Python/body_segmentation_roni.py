@@ -13,20 +13,17 @@ from sklearn.decomposition import PCA
 
 from traingulate import Triangulate
 import matplotlib.pyplot as plt
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 SPAN = 36
 INTERVAL = 1
 CROP_SIZE = 192
 ORIG_IMAGE_SHAPE = (800, 1280)
-FIRST_GRID_SIZE = 0.003
-FIRST_GRID_SPACING = 0.0001
-SECOND_GRID_SPACING = 0.00005
 
 
 class BodySegmentation:
     def __init__(self, box_path, config_path=""):
         self.box_path = box_path
-        self.box = self.get_box()[:200]
+        self.box = self.get_box()
         self.present = self.box[..., 1]
         self.cropzone = self.get_cropzone()
         self.num_frames = self.box.shape[0]
@@ -67,7 +64,7 @@ class BodySegmentation:
         return box
 
     def get_cropzone(self):
-        return h5py.File(self.box_path, "r")["/cropzone"][:]
+        return h5py.File(self.box_path, "r")["/cropzone"]
 
     def get_CMs_body_segmentations(self):
         body_segmentations = np.zeros_like(self.present)
@@ -130,10 +127,10 @@ class BodySegmentation:
             center_point = np.mean(all_3D_CMs[frame, :, :], axis=0)
             # create a grid:
             # Size of the grid (5 mm by 5 mm)
-            grid_size_mm = FIRST_GRID_SIZE
+            grid_size_mm = 0.004
 
             # Spacing between points (100 µm)
-            spacing_um = FIRST_GRID_SPACING
+            spacing_um = 0.0001
 
             cube = self.create_grid(center_point, grid_size_mm, spacing_um)
 
@@ -144,7 +141,7 @@ class BodySegmentation:
             x_min, y_min, z_min = np.min(fly_points, axis=0)
 
             # Create a grid of 3D points within the specified limits
-            spacing = SECOND_GRID_SPACING
+            spacing = 0.00005
             x_coords = np.arange(x_min, x_max + spacing, spacing)
             y_coords = np.arange(y_min, y_max + spacing, spacing)
             z_coords = np.arange(z_min, z_max + spacing, spacing)
@@ -192,10 +189,6 @@ class BodySegmentation:
             # ax.scatter(*tail_points.T, color='black')
             # plt.show()
 
-            # np.save("fly_points.npy", fly_points)
-
-            pass
-
         return head_tail_vec_roni, CMs_3D, head_tail_points
 
     def segment_body_3D_points(self, cube, frame):
@@ -230,7 +223,7 @@ class BodySegmentation:
     @staticmethod
     def create_grid(center_point, grid_size_mm, spacing_um):
         # Calculate the number of points along each axis
-        num_points_per_axis = int(grid_size_mm / spacing_um)
+        num_points_per_axis = int(grid_size_mm / (spacing_um))
         # Create 1D arrays for each axis
         x_coords = np.linspace(center_point[0] - grid_size_mm / 2, center_point[0] + grid_size_mm / 2,
                                num_points_per_axis)
@@ -261,14 +254,14 @@ if __name__ == '__main__':
 
     config_path = "2D_to_3D_config.json"
     # movie 1
-    box_path = (r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on "
-                r"cluster\selected_movies\mov10_u\movie_10_130_1666_ds_3tc_7tj.h5")
-    BS = BodySegmentation(box_path, config_path)
+    # box_path = (r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on "
+    #             r"cluster\selected_movies\mov10_u\movie_10_130_1666_ds_3tc_7tj.h5")
+    # BS = BodySegmentation(box_path, config_path)
     # # movie 2
     # box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\movie_11_10_1143_ds_3tc_7tj.h5"
     # BS = BodySegmentation(box_path, config_path)
-
-    # movie 3 a
+    #
+    # # movie 3 a
     # box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\mov61_d1\movie_61_10_2355_ds_3tc_7tj.h5"
     # BS = BodySegmentation(box_path, config_path)
     # # movie 3 b
@@ -280,23 +273,23 @@ if __name__ == '__main__':
     # BS = BodySegmentation(box_path, config_path)
 
 
-    # config_path = "2D_to_3D_config.json"
-    # # movie 1
+    config_path = "2D_to_3D_config.json"
+    # movie 1
     # box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov10_u/movie_10_130_1666_ds_3tc_7tj.h5"
     # BS = BodySegmentation(box_path, config_path)
-    # # movie 2
+    # movie 2
     # box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov11_u/movie_11_10_1143_ds_3tc_7tj.h5"
     # BS = BodySegmentation(box_path, config_path)
-    #
-    # # movie 3 a
-    # box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov61_d1/movie_61_10_2355_ds_3tc_7tj.h5"
-    # BS = BodySegmentation(box_path, config_path)
-    # # movie 3 b
-    # box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov61_d2/movie_61_2356_2342_ds_3tc_7tj.h5"
-    # BS = BodySegmentation(box_path, config_path)
-    #
-    # # movie 4
-    # box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov62_d/movie_62_160_1888_ds_3tc_7tj.h5"
-    # BS = BodySegmentation(box_path, config_path)
+
+    # movie 3 a
+    box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov61_d1/movie_61_10_2355_ds_3tc_7tj.h5"
+    BS = BodySegmentation(box_path, config_path)
+    # movie 3 b
+    box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov61_d2/movie_61_2356_2342_ds_3tc_7tj.h5"
+    BS = BodySegmentation(box_path, config_path)
+
+    # movie 4
+    box_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/selected_movies/mov62_d/movie_62_160_1888_ds_3tc_7tj.h5"
+    BS = BodySegmentation(box_path, config_path)
 
 

@@ -512,11 +512,12 @@ class Visualizer:
         return box
 
     @staticmethod
-    def create_movie_plot(com, x_body, y_body, points_3D, start_frame, title):
+    def create_movie_plot(com, x_body, y_body, points_3D, start_frame, save_path):
         left_tip = points_3D[:, 3, :]
         right_tip = points_3D[:, 3 + 8, :]
         frame0 = 340 - start_frame
-        frame_40_ms = frame0 + 40 * 16
+        num_frames = len(points_3D)
+        frame_40_ms = min(frame0 + 40 * 16, num_frames - 1)
         interval = 70
         # Create traces
         marker_size = 2
@@ -567,7 +568,7 @@ class Visualizer:
             )
         )
         # Write the figure to an HTML file
-        pio.write_html(fig, title)
+        pio.write_html(fig, save_path)
 
     @staticmethod
     def get_orientation_scatter(com, interval, name, size, x_body, points_color='red'):
@@ -609,12 +610,12 @@ if __name__ == '__main__':
     # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_ensemble.npy"
     # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_smoothed_ensemble.npy"
     # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_ensemble.npy"
-    points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\points_3D_ensemble.npy"
-    points_3D = np.load(points_path)
-    Visualizer.show_points_in_3D(points_3D[:200])
+    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\points_3D_ensemble.npy"
+    # points_3D = np.load(points_path)
+    # Visualizer.show_points_in_3D(points_3D[:200])
 
     # display box and 2D predictions
-    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\mov61_d2\movie_61_2356_2342_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 23\predicted_points_and_box_reprojected.h5"
-    # box = h5py.File(path, "r")["/box"][:]
-    # points_2D = h5py.File(path, "r")["/positions_pred"][:]
-    # Visualizer.show_predictions_all_cams(box, points_2D)
+    path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\movie_10_130_1666_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Mar 05_01\predicted_points_and_box_reprojected.h5"
+    box = h5py.File(path, "r")["/box"][:100]
+    points_2D = h5py.File(path, "r")["/positions_pred"][:100]
+    Visualizer.show_predictions_all_cams(box, points_2D)

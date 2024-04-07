@@ -1,29 +1,27 @@
+import os
 import numpy as np
 from sklearn.decomposition import PCA
-import visualize
 from sklearn.preprocessing import normalize
-import matplotlib
 import matplotlib.pyplot as plt
 import h5py
-import plotly.graph_objects as go
-import plotly.io as pio
 import scipy
-import plotly
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from scipy.fft import fft, fftfreq
 from scipy.interpolate import interp1d
 from scipy.signal import medfilt
 from scipy.interpolate import make_smoothing_spline
-matplotlib.use('TkAgg')
+from scipy.signal import medfilt
+from sklearn.linear_model import LinearRegression
+import re
+
+# matplotlib.use('TkAgg')
 
 
-dt = 1/16000
+dt = 1 / 16000
 LEFT = 0
 RIGHT = 1
 NUM_TIPS_FOR_PLANE = 10
 WINGS_JOINTS_INDS = [7, 15]
-
+from visualize import Visualizer
 
 class FlightAnalysis:
     def __init__(self, points_3D_path):
@@ -61,8 +59,8 @@ class FlightAnalysis:
         self.center_of_mass = self.get_center_of_mass()
         self.body_speed = self.get_body_speed()
         self.get_wing_tips_speed = self.get_wing_tips_speed()
-        self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle()
-        self.auto_correlation_x_body = self.get_auto_correlation_x_body()
+        self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body, self.z_body)
+        self.auto_correlation_x_body = self.get_auto_correlation_x_body(self.x_body)
 
     def get_head_tail_points(self, smooth=True):
         head_tail_points = self.points_3D[:, self.head_tail_inds, :]
@@ -103,7 +101,6 @@ class FlightAnalysis:
         right_tip_speed = self.get_speed(self.wings_tips[:, RIGHT, :])
         wing_tips_speed = np.concatenate((right_tip_speed[:, np.newaxis], left_tip_speed[:, np.newaxis]), axis=1)
         return wing_tips_speed
-
 
     @staticmethod
     def get_speed(points_3d):
@@ -261,16 +258,17 @@ class FlightAnalysis:
 
         return all_4_planes, all_2_planes, all_planes_errors
 
-    def get_auto_correlation_axis_angle(self):
-        first_nonzero_index = np.argmax((self.y_body != 0).any(axis=1))
-        reversed_mat = np.flip(self.y_body, axis=0)
+    @staticmethod
+    def get_auto_correlation_axis_angle(x_body, y_body, z_body):
+        first_nonzero_index = np.argmax((y_body != 0).any(axis=1))
+        reversed_mat = np.flip(y_body, axis=0)
         last_index_reversed = np.argmax((reversed_mat != 0).any(axis=1))
-        last_nonzero_index = self.y_body.shape[0] - 1 - last_index_reversed
+        last_nonzero_index = y_body.shape[0] - 1 - last_index_reversed
 
         T = (last_nonzero_index - first_nonzero_index) // 2
-        x_body, y_body, z_body = (self.x_body[first_nonzero_index:last_nonzero_index],
-                                  self.y_body[first_nonzero_index:last_nonzero_index],
-                                  self.z_body[first_nonzero_index:last_nonzero_index])
+        x_body, y_body, z_body = (x_body[first_nonzero_index:last_nonzero_index],
+                                  y_body[first_nonzero_index:last_nonzero_index],
+                                  z_body[first_nonzero_index:last_nonzero_index])
         AC = np.zeros(T)
         AC[0] = 1
         for df in range(1, T):
@@ -280,22 +278,23 @@ class FlightAnalysis:
             xb_pair, yb_pair, zb_pair = x_body[df:], y_body[df:], z_body[df:]
             Rs_pair = np.stack([xb_pair, yb_pair, zb_pair], axis=-1)
 
-            angels_radiance = np.array([self.get_rotation_axis_angle(Rs[i], Rs_pair[i]) for i in range(Rs.shape[0])])
+            angels_radiance = np.array(
+                [FlightAnalysis.get_rotation_axis_angle(Rs[i], Rs_pair[i]) for i in range(Rs.shape[0])])
             cosines = np.cos(angels_radiance)
             AC[df] = np.mean(cosines)
         return AC
 
-    def get_auto_correlation_x_body(self):
-        # Define M
-        T = len(self.x_body) // 2
+    @staticmethod
+    def get_auto_correlation_x_body(x_body):
+        T = len(x_body) // 2
         AC = np.zeros(T)
         AC[0] = 1
         for df in range(1, T):
-            x_bodies = self.x_body[:-df]
-            x_bodies_pair = self.x_body[df:]
-            cosines = self.dot(x_bodies, x_bodies_pair)
+            x_bodies = x_body[:-df]
+            x_bodies_pair = x_body[df:]
+            cosines = FlightAnalysis.dot(x_bodies, x_bodies_pair)
             AC[df] = np.mean(cosines)
-        return
+        return AC
 
     @staticmethod
     def get_rotation_axis_angle(vectors1, vectors2):
@@ -394,7 +393,8 @@ class FlightAnalysis:
     def get_roni_y_body(self):
         # should be used after head_tail_vec is obtained
         idx4StrkPln = self.choose_span()
-        idx4StrkPln = idx4StrkPln[(NUM_TIPS_FOR_PLANE <= idx4StrkPln) & (idx4StrkPln <= self.num_frames - NUM_TIPS_FOR_PLANE)]
+        idx4StrkPln = idx4StrkPln[
+            (NUM_TIPS_FOR_PLANE <= idx4StrkPln) & (idx4StrkPln <= self.num_frames - NUM_TIPS_FOR_PLANE)]
         y_bodies = []
         for i, ind in enumerate(idx4StrkPln):
             left = self.wings_tips[ind - NUM_TIPS_FOR_PLANE:ind + NUM_TIPS_FOR_PLANE, LEFT, :]
@@ -467,48 +467,169 @@ class FlightAnalysis:
         ax.set_box_aspect([1, 1, 1])
         plt.show()
 
+    @staticmethod
+    def fit_a_line_to_points(points):
+        ##############################
+        pca = PCA(n_components=3)
+        pca.fit(points)
+        best_fit_direction = pca.components_[0]
+        print(pca.explained_variance_ratio_)
+        ###############################
+        print(FlightAnalysis.calculate_straightness(points))
 
-def plot_movie_html(movie_num):
-    if movie_num == 1:
-        title = "mov1 dark disturbance smoothed.html"
-        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\points_3D_smoothed_ensemble.npy"
-        start_frame = 10
-    elif movie_num == 2:
-        title = "mov2 dark disturbance smoothed.html"
-        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\points_3D_smoothed_ensemble.npy"
-        start_frame = 160
-    elif movie_num == 3:
-        title = "mov1 free flight smoothed.html"
-        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\points_3D_smoothed_ensemble.npy"
-        start_frame = 130
-    else:
-        title = "mov2 free flight smoothed.html"
-        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_smoothed_ensemble.npy"
-        start_frame = 10
+    @staticmethod
+    def calculate_straightness(trajectory):
+        total_distance = np.sum(np.sqrt(np.sum(np.diff(trajectory, axis=0) ** 2, axis=1)))
+        euclidean_distance = np.sqrt(np.sum((trajectory[-1] - trajectory[0]) ** 2))
+        return euclidean_distance / total_distance
 
-    FA = FlightAnalysis(point_numpy_path)
+    @staticmethod
+    def sort_trajectories(trajectories):
+        straightness_values = [FlightAnalysis.calculate_straightness(trajectory) for trajectory in trajectories]
+        sorted_indices = np.argsort(straightness_values)[::-1]  # Sort in descending order
+        sorted_trajectories = [trajectories[i] for i in sorted_indices]
+        return sorted_trajectories
 
-    # plt.plot(FA.wings_tips[:, 0, :])
-    # plt.show()
+def find_starting_frame(readme_file):
+    start_pattern = re.compile(r'start:\s*(\d+)')
+    with open(readme_file, 'r') as file:
+        for line in file:
+            match = start_pattern.search(line)
+            if match:
+                start_number = match.group(1)
+                return start_number
 
-    # ybody1 = FA.y_body
-    # plt.plot(ybody1)
-    # plt.show()
-    # ybody2 = FA.wings_joints_vec
-    # plt.figure()
+def plot_movies_html(base_path):
+    for dir in os.listdir(base_path):
+        movie_path = os.path.join(base_path, dir)
+        print(movie_path)
+        start_frame = 0
+        for filename in os.listdir(movie_path):
+            if filename.startswith("README_mov"):
+                readme_file = os.path.join(movie_path, filename)
+                start_frame = find_starting_frame(readme_file)
+        points_path = os.path.join(movie_path, 'points_3D_smoothed_ensemble.npy')
+        if os.path.isfile(points_path):
+            try:
+                file_name = 'smoothed_trajectory.html'
+                save_path = os.path.join(movie_path, file_name)
+                FA = FlightAnalysis(points_path)
+                com = FA.center_of_mass
+                x_body = FA.x_body
+                y_body = FA.y_body
+                points_3D = FA.points_3D
+                start_frame = int(start_frame)
+                Visualizer.create_movie_plot(com=com, x_body=x_body, y_body=y_body, points_3D=points_3D,
+                                             start_frame=start_frame, save_path=save_path)
+            except Exception as e:
+                print(f"{movie_path}\n{e}")
 
-    com = FA.center_of_mass
-    x_body = FA.x_body
-    y_body = FA.y_body
-    points_3D = FA.points_3D
 
-    plt.plot(FA.head_tail_points[:, 1, :])
-    plt.show()
 
-    visualize.Visualizer.create_movie_plot(com, x_body, y_body, points_3D, start_frame, title)
+
+def calculate_auto_correlation_roni_movies():
+    X_x_body = 23
+    X_y_body = 24
+    X_z_body = 25
+    Y_x_body = 26
+    Y_y_body = 27
+    Y_z_body = 28
+    Z_x_body = 29
+    Z_y_body = 30
+    Z_z_body = 31
+
+    # h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\manipulated_05_12_22.hdf5"
+    # new_h5_path = os.path.join(r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data", "autocorrelations_roni_100.h5")
+    h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\manipulated_05_12_22.hdf5"
+    new_h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_roni_500.h5"
+    with h5py.File(new_h5_path, "w") as new_h5_file:
+        with h5py.File(h5_path, 'r') as h5_file:
+            # Access the relevant datasets
+            for mov in range(1, 500, 1):
+                try:
+                    print(f"Movie {mov}")
+                    mov_vectors = h5_file[f'mov{mov}/vectors']
+                    # Extract the specified columns
+                    x_body = np.vstack(mov_vectors[:, [X_x_body, Y_x_body, Z_x_body]])
+                    y_body = np.vstack(mov_vectors[:, [X_y_body, Y_y_body, Z_y_body]])
+                    z_body = np.vstack(mov_vectors[:, [X_z_body, Y_z_body, Z_z_body]])
+
+                    AC_coordinate_systems = FlightAnalysis.get_auto_correlation_axis_angle(x_body, y_body, z_body)
+                    AC_x_body = FlightAnalysis.get_auto_correlation_x_body(x_body)
+
+                    new_h5_file.create_dataset(f'mov{mov}/AC_coordinate_systems', data=AC_coordinate_systems)
+                    new_h5_file.create_dataset(f'mov{mov}/AC_x_body', data=AC_x_body)
+                except:
+                    print(f"Error in movie {mov}")
+
+
+def extract_auto_correlations(base_path, h5_path, file_name="points_3D_smoothed_ensemble.npy"):
+    with h5py.File(h5_path, 'w') as h5_file:
+        for mov in os.listdir(base_path):
+            points_path = os.path.join(base_path, mov, file_name)
+            if os.path.isfile(points_path):
+                print(mov)
+                FA = FlightAnalysis(points_path)
+
+                AC_coordinate_systems = FA.auto_correlation_axis_angle
+                AC_x_body = FA.auto_correlation_x_body
+
+                h5_file.create_dataset(f'{mov}/AC_coordinate_systems', data=AC_coordinate_systems)
+                h5_file.create_dataset(f'{mov}/AC_x_body', data=AC_x_body)
+
+
+def visualize_autocorrelations_plotly_to_html(base_path_1, base_path_2, dataset_name, output_html='plot.html'):
+    import plotly.graph_objects as go
+    import h5py
+
+    fig = go.Figure()
+
+    # Helper function to add traces with conditional legend labeling and grouped by legend
+    def add_dataset_traces(h5_path, name, color, legend_group, dataset_name):
+        first_trace = True  # Only show legend for the first trace
+        with h5py.File(h5_path, 'r') as h5_file:
+            for mov in h5_file.keys():
+                dataset_path = f'{mov}/{dataset_name}'  # Construct the path to the dataset
+                if dataset_path in h5_file:  # Check if the dataset exists
+                    data = h5_file[dataset_path][:]
+                    fig.add_trace(go.Scatter(x=list(range(len(data))), y=data, mode='lines',
+                                             name=name if first_trace else None,  # Name only for the first trace
+                                             showlegend=first_trace,  # Show legend only for the first trace
+                                             legendgroup=legend_group,  # Assign all traces to the same legend group
+                                             line=dict(color=color)))
+                    first_trace = False  # Subsequent traces won't show in the legend but will be grouped
+    add_dataset_traces(base_path_1, 'no halter data', 'blue', 'roni_data_group', dataset_name)
+    add_dataset_traces(base_path_2, 'regular flies', 'red', 'no_halter_data_group', dataset_name)
+    fig.update_layout(title=f'{dataset_name} Arrays',
+                      xaxis_title='Dimension/Index',
+                      yaxis_title='Value')
+
+    # Save the figure as an HTML file
+    fig.write_html(output_html)
+
+
+def plot_auto_correlations():
+    h5_path_1 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_undistubed.h5"
+    h5_path_2 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_roni_100.h5"
+    output_html1 = r'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\plot_autocorelation_CS_angle_100.html'
+    visualize_autocorrelations_plotly_to_html(base_path_1=h5_path_1, base_path_2=h5_path_2,
+                                              dataset_name='AC_coordinate_systems',
+                                              output_html=output_html1)
+    output_html2 = r'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\plot_autocorelation_body_axis_100.html'
+    visualize_autocorrelations_plotly_to_html(base_path_1=h5_path_1, base_path_2=h5_path_2,
+                                              dataset_name='AC_x_body',
+                                              output_html=output_html2)
 
 
 if __name__ == '__main__':
+    plot_movies_html('dark 24-1 movies')
+
+    # plot_auto_correlations()
+    # calculate_auto_correlation_roni_movies()
+    # base_path = r'G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies'
+    # h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_undistubed.h5"
+    # extract_auto_correlations(base_path, h5_path, file_name="points_3D_smoothed_ensemble.npy")
+
     # plot_movie_html(1)
     # plot_movie_html(2)
     # plot_movie_html(3)
@@ -523,19 +644,18 @@ if __name__ == '__main__':
     # h5 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\body_segmentations.h5"
 
     # mov62
-    path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\points_3D_ensemble.npy"
-    h5 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\body_segmentations.h5"
-
-    FA = FlightAnalysis(path)
-    x_body1 = h5py.File(h5, "r")["/x_body"][:]
-    x_body2 = FA.x_body
-
-    x_body3 = FA.points_3D[:, -1, :] - FA.head_tail_points[:, -2, :]
-    x_body3 = normalize(x_body3, axis=1, norm='l2')
-
-    plt.plot(x_body1[72:-100])
-    # plt.plot(x_body2[72:-100])
-    # plt.plot(x_body3[72:-72])
-    plt.show()
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\points_3D_ensemble.npy"
+    # h5 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\body_segmentations.h5"
+    #
+    # FA = FlightAnalysis(path)
+    # x_body1 = h5py.File(h5, "r")["/x_body"][:]
+    # x_body2 = FA.x_body
+    #
+    # x_body3 = FA.points_3D[:, -1, :] - FA.head_tail_points[:, -2, :]
+    # x_body3 = normalize(x_body3, axis=1, norm='l2')
+    #
+    # plt.plot(x_body1[72:-100])
+    # # plt.plot(x_body2[72:-100])
+    # # plt.plot(x_body3[72:-72])
+    # plt.show()
     pass
-
