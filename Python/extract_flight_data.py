@@ -11,20 +11,21 @@ from scipy.signal import medfilt
 from scipy.interpolate import make_smoothing_spline
 from scipy.signal import medfilt
 from sklearn.linear_model import LinearRegression
-import re
+from visualize import Visualizer
+from scipy.signal import savgol_filter
 
 # matplotlib.use('TkAgg')
 
-
+sampling_rate = 16000
 dt = 1 / 16000
 LEFT = 0
 RIGHT = 1
 NUM_TIPS_FOR_PLANE = 10
 WINGS_JOINTS_INDS = [7, 15]
-from visualize import Visualizer
+
 
 class FlightAnalysis:
-    def __init__(self, points_3D_path):
+    def __init__(self, points_3D_path, find_auto_correlation=False):
 
         # set attributes
         self.points_3D_path = points_3D_path
@@ -55,12 +56,18 @@ class FlightAnalysis:
         self.z_body = self.get_z_body()
         self.wings_joints_vec = self.get_wings_joints_vec(smooth=True)
         self.yaw_angle, self.pitch_angle, self.roll_angle = self.get_body_angles()
+        self.roll_speed = self.get_roll_velocity()
         self.stroke_planes = self.get_stroke_planes()
         self.center_of_mass = self.get_center_of_mass()
         self.body_speed = self.get_body_speed()
         self.get_wing_tips_speed = self.get_wing_tips_speed()
-        self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body, self.z_body)
-        self.auto_correlation_x_body = self.get_auto_correlation_x_body(self.x_body)
+        self.wings_yaw_left, self.wings_yaw_right = self.get_wings_yaw()
+        if find_auto_correlation:
+            self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body, self.z_body)
+            self.auto_correlation_x_body = self.get_auto_correlation_x_body(self.x_body)
+
+    def save_everything(self):
+        pass
 
     def get_head_tail_points(self, smooth=True):
         head_tail_points = self.points_3D[:, self.head_tail_inds, :]
@@ -186,7 +193,12 @@ class FlightAnalysis:
 
     def get_body_roll(self):
         roll_angle = np.rad2deg(np.arcsin(self.y_body[:, 2]))
+        roll_wings_joints = np.rad2deg(np.arcsin(self.wings_joints_vec[:, 2]))
         return roll_angle
+
+    def get_roll_velocity(self, window_length=5, polyorder=2):
+        roll_speed = savgol_filter(self.roll_angle, window_length, polyorder, deriv=1, delta=(1 / sampling_rate))
+        return roll_speed
 
     def get_body_angles(self):
         yaw_angle = self.get_body_yaw()
@@ -194,9 +206,32 @@ class FlightAnalysis:
         roll_angle = self.get_body_roll()
         return yaw_angle, pitch_angle, roll_angle
 
+    def get_wings_yaw(self):
+        wings_spans_left = self.wings_span_vecs[:, LEFT]
+        wings_spans_right = self.wings_span_vecs[:, RIGHT]
+        proj_left = FlightAnalysis.project_vector_to_plane(wings_spans_left, self.stroke_planes)
+        proj_right = FlightAnalysis.project_vector_to_plane(wings_spans_right, self.stroke_planes)
+        proj_xbody = FlightAnalysis.project_vector_to_plane(self.x_body, self.stroke_planes)
+
+        theta_left = np.rad2deg(np.arccos(self.row_wize_dot(proj_left, proj_xbody)))
+        theta_right = np.rad2deg(np.arccos(self.row_wize_dot(proj_right, proj_xbody)))
+
+        return theta_left, theta_right
+
+    @staticmethod
+    def project_vector_to_plane(Vs, Ps):
+        stroke_normals = Ps[:, :-1]
+        proj_N_V = FlightAnalysis.row_wize_dot(Vs, stroke_normals)[:, np.newaxis] * stroke_normals
+        V_on_plane = Vs - proj_N_V
+        # check if indeed on the plane:
+        # check = FlightAnalysis.row_wize_dot(V_on_plane, stroke_normals)
+        V_on_plane = normalize(V_on_plane, norm='l2')
+        return V_on_plane
+
     def get_stroke_planes(self):
         theta = np.pi / 4
-        stroke_normal = self.rodrigues_rot(self.x_body, self.y_body, theta)
+        stroke_normal = self.rodrigues_rot(self.x_body, self.y_body, -theta)
+        stroke_normal = normalize(stroke_normal, norm='l2')
         body_center = np.mean(self.head_tail_points, axis=1)
         d = - np.sum(np.multiply(stroke_normal, body_center), axis=1)
         stroke_planes = np.column_stack((stroke_normal, d))
@@ -204,6 +239,14 @@ class FlightAnalysis:
 
     @staticmethod
     def rodrigues_rot(V, K, theta):
+        """
+        Args:
+            V:  the vector to rotate
+            K: the axis of rotation
+            theta: angle in radians
+        Returns:
+
+        """
         num_frames, ndims = V.shape[0], V.shape[1]
         V_rot = np.zeros_like(V)
         for frame in range(num_frames):
@@ -292,7 +335,7 @@ class FlightAnalysis:
         for df in range(1, T):
             x_bodies = x_body[:-df]
             x_bodies_pair = x_body[df:]
-            cosines = FlightAnalysis.dot(x_bodies, x_bodies_pair)
+            cosines = FlightAnalysis.row_wize_dot(x_bodies, x_bodies_pair)
             AC[df] = np.mean(cosines)
         return AC
 
@@ -350,12 +393,12 @@ class FlightAnalysis:
         for df in range(1, T):
             first_vecs = unit_vectors[df:]
             second_vecs = unit_vectors[:-df]
-            cosines = FlightAnalysis.dot(first_vecs, second_vecs)
+            cosines = FlightAnalysis.row_wize_dot(first_vecs, second_vecs)
             AC[df] = np.mean(cosines)
         return AC
 
     @staticmethod
-    def dot(arr1, arr2):
+    def row_wize_dot(arr1, arr2):
         """
         Args:
             arr1: size (N, d)
@@ -378,11 +421,11 @@ class FlightAnalysis:
         return data[indices]
 
     def choose_span(self):
-        dotspanAx_wing1 = self.dot(self.wings_span_vecs[:, LEFT, :], self.x_body)
-        dotspanAx_wing2 = self.dot(self.wings_span_vecs[:, RIGHT, :], self.x_body)
+        dotspanAx_wing1 = self.row_wize_dot(self.wings_span_vecs[:, LEFT, :], self.x_body)
+        dotspanAx_wing2 = self.row_wize_dot(self.wings_span_vecs[:, RIGHT, :], self.x_body)
 
-        distSpans = np.arccos(self.dot(self.wings_span_vecs[:, LEFT, :], self.wings_span_vecs[:, RIGHT, :]))
-        angBodSp = np.rad2deg(np.arccos(self.dot(self.wings_span_vecs[:, RIGHT, :], self.x_body)))
+        distSpans = np.arccos(self.row_wize_dot(self.wings_span_vecs[:, LEFT, :], self.wings_span_vecs[:, RIGHT, :]))
+        angBodSp = np.rad2deg(np.arccos(self.row_wize_dot(self.wings_span_vecs[:, RIGHT, :], self.x_body)))
         mean_strks = np.mean(np.array([dotspanAx_wing1, dotspanAx_wing2]), axis=0)
         idx4StrkPln = self.find_zero_crossings_up(mean_strks)
 
@@ -421,7 +464,7 @@ class FlightAnalysis:
         Ybody_inter = normalize(Ybody_inter, axis=1, norm='l2')
         all_y_bodies[start:end, :] = Ybody_inter
         # make sure that the all_y_bodies are (1) unit vectors and (2) perpendicular to x_body
-        y_bodies_corrected = all_y_bodies - self.x_body * self.dot(self.x_body, all_y_bodies).reshape(-1, 1)
+        y_bodies_corrected = all_y_bodies - self.x_body * self.row_wize_dot(self.x_body, all_y_bodies).reshape(-1, 1)
         y_bodies_corrected = normalize(y_bodies_corrected, 'l2')
 
         # make sure that the all_y_bodies are (1) unit vectors and (2) perpendicular to x_body
@@ -490,41 +533,44 @@ class FlightAnalysis:
         sorted_trajectories = [trajectories[i] for i in sorted_indices]
         return sorted_trajectories
 
-def find_starting_frame(readme_file):
-    start_pattern = re.compile(r'start:\s*(\d+)')
-    with open(readme_file, 'r') as file:
-        for line in file:
-            match = start_pattern.search(line)
-            if match:
-                start_number = match.group(1)
-                return start_number
 
-def plot_movies_html(base_path):
-    for dir in os.listdir(base_path):
-        movie_path = os.path.join(base_path, dir)
-        print(movie_path)
-        start_frame = 0
-        for filename in os.listdir(movie_path):
-            if filename.startswith("README_mov"):
-                readme_file = os.path.join(movie_path, filename)
-                start_frame = find_starting_frame(readme_file)
-        points_path = os.path.join(movie_path, 'points_3D_smoothed_ensemble.npy')
-        if os.path.isfile(points_path):
-            try:
-                file_name = 'smoothed_trajectory.html'
-                save_path = os.path.join(movie_path, file_name)
-                FA = FlightAnalysis(points_path)
-                com = FA.center_of_mass
-                x_body = FA.x_body
-                y_body = FA.y_body
-                points_3D = FA.points_3D
-                start_frame = int(start_frame)
-                Visualizer.create_movie_plot(com=com, x_body=x_body, y_body=y_body, points_3D=points_3D,
-                                             start_frame=start_frame, save_path=save_path)
-            except Exception as e:
-                print(f"{movie_path}\n{e}")
+def plot_movie_html(movie_num):
+    if movie_num == 1:
+        title = "mov1 dark disturbance smoothed.html"
+        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\points_3D_smoothed_ensemble.npy"
+        start_frame = 10
+    elif movie_num == 2:
+        title = "mov2 dark disturbance smoothed.html"
+        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov62_d\points_3D_smoothed_ensemble.npy"
+        start_frame = 160
+    elif movie_num == 3:
+        title = "mov1 free flight smoothed.html"
+        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\points_3D_smoothed_ensemble.npy"
+        start_frame = 130
+    else:
+        title = "mov2 free flight smoothed.html"
+        point_numpy_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_smoothed_ensemble.npy"
+        start_frame = 10
 
+    FA = FlightAnalysis(point_numpy_path)
 
+    # plt.plot(FA.wings_tips[:, 0, :])
+    # plt.show()
+
+    # ybody1 = FA.y_body
+    # plt.plot(ybody1)
+    # plt.show()
+    # ybody2 = FA.wings_joints_vec
+    # plt.figure()
+
+    com = FA.center_of_mass
+    # FA.fit_a_line_to_points(com)
+
+    x_body = FA.x_body
+    y_body = FA.y_body
+    points_3D = FA.points_3D
+
+    Visualizer.create_movie_plot(com, x_body, y_body, points_3D, start_frame, title)
 
 
 def calculate_auto_correlation_roni_movies():
@@ -622,17 +668,14 @@ def plot_auto_correlations():
 
 
 if __name__ == '__main__':
-    plot_movies_html('dark 24-1 movies')
-
     # plot_auto_correlations()
     # calculate_auto_correlation_roni_movies()
     # base_path = r'G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies'
     # h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_undistubed.h5"
     # extract_auto_correlations(base_path, h5_path, file_name="points_3D_smoothed_ensemble.npy")
-
     # plot_movie_html(1)
     # plot_movie_html(2)
-    # plot_movie_html(3)
+    plot_movie_html(3)
     # plot_movie_html(4)
 
     # mov10

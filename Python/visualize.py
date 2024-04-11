@@ -516,8 +516,7 @@ class Visualizer:
         left_tip = points_3D[:, 3, :]
         right_tip = points_3D[:, 3 + 8, :]
         frame0 = 340 - start_frame
-        num_frames = len(points_3D)
-        frame_40_ms = min(frame0 + 40 * 16, num_frames - 1)
+        frame_40_ms = frame0 + 40 * 16
         interval = 70
         # Create traces
         marker_size = 2
@@ -540,9 +539,9 @@ class Visualizer:
         size = 0.003
 
         quiver_x_body, qx_points = Visualizer.get_orientation_scatter(com, interval, 'x body', size, x_body,
-                                                                      points_color='orange')
+                                                                      points_color=['black', 'yellow'], width=2)
         quiver_y_body, qy_points = Visualizer.get_orientation_scatter(com, interval, 'y body', size, y_body,
-                                                                      points_color='blue')
+                                                                      points_color=['green', 'blue'])
         # Create a figure and add the traces
         fig = go.Figure(
             data=[trace_com, trace_left_tip, trace_right_tip, marker_start, marker_start_dark, marker_40_ms,
@@ -571,28 +570,37 @@ class Visualizer:
         pio.write_html(fig, save_path)
 
     @staticmethod
-    def get_orientation_scatter(com, interval, name, size, x_body, points_color='red'):
+    def get_orientation_scatter(com, interval, name, size, x_body, points_color=['orange', 'blue'], width=5):
         x_quiver = []
         y_quiver = []
         z_quiver = []
         x_points = []
         y_points = []
         z_points = []
+        marker_colors = []  # Initialize an empty list for individual marker colors
+
         for i in range(0, len(com), interval):
-            start = [com[i, j] - size / 2 * x_body[i, j] for j in range(3)]
-            end = [com[i, j] + size / 2 * x_body[i, j] for j in range(3)]
+            start = [com[i, j] - size / 6 * x_body[i, j] for j in range(3)]
+            end = [com[i, j] + size / 6 * x_body[i, j] for j in range(3)]
             x_quiver.extend([start[0], end[0], None])
             y_quiver.extend([start[1], end[1], None])
             z_quiver.extend([start[2], end[2], None])
+
             x_points.extend([start[0], end[0]])
             y_points.extend([start[1], end[1]])
             z_points.extend([start[2], end[2]])
-        quiver_x_body = go.Scatter3d(x=x_quiver, y=y_quiver, z=z_quiver, mode='lines',
-                                     line=dict(color='black', width=5),
-                                     name=name)
+
+            # Specify colors for each point: start point in orange, end point in blue
+            marker_colors.extend(points_color)
+
         points = go.Scatter3d(x=x_points, y=y_points, z=z_points, mode='markers',
-                              marker=dict(color=points_color, size=5),
+                              marker=dict(color=marker_colors, size=5),  # Apply the color array here
                               name=name + ' points')
+
+        quiver_x_body = go.Scatter3d(x=x_quiver, y=y_quiver, z=z_quiver, mode='lines',
+                                     line=dict(color='black', width=width),
+                                     name=name)
+
         return quiver_x_body, points
 
 
@@ -603,19 +611,13 @@ if __name__ == '__main__':
     # Visualizer.display_movie_from_path(movie_path)
 
     # display 3D points
-    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov6\movie_6_100_498_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 13\points_3D.npy"
-    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov6\points_3D_smoothed_ensemble.npy"
-    # points_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies\mov10\movie_10_130_1666_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 09\points_3D.npy"
-    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\points_3D_ensemble.npy"
-    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_ensemble.npy"
-    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_smoothed_ensemble.npy"
-    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov11_u\points_3D_ensemble.npy"
-    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov61_d\points_3D_ensemble.npy"
-    # points_3D = np.load(points_path)
-    # Visualizer.show_points_in_3D(points_3D[:200])
+
+    points_path = r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_smoothed_ensemble.npy"
+    points_3D = np.load(points_path)
+    Visualizer.show_points_in_3D(points_3D)
 
     # display box and 2D predictions
-    path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\movie_10_130_1666_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Mar 05_01\predicted_points_and_box_reprojected.h5"
-    box = h5py.File(path, "r")["/box"][:100]
-    points_2D = h5py.File(path, "r")["/positions_pred"][:100]
-    Visualizer.show_predictions_all_cams(box, points_2D)
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\movies\mov62\movie_62_160_1888_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Apr 10\predicted_points_and_box_reprojected.h5"
+    # box = h5py.File(path, "r")["/box"][:500]
+    # points_2D = h5py.File(path, "r")["/positions_pred"][:500]
+    # Visualizer.show_predictions_all_cams(box, points_2D)

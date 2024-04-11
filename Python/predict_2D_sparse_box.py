@@ -3,6 +3,8 @@ import scipy.ndimage
 import scipy
 import yaml
 import h5py
+from scipy.signal import hilbert
+from scipy.ndimage import gaussian_filter1d, binary_dilation
 from skimage.morphology import disk, erosion, dilation
 from validation import Validation
 import json
@@ -19,6 +21,8 @@ import tensorflow as tf
 # from leap.utils import find_weights, find_best_weights, preprocess
 # from leap.layers import Maxima2D
 from scipy.spatial.distance import cdist
+from sklearn.preprocessing import normalize
+
 from scipy.io import loadmat
 # imports of the wings1 detection
 from time import time
@@ -44,6 +48,7 @@ from predictions_2Dto3D import From2Dto3D
 sys.path.append(r'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\predict_2D_pytorch')
 from BoxSparse import BoxSparse
 from traingulate import Triangulate
+
 # initial_gpus = tf.config.list_physical_devices('GPU')
 # Hide all GPUs from TensorFlow
 # tf.config.set_visible_devices([], 'GPU')
@@ -54,9 +59,14 @@ from traingulate import Triangulate
 WHICH_TO_FLIP = np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1],
                           [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]]).astype(bool)
 ALL_COUPLES = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]
+LEFT = 0
+RIGHT = 1
+
 
 class Predictor2D:
-    def __init__(self, configuration_path):
+    def __init__(self, configuration_path, load_box_from_sparse=False):
+        self.saved_box_dir = None
+        self.body_sizes = None
         self.neto_wings_sparse = None
         self.wings_size = None
         self.body_masks_sparse = None
@@ -88,10 +98,13 @@ class Predictor2D:
             self.predict_again_using_reprojected_masks = bool(config["predict again using reprojected masks"])
             self.base_output_path = config["base output path"]
             self.json_2D_3D_path = config["2D to 3D config path"]
-
-        print("creating sparse box object")
-        self.box_sparse = BoxSparse(self.box_path)
-        print("finish creating sparse box object")
+        self.load_from_sparse = load_box_from_sparse
+        if not load_box_from_sparse:
+            print("creating sparse box object")
+            self.box_sparse = BoxSparse(self.box_path)
+            print("finish creating sparse box object")
+        else:
+            self.load_preprocessed_box()
         # self.box = self.get_box()[first_frame:last_frame]
         self.masks_flag = False
         # Visualizer.display_movie_from_box(np.copy(self.box))
@@ -119,7 +132,7 @@ class Predictor2D:
         self.num_joints = 18
         self.left_mask_ind, self.right_mask_ind = 3, 4
         self.image_size = self.box_sparse.shape[-2]
-        self.num_time_channels = self.box_sparse.shape[-1] - 2
+        self.num_time_channels = 3
         self.num_wings_points = self.num_joints - 2
         self.num_points_per_wing = self.num_wings_points // 2
         self.left_inds = np.arange(0, self.num_points_per_wing)
@@ -135,19 +148,19 @@ class Predictor2D:
         """
         t0 = time()
         self.run_path = self.create_run_folders()
+        if not self.load_from_sparse:
+            if not self.masks_flag:
+                print("cleaning the images")
+                self.clean_images()
+                print("aligning time channels")
+                self.align_time_channels()
 
-        if not self.masks_flag:
-            print("cleaning the images")
-            self.clean_images()
-            print("aligning time channels")
-            self.align_time_channels()
-
-        print("find body masks")
-        self.set_body_masks()
-        print("finding wings sizes")
-        self.get_neto_wings_masks()
-        print("preprocessing masks")
-        self.preprocess_masks()
+            print("find body masks")
+            self.set_body_masks()
+            print("preprocessing masks")
+            self.preprocess_masks()
+            print("finding wings sizes")
+            self.get_neto_wings_masks()
 
         preprocessing_time = time() - t0
         preds_time = time()
@@ -156,9 +169,9 @@ class Predictor2D:
         self.preds_2D = self.predicted_points[..., :-1]
         self.conf_preds = self.predicted_points[..., -1]
 
-        print("finish predict")
+        print("finish predict", flush=True)
         self.prediction_runtime = 0
-        print("enforcing 3D consistency")
+        print("enforcing 3D consistency", flush=True)
         self.enforce_3D_consistency()
         print("done")
 
@@ -166,7 +179,7 @@ class Predictor2D:
         # points_2D = self.preds_2D
         # Visualizer.show_predictions_all_cams(box, points_2D)
 
-        print("predicting 3D points")
+        print("predicting 3D points", flush=True)
         self.points_3D_all, self.reprojection_errors, self.triangulation_errors = (
             self.get_all_3D_pnts_pairs(self.preds_2D, self.cropzone))
 
@@ -184,11 +197,11 @@ class Predictor2D:
             self.wings_pose_estimation_model = \
                 self.get_pose_estimation_model(self.wings_pose_estimation_model_path_second_pass,
                                                return_model_peaks=return_model_peaks)
-            points_3D = self.choose_best_score_2_cams()
-            smoothed_3D = From2Dto3D.smooth_3D_points(points_3D)
+            points_3D = self.get_points_3D(alpha=None)
+            smoothed_3D = self.smooth_3D_points(points_3D)
             self.get_reprojection_masks(smoothed_3D, self.mask_increase_reprojected)
-            print("created reprojection masks")
-            print("predicting second round, now with reprojected masks")
+            print("created reprojection masks", flush=True)
+            print("predicting second round, now with reprojected masks", flush=True)
             self.predicted_points = self.predict_method()
             self.preds_2D = self.predicted_points[..., :-1]
             self.conf_preds = self.predicted_points[..., -1]
@@ -203,6 +216,71 @@ class Predictor2D:
         print("Predicted [%.1fs]" % self.prediction_runtime)
         print("Prediction performance: %.3f FPS" % (self.num_frames * self.num_cams / self.prediction_runtime))
 
+    def create_base_box(self):
+        print("cleaning the images", flush=True)
+        self.clean_images()
+        print("aligning time channels", flush=True)
+        self.align_time_channels()
+        print("find body masks", flush=True)
+        self.set_body_masks()
+        print("preprocessing masks", flush=True)
+        self.preprocess_masks()
+        print("finding wings sizes", flush=True)
+        self.get_neto_wings_masks()
+
+    def save_base_box(self):
+        print("saving box")
+        # save the sparse box, neto wings sparse, body masks sparse, body_sizes, wings sizes
+        mov_dir_name = os.path.dirname(self.box_path)
+        self.saved_box_dir = os.path.join(mov_dir_name, "saved_box_dir")
+        if os.path.exists(self.saved_box_dir):
+            shutil.rmtree(self.saved_box_dir)
+        os.makedirs(self.saved_box_dir)
+
+        # save sparse box
+        box_save_name = os.path.join(self.saved_box_dir, "box.h5")
+        self.box_sparse.save_to_scipy_sparse_format(box_save_name)
+
+        # save neto wings
+        wings_save_name = os.path.join(self.saved_box_dir, "neto_wings.h5")
+        self.neto_wings_sparse.save_to_scipy_sparse_format(wings_save_name)
+
+        # save body masks
+        body_save_name = os.path.join(self.saved_box_dir, "body_masks.h5")
+        self.body_masks_sparse.save_to_scipy_sparse_format(body_save_name)
+
+        # save arrays of body sizes
+        body_sizes_path = os.path.join(self.saved_box_dir, "body_sizes.npy")
+        np.save(body_sizes_path, self.body_sizes)
+
+        # save arrays of wings_size
+        wings_size_path = os.path.join(self.saved_box_dir, "wings_size.npy")
+        np.save(wings_size_path, self.wings_size)
+
+    def load_preprocessed_box(self):
+        mov_dir_name = os.path.dirname(self.box_path)
+        self.saved_box_dir = os.path.join(mov_dir_name, "saved_box_dir")
+
+        # load box
+        box_save_name = os.path.join(self.saved_box_dir, "box.h5")
+        self.box_sparse = BoxSparse(load_from_sparse=True, sparse_path=box_save_name)
+
+        # load neto wings
+        wings_save_name = os.path.join(self.saved_box_dir, "neto_wings.h5")
+        self.neto_wings_sparse = BoxSparse(load_from_sparse=True, sparse_path=wings_save_name)
+
+        # load body masks
+        body_save_name = os.path.join(self.saved_box_dir, "body_masks.h5")
+        self.body_masks_sparse = BoxSparse(load_from_sparse=True, sparse_path=body_save_name)
+
+        # load body sizes
+        body_sizes_path = os.path.join(self.saved_box_dir, "body_sizes.npy")
+        self.body_sizes = np.load(body_sizes_path)
+
+        # load wings sizes
+        wings_size_path = os.path.join(self.saved_box_dir, "wings_size.npy")
+        self.wings_size = np.load(wings_size_path)
+
     @staticmethod
     def get_median_point(all_points_3D):
         median = np.median(all_points_3D, axis=2)
@@ -213,38 +291,130 @@ class Predictor2D:
         return Validation.get_wings_distances_variance(points_3D)[0]
 
     @staticmethod
-    def choose_best_reprojection_error_points(points_3D_all, reprojection_errors):
+    def choose_best_reprojection_error_points(points_3D_all, reprojection_errors_all):
         num_frames, num_joints, _, _ = points_3D_all.shape
         points_3D = np.zeros((num_frames, num_joints, 3))
+        reprojection_errors_chosen = np.zeros((num_frames, num_joints))
         for frame in range(num_frames):
             for joint in range(num_joints):
                 candidates = points_3D_all[frame, joint, ...]
-                best_candidate_ind = np.argmin(reprojection_errors[frame, joint, ...])
+                best_candidate_ind = np.argmin(reprojection_errors_all[frame, joint, ...])
+                reprojection_errors_chosen[frame, joint] = reprojection_errors_all[frame, joint, best_candidate_ind]
                 point_3d = candidates[best_candidate_ind]
                 points_3D[frame, joint, :] = point_3d
-        return points_3D
+        return points_3D, reprojection_errors_chosen
 
-    def choose_best_score_2_cams(self):
-        """
-        for each point rank the 4 different cameras by visibility, noise, size of mask, and choose the best 2
-        """
+    def get_points_3D(self, alpha=None):
+        if alpha is None:
+            scores1 = []
+            scores2 = []
+            alphas = [0.6, 0.7, 0.8, 0.9, 1]
+            print("start choosing 3D points")
+            for alpha in alphas:
+                points_3D_i = self.choose_best_score_2_cams(alpha=alpha)
+                smoothed_3D_i = self.smooth_3D_points(points_3D_i)
+                score1 = self.get_validation_score(points_3D_i)
+                score2 = self.get_validation_score(smoothed_3D_i)
+                print(f"alpha = {alpha} score1 is {score1}, score2 is {score2}")
+                scores1.append(score1)
+                scores2.append(score2)
+            min_alpha_ind = np.argmin(scores2)
+            min_alpha = alphas[min_alpha_ind]
+            points_3D_chosen = self.choose_best_score_2_cams(min_alpha)
+            print("finish choosing 3D points")
+            return points_3D_chosen
+        else:
+            points_3D_out = self.choose_best_score_2_cams(alpha=alpha)
+            # smoothed_3D_i = self.smooth_3D_points(points_3D_i)
+            # score1 = self.get_validation_score(points_3D_i)
+            # score2 = self.get_validation_score(smoothed_3D_i)
+            # print(f"alpha = {alpha} score1 is {score1}, score2 is {score2}")
+            return points_3D_out
+
+    @staticmethod
+    def smooth_3D_points(points_3D):
+        points_3D_smoothed = np.zeros_like(points_3D)
+        num_joints = points_3D_smoothed.shape[1]
+        for pnt in range(num_joints):
+            for axis in range(3):
+                # print(pnt, axis)
+                vals = points_3D[:, pnt, axis]
+                # set lambda as the regularising parameters: smoothing vs close to data
+                # lam = 300 if pnt in SIDE_POINTS else None
+                lam = None
+                A = np.arange(vals.shape[0])
+                if pnt in BODY_POINTS:
+                    vals = medfilt(vals, kernel_size=11)
+                    W = np.ones_like(vals)
+                else:
+                    filtered_data = medfilt(vals, kernel_size=3)
+                    # Compute the absolute difference between the original data and the filtered data
+                    diff = np.abs(vals - filtered_data)
+                    # make the diff into weights in [0,1]
+                    diff = diff / np.max(diff)
+                    W = 1 - diff
+                    W[W == 0] = 0.00001
+                spline = make_smoothing_spline(A, vals, w=W, lam=lam)
+                smoothed = spline(A)
+                points_3D_smoothed[:, pnt, axis] = smoothed
+        return points_3D_smoothed
+
+    def choose_best_score_2_cams(self, alpha=0.7):
+        envelope_2D = self.get_derivative_envelope_2D()
         points_3D = np.zeros((self.num_frames, self.num_joints, 3))
         for frame in range(self.num_frames):
+            # start with head and tail points
+            for ind in self.head_tail_inds:
+                body_sizes = self.body_sizes[frame, :]
+                candidates = self.points_3D_all[frame, ind, :, :]
+                max_size = np.max(body_sizes)
+                body_sizes_score = body_sizes / max_size
+                noise = envelope_2D[frame, :, ind] / np.max(envelope_2D[frame, :, ind])
+                noise_score = 1 - noise
+                scores = body_sizes_score + noise_score
+                # scores = noise_score  # todo now the score is only noise
+                # scores = scores * visibility_score
+                cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
+                best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
+                best_3D_point = candidates[best_pair_ind]
+                points_3D[frame, ind, :] = best_3D_point
+
             for wing_num in range(2):
                 for pnt_num in self.wings_pnts_inds[wing_num, :]:
                     candidates = self.points_3D_all[frame, pnt_num, :, :]
                     wings_size = self.wings_size[frame, :, wing_num]
                     max_size = np.max(wings_size)
                     masks_sizes_score = wings_size / max_size
-                    scores = masks_sizes_score
+                    noise = envelope_2D[frame, :, pnt_num] / np.max(envelope_2D[frame, :, pnt_num])
+                    noise_score = 1 - noise
+                    scores = alpha * masks_sizes_score + (1 - alpha) * noise_score
+                    # scores = scores * visibility_score
                     cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
                     best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
                     best_3D_point = candidates[best_pair_ind]
                     points_3D[frame, pnt_num, :] = best_3D_point
         # now find the
-        points_3D[:, self.head_tail_inds, :] = self.choose_best_reprojection_error_points(self.points_3D_all, self.reprojection_errors)[:, self.head_tail_inds, :]
+        # points_3D[:, self.head_tail_inds, :] = self.choose_best_reprojection_error_points()[:, self.head_tail_inds, :]
         return points_3D
 
+    def get_derivative_envelope_2D(self):
+        derivative_2D = self.get_2D_derivatives()
+        envelope_2D = np.zeros(shape=self.preds_2D.shape[:-1])
+        for cam in range(self.num_cams):
+            for joint in range(self.num_joints):
+                signal = derivative_2D[:, cam, joint]
+                # Define the cutoff frequency for the low-pass filter (between 0 and 1)
+                # Calculate the analytic signal, from which the envelope is the magnitude
+                analytic_signal = hilbert(signal)
+                envelope = np.abs(analytic_signal)
+                smooth_envelope = gaussian_filter1d(envelope, 0.7)
+                envelope_2D[:, cam, joint] = smooth_envelope
+        return envelope_2D
+
+    def get_2D_derivatives(self):
+        derivative_2D = np.zeros(shape=self.preds_2D.shape[:-1])
+        derivative_2D[1:, ...] = np.linalg.norm(self.preds_2D[1:, ...] - self.preds_2D[:-1, ...], axis=-1)
+        return derivative_2D
 
     def clean_images(self):
         for frame in range(self.num_frames):
@@ -263,10 +433,12 @@ class Predictor2D:
                     self.box_sparse.set_frame_camera_channel_dense(frame, cam, channel, image)
 
     def enforce_3D_consistency(self):
-        chosen_camera = 0
-        cameras_to_check = np.arange(0, 4)
-        cameras_to_check = cameras_to_check[np.where(cameras_to_check != chosen_camera)]
+        wings_size_togather = self.wings_size[..., LEFT] * self.wings_size[..., RIGHT]
         for frame in range(self.num_frames):
+            wings_score = wings_size_togather[frame]
+            chosen_camera = np.argmax(wings_score)
+            cameras_to_check = np.arange(0, 4)
+            cameras_to_check = cameras_to_check[np.where(cameras_to_check != chosen_camera)]
             # step 1
             if frame > 0:
                 switch_flag = self.deside_if_switch(chosen_camera, frame)
@@ -279,7 +451,43 @@ class Predictor2D:
             for cam in cameras_to_flip:
                 self.flip_camera(cam, frame)
 
-    def get_reprojection_masks(self, points_3D, extend_mask_radius=5):
+        # might cause problems
+        self.enforce_3D_left_right_consistency()
+
+    def enforce_3D_left_right_consistency(self):
+        self.points_3D_all, self.reprojection_errors, self.triangulation_errors = (
+            self.get_all_3D_pnts_pairs(self.preds_2D, self.cropzone))
+        points_3D = self.get_points_3D(alpha=None)
+        right_points = np.zeros((self.num_frames, len(self.right_inds), 3))
+        left_points = np.zeros((self.num_frames, len(self.left_inds), 3))
+
+        # initialize
+        right_points[0, ...] = points_3D[0, self.right_inds]
+        left_points[0, ...] = points_3D[0, self.left_inds]
+
+        for frame in range(1, self.num_frames):
+            cur_left_points = points_3D[frame, self.left_inds, :]
+            cur_right_points = points_3D[frame, self.right_inds, :]
+
+            prev_left_points = left_points[frame - 1, :]
+            prev_right_points = right_points[frame - 1, :]
+
+            l2l_dist = np.linalg.norm(cur_left_points - prev_left_points)
+            r2r_dist = np.linalg.norm(cur_right_points - prev_right_points)
+            r2l_dist = np.linalg.norm(cur_right_points - prev_left_points)
+            l2r_dist = np.linalg.norm(cur_left_points - prev_right_points)
+            do_switch = l2l_dist + r2r_dist > r2l_dist + l2r_dist
+
+            if do_switch:
+                right_points[frame] = cur_left_points
+                left_points[frame] = cur_right_points
+                for cam in range(self.num_cams):
+                    self.flip_camera(cam, frame)
+            else:
+                right_points[frame] = cur_right_points
+                left_points[frame] = cur_left_points
+
+    def get_reprojection_masks(self, points_3D, extend_mask_radius=7):
         points_2D_reprojected = self.triangulate.get_reprojections(points_3D, self.cropzone)
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
@@ -294,8 +502,15 @@ class Predictor2D:
                     mask = convex_hull_image(mask)  # todo switch
                     mask = binary_dilation(mask, iterations=extend_mask_radius)
                     mask = np.logical_and(mask, fly)
-                    mask = binary_dilation(mask, iterations=1)
-                    self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing, mask)
+                    mask = binary_dilation(mask, iterations=2)
+                    orig_mask = self.box_sparse.get_frame_camera_channel_dense(frame,
+                                                                               cam,
+                                                                               channel_idx=self.num_times_channels + wing)
+                    if np.count_nonzero(np.logical_and(mask, fly)) > np.count_nonzero(np.logical_and(orig_mask, fly)):
+                        self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing, mask)
+                    else:
+                        self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing,
+                                                                       orig_mask)
 
     def deside_if_switch(self, chosen_camera, frame):
         cur_left_points = self.preds_2D[frame, chosen_camera, self.left_inds, :]
@@ -327,7 +542,8 @@ class Predictor2D:
                 points_2D[cam, self.left_inds, :] = right_points
                 points_2D[cam, self.right_inds, :] = left_points
             points_2D = points_2D[np.newaxis, ...]
-            _, reprojection_errors, _ = self.get_all_3D_pnts_pairs(points_2D, cropzone)
+            points_3D_all, reprojection_errors, _ = self.get_all_3D_pnts_pairs(points_2D, cropzone)
+            # _, reprojection_errors_chosen = self.choose_best_reprojection_error_points(points_3D_all, reprojection_errors)
             score = np.mean(reprojection_errors)
             switch_scores[i] = score
         cameras_to_flip = cameras_to_check[WHICH_TO_FLIP[np.argmin(switch_scores)]]
@@ -377,7 +593,7 @@ class Predictor2D:
                         smoothed = spline(A)
                     except:
                         smoothed = filtered
-                        print(f"spline failed in cam {cam} time channel {time_channel} and axis {axis}")
+                        print(f"spline failed in cam {cam} time channel {time_channel} and axis {axis}", flush=True)
                     all_shifts_smoothed[:, cam, time_channel, axis] = smoothed
                     pass
 
@@ -442,7 +658,7 @@ class Predictor2D:
             shutil.rmtree(run_path)
 
         os.makedirs(run_path)
-        print("Created folder:", run_path)
+        print("Created folder:", run_path, flush=True)
 
         return run_path
 
@@ -477,6 +693,7 @@ class Predictor2D:
             ds_conf.attrs["dims"] = "(frame, cam, joint)"
             if self.num_frames < 2000:
                 box = self.box_sparse.retrieve_dense_box()
+                box[np.abs(box) < 0.001] = 0
                 ds_conf = f.create_dataset("box", data=box, compression="gzip", compression_opts=1)
                 ds_conf.attrs["description"] = "The predicted box and the wings1 if the wings1 were detected"
                 ds_conf.attrs["dims"] = f"{box.shape}"
@@ -494,11 +711,30 @@ class Predictor2D:
             ds_conf.attrs["description"] = "all the points triangulations"
             ds_conf.attrs["dims"] = f"{self.points_3D_all.shape}"
 
-            ds_conf = f.create_dataset("reprojection_errors", data=self.reprojection_errors, compression="gzip", compression_opts=1)
+            ds_conf = f.create_dataset("reprojection_errors", data=self.reprojection_errors, compression="gzip",
+                                       compression_opts=1)
             ds_conf.attrs["dims"] = f"{self.reprojection_errors.shape}"
 
-            ds_conf = f.create_dataset("triangulation_errors", data=self.triangulation_errors, compression="gzip", compression_opts=1)
+            ds_conf = f.create_dataset("triangulation_errors", data=self.triangulation_errors, compression="gzip",
+                                       compression_opts=1)
             ds_conf.attrs["dims"] = f"{self.triangulation_errors.shape}"
+
+        # save 3D points
+        From2Dto3D.save_points_3D(self.run_path, self.points_3D_all, name="points_3D_all.npy")
+        points_3D = self.get_points_3D(alpha=None)
+        points_3D_smoothed = self.smooth_3D_points(points_3D)
+        score1 = From2Dto3D.get_validation_score(points_3D)
+        score2 = From2Dto3D.get_validation_score(points_3D_smoothed)
+        From2Dto3D.save_points_3D(self.run_path, points_3D, name="points_3D.npy")
+        From2Dto3D.save_points_3D(self.run_path, points_3D_smoothed, name="points_3D_smoothed.npy")
+        readme_path = os.path.join(self.run_path, "README_scores_3D.txt")
+        print(f"score1 is {score1}, score2 is {score2}", flush=True)
+        with open(readme_path, "w") as f:
+            # Write some text into the file
+            f.write(f"The score for the points was {score1}\n")
+            f.write(f"The score for the smoothed points was {score2}\n")
+        # Close the file
+        f.close()
 
     def choose_predict_method(self):
         if self.points_to_predict == WINGS:
@@ -515,7 +751,7 @@ class Predictor2D:
             return self.predict_wings_and_body
 
     def predict_all_cams_per_wing(self, n=100):
-        print(f"started predicting projected masks, split box into {n} parts")
+        print(f"started predicting projected masks, split box into {n} parts", flush=True)
         all_points = []
         all_frames = np.arange(self.num_frames)
         n = min(self.num_frames, n)
@@ -552,7 +788,7 @@ class Predictor2D:
             wings_and_body_pnts = np.transpose(wings_and_body_pnts, [0, 1, 3, 2])
             all_points.append(wings_and_body_pnts)
         all_wing_and_body_points = np.concatenate(all_points, axis=0)
-        print("done predicting projected masks")
+        print("done predicting projected masks", flush=True)
         return all_wing_and_body_points
 
     def predict_all_points(self):
@@ -587,14 +823,14 @@ class Predictor2D:
         n = min(n, self.num_frames)
         splited_frames = np.array_split(all_frames, n)
         for cam in range(self.num_cams):
-            print(f"predict camera {cam + 1}")
+            print(f"predict camera {cam + 1}", flush=True)
             Ypks_per_wing = []
             for wing in range(2):
                 # split for memory limit
                 Ypk = []
                 for i in range(n):
                     input_i = self.box_sparse.get_camera_dense(cam, channels=[0, 1, 2, self.num_times_channels + wing],
-                                                             frames=splited_frames[i])
+                                                               frames=splited_frames[i])
                     Ypk_i, _, _, _ = self.predict_Ypk(input_i, self.batch_size, self.wings_pose_estimation_model)
                     Ypk.append(Ypk_i)
                 Ypk = np.concatenate(Ypk, axis=0)
@@ -716,7 +952,9 @@ class Predictor2D:
         """
         find the fly's body, and the distance transform for later analysis in every camera in 2D using segmentation
         """
-        self.body_masks_sparse = BoxSparse(box_path=None, shape=(self.num_frames, self.num_cams, self.image_size, self.image_size, 1))
+        self.body_masks_sparse = BoxSparse(box_path=None,
+                                           shape=(self.num_frames, self.num_cams, self.image_size, self.image_size, 1))
+        self.body_sizes = np.zeros((self.num_frames, self.num_cams))
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
                 # fly_3_ch = self.box[frame, cam, :, :, :self.num_time_channels]
@@ -733,20 +971,27 @@ class Predictor2D:
                 # Perform erosion
                 mask = erosion(dilated, selem)
                 # body_masks[frame, cam, ...] = mask
+                self.body_sizes[frame, cam] = np.count_nonzero(mask)
                 self.body_masks_sparse.set_frame_camera_channel_dense(frame, cam, 0, mask)
 
     def get_neto_wings_masks(self):
-        self.neto_wings_sparse = BoxSparse(box_path=None, shape=(self.num_frames, self.num_cams, self.image_size, self.image_size, 2))
+        self.neto_wings_sparse = BoxSparse(box_path=None,
+                                           shape=(self.num_frames, self.num_cams, self.image_size, self.image_size, 2))
         self.wings_size = np.zeros((self.num_frames, self.num_cams, 2))
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
                 body_mask = self.body_masks_sparse.get_frame_camera_channel_dense(frame, cam, 0)
+                fly = self.box_sparse.get_frame_camera_channel_dense(frame_idx=cam, camera_idx=cam, channel_idx=1)
                 for wing_num in range(2):
-                    other_wing_mask = self.box_sparse.get_frame_camera_channel_dense(frame, cam, self.num_time_channels + (not wing_num))
-                    wing_mask = self.box_sparse.get_frame_camera_channel_dense(frame, cam, self.num_time_channels + wing_num)
+                    other_wing_mask = self.box_sparse.get_frame_camera_channel_dense(frame, cam,
+                                                                                     self.num_time_channels + (
+                                                                                         not wing_num))
+                    wing_mask = self.box_sparse.get_frame_camera_channel_dense(frame, cam,
+                                                                               self.num_time_channels + wing_num)
                     body_and_other_wing_mask = np.bitwise_or(body_mask.astype(bool), other_wing_mask.astype(bool))
                     intersection = np.logical_and(wing_mask, body_and_other_wing_mask)
                     neto_wing = wing_mask - intersection
+                    neto_wing = np.logical_and(neto_wing, fly)
                     self.neto_wings_sparse.set_frame_camera_channel_dense(frame, cam, wing_num, neto_wing)
                     self.wings_size[frame, cam, wing_num] = np.count_nonzero(neto_wing)
 
@@ -762,7 +1007,6 @@ class Predictor2D:
             return model.cpu()
         except:
             return model
-
 
     @staticmethod
     def adjust_mask(mask, radius=3):
@@ -792,7 +1036,6 @@ class Predictor2D:
             return keras.Model(model.input, [Lambda(Predictor2D.tf_find_peaks)(confmaps), confmaps])
         else:
             return keras.Model(model.input, Lambda(Predictor2D.tf_find_peaks)(confmaps))
-
 
     @staticmethod
     def tf_find_peaks(x):
@@ -862,3 +1105,12 @@ class Predictor2D:
         return inds_to_del
 
 
+# if __name__ == '__main__':
+#     config_file = 'predict_2D_config.json'
+#     predictor = Predictor2D(config_file)
+#     predictor.create_base_box()
+#     predictor.save_base_box()
+#
+#     predictor_2 = Predictor2D(config_file, load_box_from_sparse=True)
+#     predictor_2.run_predict_2D()
+#     pass

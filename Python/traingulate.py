@@ -1,9 +1,8 @@
 import itertools
-import numpy as np
-import h5py
-import tensorflow as tf
-import json
+
 import cv2
+import h5py
+import numpy as np
 
 
 class Triangulate:
@@ -16,21 +15,38 @@ class Triangulate:
         self.camera_matrices = self.load_camera_matrices()
         self.inv_camera_matrices = self.load_inv_camera_matrices()
         self.camera_centers = self.load_camera_centers()
+
+        self.Ks = self.load_Ks()
+        self.Rs = self.load_Rs()
+        self.translations = self.load_translations()
         self.num_cameras = len(self.camera_centers)
         self.all_subs = Triangulate.get_all_couples()
 
+    def load_Ks(self):
+        Ks = h5py.File(self.calibration_data_path, "r")["/K_matrices"][:].T
+        for i, K in enumerate(Ks):
+            K = K / K[2, 2]
+            Ks[i] = K
+        return Ks
+
+    def load_Rs(self):
+        return h5py.File(self.calibration_data_path, "r")["/rotation_matrices"][:].T
+
+    def load_translations(self):
+        return h5py.File(self.calibration_data_path, "r")["/translations"][:].T
+
     def load_rotation_matrix(self):
-        return h5py.File(self.calibration_data_path, "r")["/rotation_matrix"][:]
+        return h5py.File(self.calibration_data_path, "r")["/rotation_matrix"][:].T
 
     def load_camera_matrices(self):
-        return h5py.File(self.calibration_data_path, "r")["/camera_matrices"][:]
+        return h5py.File(self.calibration_data_path, "r")["/camera_matrices"][:].T
 
     def load_inv_camera_matrices(self):
-        return h5py.File(self.calibration_data_path, "r")["/inv_camera_matrices"][:]
+        return h5py.File(self.calibration_data_path, "r")["/inv_camera_matrices"][:].T
 
     def load_camera_centers(self):
-        return h5py.File(self.calibration_data_path, "r")["/camera_centers"][:]
-    ###
+        return h5py.File(self.calibration_data_path, "r")["/camera_centers"][:].T
+
     def triangulate_2D_to_3D_svd(self, points_2D, cropzone):
         num_frames, _, num_joints, _ = points_2D.shape
         points_3D_all = np.zeros((num_frames, num_joints, 6, 3))
@@ -117,7 +133,6 @@ class Triangulate:
         points = points_h[..., :-1] / points_h[..., -1:]
         return points
 
-    ###
     def triangulate_2D_to_3D_rays_optimization(self, points_2D, cropzone):
         num_frames, _, num_points, _ = points_2D.shape
         points_2D_uncropped = self.get_uncropped_xy1(points_2D, cropzone)
@@ -202,7 +217,67 @@ class Triangulate:
                     y = yp - y_crop
                     point_2D_cropped = np.array([x, y])
                     points_2D_reprojected[frame, cam, joint, :] = point_2D_cropped
+
+
+                    # experiment
+                    # K = self.Ks[cam]
+                    # dx = x_crop
+                    # dy = 800 + 1 - y_crop - 192
+                    # K_prime = K.copy()
+                    # K_prime[0, 2] -= dx  # adjust x-coordinate of the principal point
+                    # K_prime[1, 2] -= dy  # adjust y-coordinate of the principal point
+                    # R = self.Rs[cam]
+                    # t = self.translations[cam]
+                    # # M = K @ np.column_stack((R, t))
+                    # # M /= M[-1,-1]
+                    # M_prime = K_prime @ np.column_stack((R, t))
+                    # M_prime /= M_prime[-1, -1]
+                    # p2d_h = M_prime @ point_rot_h
+                    # p2d = p2d_h[:-1] / p2d_h[-1]
+                    # p2d[1] = 192 - p2d[1]
+                    # print(f"{np.mean(np.abs(p2d - point_2D_cropped))}")
+
+        # self.estimating_camera_experiment(num_frames, points_2D_reprojected, points_3D)
         return points_2D_reprojected
+
+    def estimating_camera_experiment(self, num_frames, points_2D_reprojected, points_3D):
+        arr = np.arange(num_frames)
+        N = 10
+        chosen_inds = np.random.choice(arr, N, replace=False)
+        pts_3D = np.squeeze(points_3D[chosen_inds, :])
+        pts_2D_reprojected = np.squeeze(points_2D_reprojected[chosen_inds, :])
+        camera_matrices = []
+        for cam in range(self.num_cameras):
+            points_2D = pts_2D_reprojected[:, cam, :]
+            P = self.estimate_projection_matrix_dlt(pts_3D, points_2D)
+            camera_matrices.append(P)
+        cam1 = 1
+        cam2 = 3
+        P1 = camera_matrices[cam1]
+        P2 = camera_matrices[cam2]
+        X1 = pts_2D_reprojected[:, cam1, :]
+        X2 = pts_2D_reprojected[:, cam2, :]
+        points_3d = cv2.triangulatePoints(P1, P2, X1.T, X2.T).T
+        points_3d = points_3d[:, :-1] / points_3d[:, -1:]
+        error = np.mean(np.abs(points_3d - pts_3D))
+
+    @staticmethod
+    def estimate_projection_matrix_dlt(points_3d, points_2d):
+        assert len(points_2d) == len(points_3d)
+        assert len(points_2d) >= 6
+
+        A = []
+
+        for i in range(len(points_2d)):
+            X, Y, Z = points_3d[i]
+            x, y = points_2d[i]
+            A.append([-X, -Y, -Z, -1, 0, 0, 0, 0, x * X, x * Y, x * Z, x])
+            A.append([0, 0, 0, 0, -X, -Y, -Z, -1, y * X, y * Y, y * Z, y])
+
+        _, _, V = np.linalg.svd(A)
+        P = V[-1].reshape(3, 4)
+        P /= P[-1, -1]
+        return P
 
     @staticmethod
     def lineIntersect3D(centers, projected_points):
@@ -319,7 +394,8 @@ class Triangulate:
         triangulation_error = np.mean(triangulation_error, axis=-1)
         return triangulation_error
 
-    def extract_reprojection_error(self, points_2d_h, points_3d, projection_matrices):
+    @staticmethod
+    def extract_reprojection_error(points_2d_h, points_3d, projection_matrices):
         """
 
         Args:
@@ -339,6 +415,31 @@ class Triangulate:
             reprojection_errors[:, i] = errors_i
         reprojection_errors = np.mean(reprojection_errors, axis=-1)
         return reprojection_errors
+
+    @staticmethod
+    def custom_linear_triangulation(Pa, Pb, points_a, points_b):
+        N = points_a.shape[0]
+        # Extract rows of Pa and Pb
+        p1a, p2a, p3a = Pa[0, :], Pa[1, :], Pa[2, :]
+        p1b, p2b, p3b = Pb[0, :], Pb[1, :], Pb[2, :]
+
+        # Initialize the A matrix for all points
+        A = np.zeros((N, 4, 4))
+
+        # Fill the A matrix
+        A[:, 0, :] = points_a[:, 0:1] * p3a - p1a
+        A[:, 1, :] = points_a[:, 1:2] * p3a - p2a
+        A[:, 2, :] = points_b[:, 0:1] * p3b - p1b
+        A[:, 3, :] = points_b[:, 1:2] * p3b - p2b
+
+        # Solve AX = 0 using SVD for each A
+        X = np.zeros((N, 4))
+        for i in range(N):
+            _, _, Vt = np.linalg.svd(A[i])
+            X[i] = Vt[-1]  # The last row of Vt corresponds to the solution
+        # Normalize X to convert from homogeneous coordinates and exclude the last component
+        X = X[:, :-1] / X[:, -1:]
+        return X
 
     @staticmethod
     def get_all_couples():

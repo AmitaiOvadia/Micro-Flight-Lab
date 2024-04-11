@@ -1,26 +1,34 @@
 import h5py
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, save_npz, load_npz
+from matplotlib import pyplot as plt
 
 
 class BoxSparse:
-    def __init__(self, box_path=None, shape=None):
-        # Convert entire box to sparse upon initialization or lazily as needed
+    def __init__(self, box_path=None, shape=None, load_from_sparse=False, sparse_path=None):
         self.num_channels = None
         self.num_frames, self.num_cams, self.height, self.width, self.num_times_channels = None, None, None, None, None
         self.shape = None
         self.box_path = box_path
-        if box_path is not None:
-            self.sparse_frames = self.convert_to_sparse(self.get_box())
+
+        if load_from_sparse:
+            # Ensure that a path for loading the sparse file is provided
+            assert sparse_path is not None, "Sparse path must be provided if loading from sparse format."
+            # Load from scipy sparse format
+            self.load_from_scipy_sparse_format(sparse_path)
+        elif box_path is not None:
+            # Load from box path if provided and not loading from sparse format
+            box = self.get_box()
+            self.sparse_frames = self.convert_to_sparse(box)
         else:
+            # Initialize with zeros if no box path provided and not loading from sparse format
+            assert shape is not None, "Shape must be provided if not loading from box path or sparse format."
             self.shape = shape
-            assert self.shape != None, "shape is None"
             box = np.zeros(shape, dtype=np.int8)
             self.sparse_frames = self.convert_to_sparse(box)
 
-
     def get_box(self):
-        box = h5py.File(self.box_path, "r")["/box"]
+        box = h5py.File(self.box_path, "r")["/box"][:]
         if len(box.shape) == 5:
             print("box already has wings masks")
             return box
@@ -32,6 +40,55 @@ class BoxSparse:
         box = np.concatenate((x1, x2, x3, x4), axis=1)
         return box
 
+    def save_to_scipy_sparse_format(self, save_name='box.npz'):
+        original_dense = self.retrieve_dense_box()
+        original_dense[np.abs(original_dense) < 0.001] = 0
+        # N, M, h, w, c = original_dense.shape
+        # original_dense = original_dense.reshape(N * M, h * w * c)
+        # sparse_array = csr_matrix(original_dense)
+        # save_npz(save_name, sparse_array)
+        with h5py.File(save_name, 'w') as f:
+            # Convert sparse matrix to a dense one if necessary or store as sparse format
+            dset = f.create_dataset('array', data=original_dense, compression="gzip", compression_opts=2)
+
+    def load_from_scipy_sparse_format(self, load_name='box.h5'):
+        # loaded_sparse = load_npz(load_name)
+        # loaded_array_dense = loaded_sparse.toarray()
+        # NM, hwc = loaded_array_dense.shape
+        # N = NM // M
+        # loaded_array = loaded_array_dense.reshape(N, M, h, w, c)
+        loaded_array = h5py.File(load_name, 'r')["/array"][:]
+        self.create_from_dense_array(loaded_array)
+
+    def create_from_dense_array(self, dense_array):
+        """
+        Takes a dense array of size (N, M, h, w, c) and creates a sparse representation
+        for the BoxSparse object.
+
+        :param dense_array: The dense array to be converted.
+        """
+        # Update the object's shape attributes based on the dense array
+        self.num_frames, self.num_cams, self.height, self.width, self.num_channels = dense_array.shape
+        self.shape = dense_array.shape
+
+        # Initialize the sparse_frames dictionary if not already done
+        if not hasattr(self, 'sparse_frames') or self.sparse_frames is None:
+            self.sparse_frames = {}
+
+        # Iterate through each frame, camera, and channel to convert and store the sparse representation
+        for frame_idx in range(self.num_frames):
+            for camera_idx in range(self.num_cams):
+                for channel_idx in range(self.num_channels):
+                    # Extract the specific channel for the current frame and camera
+                    frame_channel = dense_array[frame_idx, camera_idx, :, :, channel_idx]
+
+                    # Convert the channel to a sparse matrix
+                    channel_sparse = csr_matrix(frame_channel)
+
+                    # Generate a key for the sparse_frames dictionary and store the sparse matrix
+                    key = (frame_idx, camera_idx, channel_idx)
+                    self.sparse_frames[key] = channel_sparse
+
     def convert_to_sparse(self, box):
         box = BoxSparse.preprocess_box(box)
         self.shape = box.shape
@@ -39,7 +96,7 @@ class BoxSparse:
         sparse_box = {}
         self.num_channels = self.num_times_channels
         # Adjust num_channels to include 2 additional channels
-        if self.num_times_channels > 1:
+        if self.num_times_channels > 2:
             self.num_channels = self.num_times_channels + 2
 
         for frame_idx in range(self.num_frames):
@@ -94,8 +151,7 @@ class BoxSparse:
     def retrieve_dense_box(self):
         """Retrieve the entire box in its dense form."""
         # Initialize an empty array for the dense box with an additional dimension for channels
-        dense_box = np.zeros((self.num_frames, self.num_cams, self.height, self.width, self.num_channels),
-                             dtype=np.float32)
+        dense_box = np.zeros((self.num_frames, self.num_cams, self.height, self.width, self.num_channels))
 
         # Iterate over all frames, cameras, and channels
         for frame_idx in range(self.num_frames):
@@ -105,10 +161,10 @@ class BoxSparse:
                     # Check if the current frame-camera-channel combination exists in the sparse representation
                     if key in self.sparse_frames:
                         # Convert the sparse matrix to a dense array and store it in the dense box
-                        dense_box[frame_idx, camera_idx, :, :, channel_idx] = self.sparse_frames[key].toarray()
+                        frame_dense = self.sparse_frames[key].toarray()
+                        dense_box[frame_idx, camera_idx, :, :, channel_idx] = frame_dense
                     # Note: If a key is not found, it implies the channel is meant to be all zeros,
                     # which is already the default value in the initialized dense_box array.
-
         return dense_box
 
     def get_camera_dense(self, camera_idx, channels=None, frames=None):
