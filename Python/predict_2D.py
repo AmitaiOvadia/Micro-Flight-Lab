@@ -186,7 +186,7 @@ class Predictor2D:
                     shift_to_do = all_shifts_smoothed[frame, cam, i, :]
                     shifted_fly = shift(fly, shift_to_do, order=2)
                     self.box[frame, cam, :, :, time_channel] = shifted_fly
-        # Visualizer.display_movie_from_box(self.box)
+        Visualizer.display_movie_from_box(self.box)
 
     @staticmethod
     def get_fly_cm(im_orig):
@@ -624,46 +624,63 @@ class Predictor2D:
 
 def config_1(config):
     # 3 good cameras 1
-    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\3 good cameras\MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03\best_model.h5"
+    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
     config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
     config["predict again using reprojected masks"] = 0
     return config
 
 
 def config_2(config):
-    # 3 good cameras 2
-    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\3 good cameras\MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03_01\best_model.h5"
+    # 3 good cameras 1
+    config["wings pose estimation model path"] = r"models/3 good cameras/MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03/best_model.h5"
     config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
     config["predict again using reprojected masks"] = 0
     return config
 
 
 def config_3(config):
+    # 3 good cameras 2
+    config["wings pose estimation model path"] = r"models/3 good cameras/MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03_01/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again using reprojected masks"] = 0
+    return config
+
+
+def config_4(config):
     # 2 passes reprojected masks
-    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\per wing\MODEL_18_POINTS_PER_WING_Jan 11_03\best_model.h5"
-    config["wings pose estimation model path second path"] = "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\per wing\\MODEL_18_POINTS_PER_WING_Jan 20\\best_model.h5"
+    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
+    config["wings pose estimation model path second path"] = "models/per wing/MODEL_18_POINTS_PER_WING_Jan 20/best_model.h5"
     config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
     config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
     config["predict again using reprojected masks"] = 1
     return config
 
 
-def config_4(config):
-    # 2 passes reprojected masks, all cameras model
-    config["wings pose estimation model path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\per wing\MODEL_18_POINTS_PER_WING_Jan 11_03\best_model.h5"
-    config["wings pose estimation model path second path"] = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\models\18 points\4 cameras\concatenated encoder\ALL_CAMS_18_POINTS_Jan 20_01\best_model.h5"
+def config_5(config):
+    # 2 passes reprojected masks, all cameras model 1
+    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models/4 cameras/concatenated encoder/ALL_CAMS_18_POINTS_Jan 19_01/best_model.h5"
     config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
     config["model type second pass"] = "ALL_CAMS_PER_WING"
     config["predict again using reprojected masks"] = 1
     return config
 
 
+def config_6(config):
+    # 2 passes reprojected masks, all cameras model 2
+    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models/4 cameras/concatenated encoder/ALL_CAMS_18_POINTS_Jan 20_01/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "ALL_CAMS_PER_WING"
+    config["predict again using reprojected masks"] = 1
+    return config
+
 def predict_all_movies(base_path, config_path_2D):
     import predictions_2Dto3D
     file_list = []
     # movies_dir = 'movies'
     # os.listdir(base_path)
-    dirs = ['mov6', 'mov8', 'mov12', 'mov20', 'mov24', 'mov25', 'mov26', 'mov27', 'mov29']
+    dirs = ['mov50']
     for sub_dir in dirs:
         # Join the subdirectory name with the movies_dir path
         sub_dir_path = os.path.join(base_path, sub_dir)
@@ -678,7 +695,8 @@ def predict_all_movies(base_path, config_path_2D):
                     # Append the full path of the file to the list
                     file_list.append(file_path)
 
-    config_functions = [config_1, config_2, config_3, config_4]
+    # config_functions = [config_1, config_2, config_3, config_4, config_5, config_6]
+    config_functions = [config_1, config_2, config_3]
     for movie_path in file_list:
         print(movie_path)
         for model in range(len(config_functions)):
@@ -692,16 +710,17 @@ def predict_all_movies(base_path, config_path_2D):
             new_config_path = os.path.join(dir_path, 'configuration predict 2D.json')
             with open(new_config_path, 'w') as file:
                 json.dump(config_2D, file, indent=4)
-            try:
-                predictor = Predictor2D(new_config_path)
-                predictor.run_predict_2D()
-            except:
-                print("************** failed ****************")
+            predictor = Predictor2D(new_config_path)
+            predictor.run_predict_2D()
+
 
 
 if __name__ == '__main__':
-    config_path = r"predict_2D_config.json"  # get the first argument
-    # predictor = Predictor2D(config_path)
-    # predictor.run_predict_2D()
-    base_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
-    predict_all_movies(base_path, config_path)
+    config_path = r"predict_2D_config.json"
+    predictor = Predictor2D(config_path)
+    predictor.run_predict_2D()
+
+    # predict roni data
+    # config_path = r"predict_2D__pytorch_config.json"  # get the first argument
+    # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data"
+    # predict_all_movies(base_path, config_path)

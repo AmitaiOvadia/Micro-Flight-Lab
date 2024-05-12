@@ -7,6 +7,14 @@ from scipy.spatial import ConvexHull
 import h5py
 import plotly.graph_objects as go
 import plotly.io as pio
+from scipy.interpolate import make_interp_spline
+from scipy.spatial.transform import Rotation as R
+import os
+from scipy.optimize import curve_fit
+from scipy.linalg import svd
+
+from scipy.interpolate import griddata
+
 
 class Visualizer:
     @staticmethod
@@ -237,6 +245,111 @@ class Visualizer:
         plt.show()
 
     @staticmethod
+    def create_closed_spline(points, num_points=100):
+        points = np.vstack([points, points[0]])
+        t = np.linspace(0, 1, len(points))
+        spline = make_interp_spline(t, points, bc_type='periodic')
+        t_new = np.linspace(0, 1, num_points)
+        spline_points = spline(t_new)
+        return spline_points
+
+    @staticmethod
+    def create_ellipsoid(center, radii, rotation_matrix, num_points=100):
+        u = np.linspace(0, 2 * np.pi, num_points)
+        v = np.linspace(0, np.pi, num_points)
+        x = radii[0] * np.outer(np.sin(v), np.cos(u))
+        y = radii[1] * np.outer(np.sin(v), np.sin(u))
+        z = radii[2] * np.outer(np.cos(v), np.ones_like(u))
+
+        # Rotate and translate points
+        ellipsoid = np.dot(rotation_matrix, np.vstack([x.flatten(), y.flatten(), z.flatten()]))
+        x, y, z = ellipsoid.reshape((3, num_points, num_points)) + center[:, np.newaxis, np.newaxis]
+        return x, y, z
+
+    @staticmethod
+    def create_sphere(center, radius, num_points=100):
+        phi = np.linspace(0, 2 * np.pi, num_points)
+        theta = np.linspace(0, np.pi, num_points)
+        x = center[0] + radius * np.outer(np.sin(theta), np.cos(phi))
+        y = center[1] + radius * np.outer(np.sin(theta), np.sin(phi))
+        z = center[2] + radius * np.outer(np.cos(theta), np.ones_like(phi))
+        return x, y, z
+
+    @staticmethod
+    def show_points_in_3D_special(points, plot_points=False):
+        x_min, y_min, z_min = points.min(axis=(0, 1))
+        x_max, y_max, z_max = points.max(axis=(0, 1))
+
+        color_array = colors.hsv_to_rgb(
+            np.column_stack((np.linspace(0, 1, points.shape[1]), np.ones((points.shape[1], 2)))))
+
+        fig = plt.figure(figsize=(20, 20))
+        ax = fig.add_subplot(111, projection='3d')
+
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max])
+        ax.set_zlim([z_min, z_max])
+
+        connections = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (0, 6),
+                       (8, 9), (9, 10), (10, 11), (11, 12), (12, 13), (13, 14), (8, 14),
+                       (7, 15), (16, 17)]
+
+        slider = Slider(plt.axes([0.2, 0.02, 0.65, 0.03], facecolor='lightgoldenrodyellow'), 'Frame', 0,
+                        len(points) - 1, valinit=0, valstep=1)
+
+        def update(val):
+            ax.cla()
+            frame = int(slider.val)
+            points_to_plot = points[frame, :, :]
+            if plot_points:
+                for i in range(len(points_to_plot)):
+                    ax.scatter(*points_to_plot[i], color=color_array[i])
+                for i, j in connections:
+                    ax.plot(*points[frame, [i, j], :].T, color='k')
+
+            # Fit and plot splines for each wing
+            wing1_indices = range(0, 6)
+            wing2_indices = range(8, 14)
+            wing1_points = points[frame, wing1_indices, :]
+            wing2_points = points[frame, wing2_indices, :]
+
+            wing1_spline = Visualizer.create_closed_spline(wing1_points)
+            wing2_spline = Visualizer.create_closed_spline(wing2_points)
+
+            ax.plot(wing1_spline[:, 0], wing1_spline[:, 1], wing1_spline[:, 2], 'r-', label='Wing 1 Spline',
+                    linewidth=3)
+            ax.plot(wing2_spline[:, 0], wing2_spline[:, 1], wing2_spline[:, 2], 'g-', label='Wing 2 Spline',
+                    linewidth=3)
+
+            # Body ellipsoid
+            body_center = (points_to_plot[16] + points_to_plot[17]) / 2
+            body_length = np.linalg.norm(points_to_plot[17] - points_to_plot[16])
+            body_radii = [body_length / 2, body_length / 6, body_length / 6]
+            direction = (points_to_plot[17] - points_to_plot[16])
+            body_rotation = R.align_vectors([direction], [[1, 0, 0]])[0].as_matrix()
+            x, y, z = Visualizer.create_ellipsoid(body_center, body_radii, body_rotation)
+            ax.plot_surface(x, y, z, color='blue', alpha=0.5)
+
+            # Head sphere
+            head_radius = body_length / 5
+            x, y, z = Visualizer.create_sphere(points_to_plot[17], head_radius)
+            ax.plot_surface(x, y, z, color='red', alpha=0.5)
+
+            ax.set_xlim([x_min, x_max])
+            ax.set_ylim([y_min, y_max])
+            ax.set_zlim([z_min, z_max])
+            ax.set_box_aspect([1, 1, 1])
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update)
+
+        fig.canvas.mpl_connect('key_press_event', lambda event: slider.set_val(
+            min(slider.val + 1, slider.valmax)) if event.key == 'right' else slider.set_val(
+            max(slider.val - 1, slider.valmin)))
+
+        update(0)
+        plt.show()
+    @staticmethod
     def show_points_in_3D_projections(points):
         # Assuming points is your (N, M, 3) array
         # Calculate the limits of the plot
@@ -389,13 +502,13 @@ class Visualizer:
             # add plane
             for plane_num in range(num_planes):
                 wing_points = points[frame, POINTS[plane_num], :]
-                min_x, min_y, min_z = np.amin(wing_points[[7, 15, -2, -1], :], axis=0)
-                max_x, max_y, max_z = np.amax(wing_points[[7, 15, -2, -1], :], axis=0)
+                min_x, min_y, min_z = np.amin(wing_points, axis=0)
+                max_x, max_y, max_z = np.amax(wing_points, axis=0)
                 a, b, c, d = planes[frame, plane_num, :]
-                xx, yy = np.meshgrid(np.linspace(min_x, max_x, 10), np.linspace(min_y, max_y, 10))
+                xx, yy = np.meshgrid(np.linspace(min_x, max_x, 50), np.linspace(min_y, max_y, 50))
                 zz = (-a*xx - b*yy - d)/c
-                zz[zz > max_z] = max_z
-                zz[zz < min_z] = min_z
+                zz[zz > max_z] = np.nan
+                zz[zz < min_z] = np.nan
                 ax.plot_surface(xx, yy, zz, color='green', alpha=0.5, label='Plane')
 
             ax.set_xlim([x_min, x_max])
@@ -511,12 +624,13 @@ class Visualizer:
         box = np.concatenate((x1, x2, x3, x4), axis=1)
         return box
 
-    @staticmethod
     def create_movie_plot(com, x_body, y_body, points_3D, start_frame, save_path):
+        facing = -np.cross(x_body, y_body, axis=1)
         left_tip = points_3D[:, 3, :]
         right_tip = points_3D[:, 3 + 8, :]
-        frame0 = 340 - start_frame
-        frame_40_ms = frame0 + 40 * 16
+        num_frames = len(points_3D)
+        frame0 = min(340 - start_frame, num_frames - 1)
+        frame_40_ms = min(frame0 + 40 * 16, num_frames - 1)
         interval = 70
         # Create traces
         marker_size = 2
@@ -540,12 +654,30 @@ class Visualizer:
 
         quiver_x_body, qx_points = Visualizer.get_orientation_scatter(com, interval, 'x body', size, x_body,
                                                                       points_color=['black', 'yellow'], width=2)
-        quiver_y_body, qy_points = Visualizer.get_orientation_scatter(com, interval, 'y body', size, y_body,
+        head = points_3D[:, -1, :]
+        tail = points_3D[:, -2, :]
+        dists = np.linalg.norm(head - tail, axis=1)
+        y_body_center = tail + 0.65 * dists[:, np.newaxis] * x_body
+        quiver_y_body, qy_points = Visualizer.get_orientation_scatter(y_body_center, interval, 'y body', size, y_body,
                                                                       points_color=['green', 'blue'])
+
+        # Calculate the end points of the arrow
+        arrow_start = y_body_center
+        arrow_end = y_body_center + 1 * dists[:, np.newaxis] * facing
+
+        # Create arrow trace
+        arrow_trace = go.Scatter3d(x=[arrow_start[:, 0], arrow_end[:, 0]],
+                                   y=[arrow_start[:, 1], arrow_end[:, 1]],
+                                   z=[arrow_start[:, 2], arrow_end[:, 2]],
+                                   mode='lines',
+                                   name='Facing Arrow',
+                                   line=dict(color='red', width=3))
+
         # Create a figure and add the traces
         fig = go.Figure(
             data=[trace_com, trace_left_tip, trace_right_tip, marker_start, marker_start_dark, marker_40_ms,
-                  quiver_x_body, quiver_y_body, qx_points, qy_points])
+                  quiver_x_body, quiver_y_body, qx_points, qy_points, arrow_trace])
+
         # Update the scene
         scene = dict(camera=dict(eye=dict(x=1., y=1, z=1)),
                      xaxis=dict(nticks=10),
@@ -602,9 +734,55 @@ class Visualizer:
                                      name=name)
 
         return quiver_x_body, points
+    @staticmethod
+    def plot_feature_with_plotly(input_hdf5_path, feature='roll_speed'):
+        # Open the HDF5 file
+        dir = os.path.dirname(input_hdf5_path)
+        output_html_path = os.path.join(dir, f'{feature}.html')
+        with h5py.File(input_hdf5_path, 'r') as hdf:
+            # Prepare the plot
+            fig = go.Figure()
+
+            # Get all movie groups in the HDF5 file
+            movies = list(hdf.keys())
+
+            for movie in movies:
+                group = hdf[movie]
+
+                # Check if 'roll_angle', 'start_frame', and 'end_frame' datasets exist
+
+                featrue_array = group[feature][:]
+                first_analysed_frame = int(group['first_analysed_frame'][()])
+                first_y_body_frame = int(group['first_y_body_frame'][()])
+                start_frame = first_y_body_frame + first_analysed_frame
+                end_frame = int(group['end_frame'][()])
+
+                # Slice the roll_angle data to only between start and end frames
+                if start_frame < end_frame and start_frame < len(featrue_array) and end_frame <= len(featrue_array):
+                    roll_angle_segment = featrue_array[start_frame:end_frame]
+                    x_values = np.arange(start_frame, end_frame) / 16
+
+                    # Add a trace for each movie
+                    fig.add_trace(go.Scatter(x=x_values, y=roll_angle_segment,
+                                             mode='lines', name=f"Movie {movie}"))
+
+            # Set plot layout
+            fig.update_layout(
+                title='Roll Angles Across Movies',
+                xaxis_title='ms',
+                yaxis_title='Roll Angle (degrees)',
+                legend_title='Movies',
+                template='plotly_white'
+            )
+
+            # Save the plot as HTML file
+            fig.write_html(output_html_path)
+            print(f"Plot saved to {output_html_path}")
 
 
 if __name__ == '__main__':
+    # input_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\all_movies_data.h5"
+    # Visualizer.plot_feature_with_plotly(input_hdf5_path)
     # display movie
 
     # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov62\movie_62_160_1888_ds_3tc_7tj.h5"
@@ -612,12 +790,25 @@ if __name__ == '__main__':
 
     # display 3D points
 
-    points_path = r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_smoothed_ensemble.npy"
+    points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov78\points_3D_smoothed_ensemble_best.npy"
     points_3D = np.load(points_path)
-    Visualizer.show_points_in_3D(points_3D)
+    # cm = (points_3D[:, -1, :] - points_3D[:, -2, :])/2
+    # dists = np.linalg.norm(points_3D[:, -2, :] - points_3D[:, -1, :], axis=-1)
+    # dists = dists - dists.mean()
+    # plt.plot(cm)
+    # plt.show()
+    Visualizer.show_points_in_3D(points_3D[:300])
 
     # display box and 2D predictions
-    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\movies\mov62\movie_62_160_1888_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Apr 10\predicted_points_and_box_reprojected.h5"
-    # box = h5py.File(path, "r")["/box"][:500]
-    # points_2D = h5py.File(path, "r")["/positions_pred"][:500]
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov104\saved_box_dir\box.h5"
+    # start = 500
+    # end = 1000
+    # box = h5py.File(path, "r")["/array"][start:end]
+    # points_2D = np.load(r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov104\points_ensemble_smoothed_reprojected.npy")
+    # Visualizer.show_predictions_all_cams(box[start:end], points_2D[start:end])
+
+    # display box and 2D predictions
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov104\movie_104_10_1007_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_May 02\predicted_points_and_box_reprojected.h5"
+    # box = h5py.File(path, "r")["/box"][:]
+    # points_2D = h5py.File(path, "r")["/positions_pred"][:]
     # Visualizer.show_predictions_all_cams(box, points_2D)

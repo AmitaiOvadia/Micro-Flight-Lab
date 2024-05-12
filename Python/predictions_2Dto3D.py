@@ -32,9 +32,6 @@ ALPHA = 0.7
 class From2Dto3D:
 
     def __init__(self, load_from=CONFIG, h5_file_path="", configuration_path=""):
-        """
-
-        """
         if load_from == CONFIG:
             with open(configuration_path) as C:
                 config = json.load(C)
@@ -76,7 +73,7 @@ class From2Dto3D:
             self.triangulate = Triangulate(self.config)
             self.num_cams = self.config["number of cameras"]
             self.body_masks = h5py.File(self.h5_path, "r")["/body_masks"][:]
-            self.body_sizes = h5py.File(self.h5_path, "r")["/body_sizes"][:]
+            self.body_sizesbody_sizes = h5py.File(self.h5_path, "r")["/body_sizes"][:]
             self.body_distance_transform = h5py.File(self.h5_path, "r")["/body_distance_transform"][:]
             self.neto_wings_masks = h5py.File(self.h5_path, "r")["/neto_wings_masks"][:]
             self.wings_size = h5py.File(self.h5_path, "r")["/wings_size"][:]
@@ -395,7 +392,7 @@ class From2Dto3D:
         return neto_wings, wings_size
 
     @staticmethod
-    def smooth_3D_points(points_3D):
+    def smooth_3D_points(points_3D, head_tail_lam=2):
         points_3D_smoothed = np.zeros_like(points_3D)
         num_joints = points_3D_smoothed.shape[1]
         for pnt in range(num_joints):
@@ -409,6 +406,7 @@ class From2Dto3D:
                 if pnt in BODY_POINTS:
                     vals = medfilt(vals, kernel_size=11)
                     W = np.ones_like(vals)
+                    lam = head_tail_lam * len(points_3D)
                 else:
                     filtered_data = medfilt(vals, kernel_size=3)
                     # Compute the absolute difference between the original data and the filtered data
@@ -694,7 +692,7 @@ def predict_3D_points_all_pairs(base_path):
     big_array_all_points = np.concatenate(all_points_arrays, axis=2)
     big_array_3D_points = np.concatenate(points_3D_arrays, axis=2)
 
-    return big_array_3D_points
+    return big_array_all_points
 
 
 def find_3D_points_from_ensemble(base_path):

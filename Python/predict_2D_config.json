@@ -1,12 +1,12 @@
 
 
 {
- "box path" : "",
-"wings detection model path" : "yolo weights/yolo_weights_6_1_24.pt",
-"wings pose estimation model path" : "",
-"wings pose estimation model path second path": "",
+ "box path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\roni data\\roni movies\\mov104\\movie_104_10_1007_ds_3tc_7tj.h5",
+"wings detection model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\utils\\wings_segmentation\\YOLO models\\yolo_weights_6_1_24.pt",
+"wings pose estimation model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\combined dataset\\PER_WING\\MODEL_18_POINTS_PER_WING_Apr 23\\best_model.h5",
+"wings pose estimation model path second path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\models\\18 points\\combined dataset\\PER_WING\\MODEL_18_POINTS_PER_WING_Apr 23\\best_model.h5",
  "head tail pose estimation model path": "",
- "base output path": "",
+ "base output path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\roni data\\roni movies\\mov104",
 
 
 "number of cameras": 4,
@@ -20,9 +20,9 @@
 "body parts to predict": "WINGS_AND_BODY",
 "number of joints": 18,
 "predict again using reprojected masks": 1,
-"2D to 3D config path": "2D_to_3D_config.json",
-"calibration data path": "calibration file.h5",
-"align right left": 1,
+"2D to 3D config path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\2D_to_3D_config.json",
+"calibration data path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\roni data\\roni movies\\calibration file.h5",
+"align right left": 0,
 "IMAGE_HEIGHT": 800,
 "IMAGE_WIDTH": 1280
 }

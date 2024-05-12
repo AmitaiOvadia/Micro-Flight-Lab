@@ -24,8 +24,19 @@ class BoxSparse:
             # Initialize with zeros if no box path provided and not loading from sparse format
             assert shape is not None, "Shape must be provided if not loading from box path or sparse format."
             self.shape = shape
-            box = np.zeros(shape, dtype=np.int8)
-            self.sparse_frames = self.convert_to_sparse(box)
+            self.sparse_frames = self.create_empty_sparse_frames()
+
+    def create_empty_sparse_frames(self):
+        # Initialize empty sparse frames without creating a dense array
+        sparse_box = {}
+        self.num_frames, self.num_cams, self.height, self.width, self.num_channels = self.shape
+        for frame_idx in range(self.num_frames):
+            for camera_idx in range(self.num_cams):
+                for channel_idx in range(self.num_channels):
+                    key = (frame_idx, camera_idx, channel_idx)
+                    channel_sparse = csr_matrix((self.height, self.width), dtype=np.int8)
+                    sparse_box[key] = channel_sparse
+        return sparse_box
 
     def get_box(self):
         box = h5py.File(self.box_path, "r")["/box"][:]

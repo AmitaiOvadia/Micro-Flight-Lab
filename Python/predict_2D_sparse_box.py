@@ -1,8 +1,4 @@
 import matplotlib.pyplot as plt
-import scipy.ndimage
-import scipy
-import yaml
-import h5py
 from scipy.signal import hilbert
 from scipy.ndimage import gaussian_filter1d, binary_dilation
 from skimage.morphology import disk, erosion, dilation
@@ -10,18 +6,13 @@ from validation import Validation
 import json
 import h5py
 import numpy as np
-from visualize import Visualizer
 import os
 from tensorflow import keras
 from tensorflow.keras.layers import Lambda
 from scipy.interpolate import make_smoothing_spline
 from skimage import util, measure
 import tensorflow as tf
-# from training import preprocess
-# from leap.utils import find_weights, find_best_weights, preprocess
-# from leap.layers import Maxima2D
 from scipy.spatial.distance import cdist
-from sklearn.preprocessing import normalize
 
 from scipy.io import loadmat
 # imports of the wings1 detection
@@ -105,7 +96,6 @@ class Predictor2D:
             print("finish creating sparse box object")
         else:
             self.load_preprocessed_box()
-        # self.box = self.get_box()[first_frame:last_frame]
         self.masks_flag = False
         # Visualizer.display_movie_from_box(np.copy(self.box))
         self.cropzone = self.get_cropzone()
@@ -177,6 +167,7 @@ class Predictor2D:
 
         # box = self.box_sparse.retrieve_dense_box()
         # points_2D = self.preds_2D
+        # from visualize import Visualizer
         # Visualizer.show_predictions_all_cams(box, points_2D)
 
         print("predicting 3D points", flush=True)
@@ -691,12 +682,12 @@ class Predictor2D:
                                        compression_opts=1)
             ds_conf.attrs["description"] = "confidence map value in [0, 1.0] at peak"
             ds_conf.attrs["dims"] = "(frame, cam, joint)"
-            if self.num_frames < 2000:
-                box = self.box_sparse.retrieve_dense_box()
-                box[np.abs(box) < 0.001] = 0
-                ds_conf = f.create_dataset("box", data=box, compression="gzip", compression_opts=1)
-                ds_conf.attrs["description"] = "The predicted box and the wings1 if the wings1 were detected"
-                ds_conf.attrs["dims"] = f"{box.shape}"
+            # if self.num_frames < 2000:
+            #     box = self.box_sparse.retrieve_dense_box()
+            #     box[np.abs(box) < 0.001] = 0
+            #     ds_conf = f.create_dataset("box", data=box, compression="gzip", compression_opts=1)
+            #     ds_conf.attrs["description"] = "The predicted box and the wings1 if the wings1 were detected"
+            #     ds_conf.attrs["dims"] = f"{box.shape}"
 
             if self.points_to_predict == WINGS or self.points_to_predict == WINGS_AND_BODY:
                 ds_conf = f.create_dataset("scores", data=self.scores, compression="gzip", compression_opts=1)
@@ -975,9 +966,12 @@ class Predictor2D:
                 self.body_masks_sparse.set_frame_camera_channel_dense(frame, cam, 0, mask)
 
     def get_neto_wings_masks(self):
+        print("creating neto_wings_sparse", flush=True)
         self.neto_wings_sparse = BoxSparse(box_path=None,
                                            shape=(self.num_frames, self.num_cams, self.image_size, self.image_size, 2))
+        print("created neto_wings_sparse", flush=True)
         self.wings_size = np.zeros((self.num_frames, self.num_cams, 2))
+        print("created wings_size", flush=True)
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
                 body_mask = self.body_masks_sparse.get_frame_camera_channel_dense(frame, cam, 0)

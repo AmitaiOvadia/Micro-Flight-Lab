@@ -13,6 +13,7 @@ POINTS_DICT = {0: [0, 6], 1: [0, 1], 2: [1, 2], 3: [2, 3], 4: [3, 4], 5: [4, 5],
 #     print(f"{i}, {PAIRS_OF_NEIGHBORS[pairs_inds[0]]}, {PAIRS_OF_NEIGHBORS[pairs_inds[1]]}")
 #
 
+
 class Validation:
     """
     A class of validation methods

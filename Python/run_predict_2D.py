@@ -1,5 +1,7 @@
 import sys
 import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import glob
 import scipy
@@ -9,37 +11,23 @@ from predictions_2Dto3D import From2Dto3D
 from extract_flight_data import FlightAnalysis
 from visualize import Visualizer
 import re
+import h5py
 from itertools import combinations
 import math
+import multiprocessing
+import csv
+from utils import get_scores_from_readme, clean_directory, get_movie_length, get_start_frame, find_starting_frame
 
 
-def find_starting_frame(readme_file):
-    start_pattern = re.compile(r'start:\s*(\d+)')
-    with open(readme_file, 'r') as file:
-        for line in file:
-            match = start_pattern.search(line)
-            if match:
-                start_number = match.group(1)
-                return start_number
+WINDOW_SIZE = 31
 
-
-def plot_movies_html(base_path):
-    for dir in os.listdir(base_path):
-        movie_path = os.path.join(base_path, dir)
-        create_movie_html(movie_path)
-
-
-def create_movie_html(movie_dir_path):
-    print(movie_dir_path)
-    start_frame = 0
-    for filename in os.listdir(movie_dir_path):
-        if filename.startswith("README_mov"):
-            readme_file = os.path.join(movie_dir_path, filename)
-            start_frame = find_starting_frame(readme_file)
-    points_path = os.path.join(movie_dir_path, 'points_3D_smoothed_ensemble.npy')
+def create_movie_html(movie_dir_path, name="points_3D_smoothed_ensemble_best.npy"):
+    print(movie_dir_path, flush=True)
+    start_frame = get_start_frame(movie_dir_path)
+    points_path = os.path.join(movie_dir_path, name)
     if os.path.isfile(points_path):
         # try:
-        file_name = 'smoothed_trajectory.html'
+        file_name = 'movie_html.html'
         save_path = os.path.join(movie_dir_path, file_name)
         FA = FlightAnalysis(points_path)
         com = FA.center_of_mass
@@ -125,6 +113,7 @@ def config_8(config):
     config["predict again using reprojected masks"] = 1
     return config
 
+
 def predict_3D_points_all_pairs(base_path):
     # Create an empty list to store the file paths
     all_points_file_list = []
@@ -181,7 +170,7 @@ def all_possible_combinations(lst, fraq=0.6):
     return all_combinations_list
 
 
-def get_best_ensemble_combination(all_points_list):
+def get_best_ensemble_combination(all_points_list, score_function=From2Dto3D.get_validation_score):
     candidates = list(range(len(all_points_list)))
     all_combinations_list = all_possible_combinations(candidates, fraq=0.2)
     # Initialize variables to store the best score and its corresponding combination
@@ -192,25 +181,218 @@ def get_best_ensemble_combination(all_points_list):
         all_comb_points = [all_points_list[i] for i in combination]
         result = np.concatenate(all_comb_points, axis=2)
         points_3D = get_3D_points_median(result)
-        score = From2Dto3D.get_validation_score(points_3D)
-        print(f"score: {score} combination: {combination}", flush=True)
+        score = score_function(points_3D)
+        # print(f"score: {score} combination: {combination}", flush=True)
         # Update best_score and best_combination if the current score is higher
         if score < best_score:
             best_score = score
             best_combination = combination
             best_points_3D = points_3D  # Optionally save the 3D points as well
-    return best_combination, best_points_3D
+    score = score_function(best_points_3D)
+    return best_combination, best_points_3D, score
 
-def find_3D_points_from_ensemble(base_path):
+
+def get_best_ensemble_combination_per_frame(all_points_list, window_size=WINDOW_SIZE):
+    num_frames, num_points, num_candidates, ax = all_points_list[0].shape
+    final_array = np.zeros((num_frames, num_points, ax))
+    half_window = window_size // 2
+
+    all_combinations = []
+    # Mirror padding: reverse the first and last 'half_window' elements
+    extended_data = get_extented_data(all_points_list, half_window)
+
+    for i in range(num_frames):
+        window_start = i
+        window_data = get_window(extended_data, window_size, window_start)
+        best_combination_w, best_points_3D_w, score = get_best_ensemble_combination(window_data)
+        all_combinations.append(best_combination_w)
+        chosen_point = best_points_3D_w[half_window]
+        final_array[i] = chosen_point
+        # print(i, score, best_combination_w, flush=True)
+
+    final_score = From2Dto3D.get_validation_score(final_array)
+    return all_combinations, final_array, final_score
+
+
+def get_window(extended_data, window_size, window_start):
+    window_data = [extended_data[i][window_start:window_start + window_size] for i in range(len(extended_data))]
+    return window_data
+
+
+def get_extented_data(all_points_list, half_window):
+    extended_data = []
+    for i, model_output in enumerate(all_points_list):
+        pad_start = model_output[:half_window][::]
+        pad_end = model_output[-half_window:][::]
+        extended_data.append(np.concatenate([pad_start, model_output, pad_end]))
+    return extended_data
+
+
+def find_std_of_2_points_dists(median_points):
+    dists = np.linalg.norm(median_points[:, 1, :] - median_points[:, 0, :], axis=-1)
+    std = np.std(dists)
+    return std
+
+
+def consecutive_couples(points):
+    couples = []
+    n = len(points)
+    for i in range(n):
+        pair = [points[i], points[(i + 1) % n]]
+        couples.append(pair)
+    return couples
+
+
+def find_std_of_wings_points_dists(points):
+    all_couples = consecutive_couples(np.arange(points.shape[1]))
+    stds = []
+    for couple in all_couples:
+        a, b = couple
+        std = np.std(np.linalg.norm(points[:, a, :] - points[:, b, :], axis=-1))
+        stds.append(std)
+    mean_std = np.array(stds).mean()
+    return mean_std
+
+
+def get_best_cameras_per_window(window_data, score_function=find_std_of_2_points_dists):
+    # for each combination, try all models
+    num_cam_pairs = window_data[0].shape[2]
+    all_inds = [i for i in range(num_cam_pairs)]
+    all_combinations = all_possible_combinations(all_inds, 0.1)
+    window_data = np.array(window_data)
+    stds = []
+    for combination in all_combinations:
+        combination_points = window_data[:, :, :, combination, :]
+        combination_points = reshape_all_points(combination_points)
+        median_points = get_3D_points_median(combination_points)
+        score = score_function(median_points)
+        stds.append(score)
+    stds = np.array(stds)
+    best_combination_index = np.argmin(stds)
+    final_score = stds[best_combination_index]
+    best_combination = all_combinations[best_combination_index]
+    return best_combination
+
+
+def reshape_all_points(combination_points):
+    s1, s2, s3, s4, s5 = combination_points.shape
+    combination_points = combination_points.transpose(1, 2, 0, 3, 4).reshape(s2, s3, s4 * s1, s5)
+    return combination_points
+
+
+def get_best_points_per_point(all_points_list, points_inds, window_size=WINDOW_SIZE,
+                              score_function=find_std_of_2_points_dists):
+    all_chosen_points = [points[:, points_inds, ...] for points in all_points_list]
+    half_window = window_size // 2
+    extended_data = get_extented_data(all_chosen_points, half_window)
+    num_frames, _, num_candidates, ax = all_points_list[0].shape
+    num_points = len(points_inds)
+    final_array = np.zeros((num_frames, num_points, 3))
+    all_combinations = []
+    scores = []
+    for i in range(num_frames):
+        # print(i)
+        window_start = i
+        window_data = get_window(extended_data, window_size, window_start)
+        # camera_pairs_indexes = get_best_cameras_per_window(window_data, score_function=score_function)
+        camera_pairs_indexes = [0, 1, 2, 3, 4, 5]
+        # given the best camera pairs indexes, choose the best models
+        window_data_chosen_pairs = [points[:, :, camera_pairs_indexes, :] for points in window_data]
+        best_combination_w, best_points_3D_w, score = get_best_ensemble_combination(window_data_chosen_pairs,
+                                                                                    score_function=score_function)
+        all_combinations.append(best_combination_w)
+        scores.append(score)
+        chosen_point = best_points_3D_w[half_window]
+        final_array[i] = chosen_point
+    return final_array
+
+
+def consecutive_triples(points):
+    n = len(points)
+    triples = []
+    for i in range(n):
+        triple = [points[i], points[(i + 1) % n], points[(i + 2) % n]]
+        triples.append(triple)
+    return triples
+
+
+def find_3D_points_optimize_neighbors(all_points_list):
+    left_wing_inds = list(np.arange(0, 7))
+    right_wing_inds = list(np.arange(8, 15))
+    head_tail_inds = [16, 17]
+    side_wing_inds = [7, 15]
+    num_frames = all_points_list[0].shape[0]
+    final_points_3D = np.zeros((num_frames, 18, 3))
+
+    # left points
+    best_left_points = get_best_points_per_point(all_points_list, points_inds=left_wing_inds,
+                                                 score_function=find_std_of_wings_points_dists)
+    score = find_std_of_wings_points_dists(best_left_points)
+    final_points_3D[:, left_wing_inds, :] = best_left_points
+    print(f"best_left_points, score: {score}")
+
+    # right points
+    best_right_points = get_best_points_per_point(all_points_list, points_inds=right_wing_inds,
+                                                  score_function=find_std_of_wings_points_dists)
+    score = find_std_of_wings_points_dists(best_right_points)
+    final_points_3D[:, right_wing_inds, :] = best_right_points
+    print(f"best_right_points, score: {score}")
+
+    # head points
+    best_head_tail_points = get_best_points_per_point(all_points_list, points_inds=head_tail_inds,
+                                                      score_function=find_std_of_2_points_dists)
+    final_points_3D[:, head_tail_inds, :] = best_head_tail_points
+    score = find_std_of_2_points_dists(best_head_tail_points)
+
+    # side points
+    best_side_points = get_best_points_per_point(all_points_list, points_inds=side_wing_inds,
+                                                 score_function=find_std_of_2_points_dists)
+    final_points_3D[:, side_wing_inds, :] = best_side_points
+    score = find_std_of_2_points_dists(best_side_points)
+    final_score = From2Dto3D.get_validation_score(final_points_3D)
+    print(f"Final score: {final_score}")
+    return final_score, final_points_3D
+
+
+def find_3D_points_from_ensemble(base_path, test=False):
     result, all_points_list = predict_3D_points_all_pairs(base_path)
+    # all_points_list = [points[:100] for points in all_points_list]
+    final_score, final_points_3D = find_3D_points_optimize_neighbors(all_points_list)  # todo experiment
+    best_combination_per_frame, best_points_3D_per_frame, score_per_frame = get_best_ensemble_combination_per_frame(all_points_list)
+    best_combination_per_movie, best_points_3D_per_movie, score_per_movie = get_best_ensemble_combination(all_points_list)
+    best_head_tail_points = get_best_points_per_point(all_points_list, points_inds=[-2, -1],
+                                                      score_function=find_std_of_2_points_dists)
 
-    best_combination, best_points_3D = get_best_ensemble_combination(all_points_list)
+    print(f"score for first one: {final_score}\n"
+          f"score for second one: {score_per_frame}\n"
+          f"score for third one: {score_per_movie}\n", flush=True)
+    if not test:
+        if score_per_frame < score_per_movie:
+            best_combination = best_combination_per_frame
+            best_points_3D = best_points_3D_per_frame
+            print("Chose the first set of points based on a lower score.")
+            type_chosen = "per_frame"
+        else:
+            best_combination = best_combination_per_movie
+            best_points_3D = best_points_3D_per_movie
+            print("Chose the second set of points based on a lower score.")
+            type_chosen = "per_movie"
+        best_points_3D[:, [-2, -1], :] = best_head_tail_points
+        score_after_head_tail_change = From2Dto3D.get_validation_score(best_points_3D)
+        smoothed_3D = From2Dto3D.smooth_3D_points(best_points_3D)
+        smoothed_3D_per_frame = From2Dto3D.smooth_3D_points(best_points_3D_per_frame)
+        smoothed_3D_per_movie = From2Dto3D.smooth_3D_points(best_points_3D_per_movie)
+        save_points_3D(base_path, best_combination_per_frame, best_points_3D_per_frame, smoothed_3D_per_frame, "per_frame")
+        save_points_3D(base_path, best_combination_per_movie, best_points_3D_per_movie, smoothed_3D_per_movie, "per_movie")
+        save_points_3D(base_path, best_combination, best_points_3D, smoothed_3D, type_chosen="best")
+    return best_points_3D, smoothed_3D
 
-    smoothed_3D = From2Dto3D.smooth_3D_points(best_points_3D)
+
+def save_points_3D(base_path, best_combination, best_points_3D, smoothed_3D, type_chosen):
     score1 = From2Dto3D.get_validation_score(best_points_3D)
     score2 = From2Dto3D.get_validation_score(smoothed_3D)
-    From2Dto3D.save_points_3D(base_path, best_points_3D, name="points_3D_ensemble.npy")
-    From2Dto3D.save_points_3D(base_path, smoothed_3D, name="points_3D_smoothed_ensemble.npy")
+    From2Dto3D.save_points_3D(base_path, best_points_3D, name=f"points_3D_ensemble_{type_chosen}.npy")
+    From2Dto3D.save_points_3D(base_path, smoothed_3D, name=f"points_3D_smoothed_ensemble_{type_chosen}.npy")
     readme_path = os.path.join(base_path, "README_scores_3D_ensemble.txt")
     print(f"score1 is {score1}, score2 is {score2}")
     with open(readme_path, "w") as f:
@@ -220,13 +402,20 @@ def find_3D_points_from_ensemble(base_path):
         f.write(f"The winning combination was {best_combination}")
     # Close the file
     f.close()
-    return best_points_3D, smoothed_3D
 
 
+def get_cropzone(movie_dir):
+    files = os.listdir(movie_dir)
+    # Filter files that start with 'movie' and end with '.h5'
+    movie_files = [file for file in files if file.startswith('movie') and file.endswith('.h5')]
+    h5_file_name = movie_files[0]
+    h5_file_path = os.path.join(movie_dir, h5_file_name)
+    cropzone = h5py.File(h5_file_path, 'r')['cropzone'][:]
+    return cropzone
 
 
-
-def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_inds=None):
+def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_inds=None,
+                       already_predicted_2D=False):
     import predictions_2Dto3D
     file_list = []
     if movies is None:
@@ -251,6 +440,7 @@ def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_
         config_4,
         config_5, config_6, config_7, config_8
     ]
+
     if config_functions_inds is not None:
         config_functions = [config_functions[i] for i in config_functions_inds]
     # file_list = file_list[::-1]
@@ -259,6 +449,7 @@ def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_
         dir_path = os.path.dirname(movie_path)
 
         # New logic to check for 'started.txt'
+
         started_file_path = os.path.join(dir_path, 'started.txt')
         if not os.path.exists(started_file_path):
             with open(started_file_path, 'w') as file:
@@ -279,42 +470,43 @@ def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_
             config_2D = json.load(C)
             config_2D["box path"] = movie_path
             config_2D["base output path"] = dir_path
-            config_func = config_functions[0]  # not necessary
+            config_func = config_1  # not necessary
             config_2D = config_func(config_2D)  # not necessary
         new_config_path_save_box = os.path.join(dir_path, 'configuration predict 2D.json')
         with open(new_config_path_save_box, 'w') as file:
             json.dump(config_2D, file, indent=4)
         # create box with masks for future models
         predictor = Predictor2D(new_config_path_save_box)
-        predictor.create_base_box()
-        predictor.save_base_box()
+        if not already_predicted_2D:
+            if config_functions:
+                predictor.create_base_box()
+                predictor.save_base_box()
 
-        for model in range(len(config_functions)):
-            dir_path = os.path.dirname(movie_path)
-            with open(config_path_2D) as C:
-                config_2D = json.load(C)
-                config_2D["box path"] = movie_path
-                config_2D["base output path"] = dir_path
-                config_func = config_functions[model]
-                config_2D = config_func(config_2D)
-            new_config_path = os.path.join(dir_path, 'configuration predict 2D.json')
-            with open(new_config_path, 'w') as file:
-                json.dump(config_2D, file, indent=4)
-            # try:
-            predictor_model = Predictor2D(new_config_path, load_box_from_sparse=True)
-            predictor_model.run_predict_2D()
-            # except Exception as e:
-            #     print(f"Error while processing movie {movie_path} model {model}: {e}")
+            for model in range(len(config_functions)):
+                dir_path = os.path.dirname(movie_path)
+                with open(config_path_2D) as C:
+                    config_2D = json.load(C)
+                    config_2D["box path"] = movie_path
+                    config_2D["base output path"] = dir_path
+                    config_func = config_functions[model]
+                    config_2D = config_func(config_2D)
+                new_config_path = os.path.join(dir_path, 'configuration predict 2D.json')
+                with open(new_config_path, 'w') as file:
+                    json.dump(config_2D, file, indent=4)
+                # try:
+                predictor_model = Predictor2D(new_config_path, load_box_from_sparse=True)
+                predictor_model.run_predict_2D()
+                # except Exception as e:
+                #     print(f"Error while processing movie {movie_path} model {model}: {e}")
 
         # use ensemble
         best_points_3D, smoothed_3D = find_3D_points_from_ensemble(dir_path)
-
         # find the reprojections
         cropzone = predictor.get_cropzone()
         reprojected = predictor.triangulate.get_reprojections(best_points_3D, cropzone)
         smoothed_reprojected = predictor.triangulate.get_reprojections(smoothed_3D, cropzone)
-        From2Dto3D.save_points_3D(base_path, reprojected, name="points_ensemble_reprojected.npy")
-        From2Dto3D.save_points_3D(base_path, smoothed_reprojected, name="points_ensemble_smoothed_reprojected.npy")
+        From2Dto3D.save_points_3D(dir_path, reprojected, name="points_ensemble_reprojected.npy")
+        From2Dto3D.save_points_3D(dir_path, smoothed_reprojected, name="points_ensemble_smoothed_reprojected.npy")
 
         # create html for 3D points
         create_movie_html(dir_path)
@@ -327,19 +519,27 @@ if __name__ == '__main__':
     # config_path = r"predict_2D_config.json"
     # predictor = Predictor2D(config_path)
     # predictor.run_predict_2D()
+    dir_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/dark 24-1 movies/mov53"
+    best_points_3D, smoothed_3D = find_3D_points_from_ensemble(dir_path, test=True)
 
-    dir_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/unfinished/mov61"
-    find_3D_points_from_ensemble(dir_path)
-    create_movie_html(dir_path)
+    # dir_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\movies\mov20"
+    # find_3D_points_from_ensemble(dir_path)
+    # create_movie_html(dir_path)
 
     # config_path = r"predict_2D_config.json"  # get the first argument
     # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\movies"
     # predict_all_movies(base_path, config_path)
 
-
     # config_path = r"predict_2D_config.json"  # get the first argument
-    # base_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/unfinished"
-    # # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\movies"
+    # # base_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/roni movies"
+    # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies"
+    # # movies = ["mov78"]
     # movies = None
-    # predict_all_movies(base_path, config_path, movies=movies)
+    # predict_all_movies(base_path, config_path, already_predicted_2D=True)
+
+    # plot_movies_html(base_path)
+
+    # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\movies"
+    # summarize_results(base_path)
+
 
