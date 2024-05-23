@@ -31,6 +31,33 @@ WING_TIP_IND = 2
 UPPER_PLANE_POINTS = [0, 1, 2, 3]
 LOWER_PLANE_POINTS = [3, 4, 5, 6]
 
+
+class HalfWingbit:
+    def __init__(self, start, end, phi_vals, frames, start_peak_val, end_peak_val, avarage_value, strock_direction):
+        self.start = start
+        self.end = end
+        self.middle_frame = (end - start) / 2
+        self.frames = frames
+        self.phi_vals = phi_vals
+        self.start_peak_val = start_peak_val
+        self.end_peak_val = end_peak_val
+        self.avarage_value = avarage_value
+        self.strock_direction = strock_direction
+        self.hign_peak_val = max(self.start_peak_val, self.end_peak_val)
+        self.low_peak_val = min(self.start_peak_val, self.end_peak_val)
+        self.amplitude = self.hign_peak_val - self.low_peak_val
+
+class FullWingBit:
+    def __init__(self, start, end, frames, phi_vals, theta_vals, psi_vals):
+        self.start = start
+        self.end = end
+        self.middle_frame = (end - start) / 2
+        self.frames = frames
+        self.phi_vals = phi_vals
+        self.theta_vals = theta_vals,
+        self.psi_vals = psi_vals
+
+
 class FlightAnalysis:
     def __init__(self, points_3D_path, find_auto_correlation=False, create_html=False, show_phi=False):
 
@@ -53,7 +80,8 @@ class FlightAnalysis:
         # calculate things
         self.points_3D = FlightAnalysis.enforce_3D_consistency(self.points_3D, self.right_inds, self.left_inds)
         self.first_analysed_frame = self.get_first_analysed_frame()
-        self.head_tail_points = self.get_head_tail_points(smooth=False)
+        self.head_tail_points = self.get_head_tail_points(smooth=True)
+        self.points_3D[:, self.head_tail_inds, :] = self.head_tail_points
         self.x_body = self.get_head_tail_vec()
         self.set_right_left()
         self.wings_tips_left, self.wings_tips_right = self.get_wing_tips()
@@ -77,9 +105,11 @@ class FlightAnalysis:
         self.z_body = self.get_z_body()
         self.wings_joints_vec = self.get_wings_joints_vec(smooth=False)
         self.wings_joints_vec_smoothed = self.get_wings_joints_vec(smooth=True)
+
         self.yaw_angle = self.get_body_yaw()
         self.pitch_angle = self.get_body_pitch()
         self.roll_angle = self.get_body_roll()  # todo not calculated correctly
+
         self.average_roll_angle = np.mean(self.roll_angle[self.first_y_body_frame:self.end_frame])
         self.roll_speed = self.get_roll_velocity()
         self.average_roll_speed = np.nanmean(np.abs(self.roll_speed))
@@ -91,18 +121,18 @@ class FlightAnalysis:
         self.wings_theta_left, self.wings_theta_right = self.get_wings_theta()
         self.wings_psi_left, self.wings_psi_right = self.get_wings_psi()
 
-        # plt.plot((self.wings_phi_left - self.wings_phi_left.mean()) / self.wings_phi_left.std())
-        # plt.plot((self.pitch_angle - self.pitch_angle.mean()) / self.pitch_angle.std())
+        self.left_amplitudes, self.right_amplitudes, self.left_half_wingbits, self.right_half_wingbits = self.get_half_wingbits_objects()
 
-        # plt.plot(self.wings_phi_left)
-        # plt.plot(self.pitch_angle)
+        self.left_full_wingbits, self.right_full_wingbits = self.get_full_wingbits_objects()
+        self.left_wing_peaks, self.wingbit_frequencies_left, self.wingbit_average_frequency_left = self.get_waving_frequency(self.wings_phi_left)
+        self.left_wing_right, self.wingbit_frequencies_right, self.wingbit_average_frequency_right = self.get_waving_frequency(self.wings_phi_right)
+
+        self.omega_lab, self.omega_body, self.angular_speed_lab, self.angular_speed_body = self.get_angular_velocities(self.x_body, self.y_body,
+                                                                                                   self.z_body, self.first_y_body_frame,
+                                                                                                   self.end_frame)
+        # plt.plot(self.omega_body[:, :])
+        # plt.plot(self.roll_angle)
         # plt.show()
-
-        self.left_wing_peaks, self.wingbit_frequencies_left, self.wingbit_average_frequency_left = self.get_waving_frequency(self.wings_phi_left, show=show_phi)
-        self.left_wing_right, self.wingbit_frequencies_right, self.wingbit_average_frequency_right = self.get_waving_frequency(self.wings_phi_right, show=show_phi)
-        self.w_x, self.w_y, self.w_z, self.angular_speed = self.get_angular_velocities(self.x_body, self.y_body,
-                                                                   self.z_body, self.first_y_body_frame,
-                                                                   self.end_frame)
         if find_auto_correlation:
             self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body,
                                                                                     self.z_body, self.first_y_body_frame,
@@ -117,6 +147,73 @@ class FlightAnalysis:
                                          start_frame=self.first_y_body_frame, save_path=save_path_html)
         self.adjust_starting_frame()
         pass
+
+    def get_full_wingbits_objects(self):
+        all_half_wingbits_objects = [self.left_half_wingbits, self.right_half_wingbits]
+        phi_wings = [self.wings_phi_left, self.wings_phi_right]
+        theta_wings = [self.wings_theta_left, self.wings_theta_right]
+        psi_wings = [self.wings_psi_left, self.wings_psi_right]
+        full_wingbits_objects = [[], []]
+        for wing in range(2):
+            half_wingbits = all_half_wingbits_objects[wing]
+            for i in range(0, len(half_wingbits), 2):
+                first_half = half_wingbits[i]
+                second_half = half_wingbits[i + 1]
+                start = first_half.start
+                end = second_half.end
+                frames = np.unique(np.concatenate((first_half.frames, second_half.frames)))
+                wingbit_phi = phi_wings[wing][frames - self.first_analysed_frame]
+                wingbit_theta = theta_wings[wing][frames - self.first_analysed_frame]
+                wingbit_psi = psi_wings[wing][frames - self.first_analysed_frame]
+                full_wingbit = FullWingBit(start=start,
+                                           end=end,
+                                           frames=frames,
+                                           phi_vals=wingbit_phi,
+                                           theta_vals=wingbit_theta,
+                                           psi_vals=wingbit_psi)
+                full_wingbits_objects[wing].append(full_wingbit)
+        left_full_wingbits, right_full_wingbits = full_wingbits_objects
+        return left_full_wingbits, right_full_wingbits
+    def get_half_wingbits_objects(self):
+        phi_wings = [self.wings_phi_left, self.wings_phi_right]
+        half_wingbits = [[],[]]
+        phi_amplitudes = [[],[]]
+        for wing in range(2):
+            phi = phi_wings[wing]
+            max_peak_values, max_peaks_frames, min_peak_values, min_peaks_frames = self.get_phi_peaks(phi)
+            max_peaks_frames = np.array(max_peaks_frames) + self.first_analysed_frame
+            min_peaks_frames = np.array(min_peaks_frames) + self.first_analysed_frame
+            max_peaks = np.column_stack((max_peaks_frames, max_peak_values))
+            min_peaks = np.column_stack((min_peaks_frames, min_peak_values))
+            all_peaks = np.concatenate((max_peaks, min_peaks), axis=0)
+            all_peaks = all_peaks[all_peaks[:, 0].argsort()]
+            all_amplitudes = np.abs(np.diff(all_peaks[:, 1]))
+            if np.min(all_amplitudes) < 100:
+                assert f"need to check minimum amplitude in phi wing {wing}"
+            for cur_peak_ind in range(len(all_peaks) - 1):
+                next_peak_ind = cur_peak_ind + 1
+                cur_peak_val = all_peaks[cur_peak_ind, 1]
+                next_peak_val = all_peaks[next_peak_ind, 1]
+                avarage_val = (cur_peak_val + next_peak_val)/2
+                half_bit_start = np.round(all_peaks[cur_peak_ind, 0]).astype(int)
+                half_bit_end = np.round(all_peaks[next_peak_ind, 0]).astype(int)
+                halfbit_frames = np.arange(half_bit_start, half_bit_end)
+                strock_direction = "back_strock" if next_peak_val > cur_peak_val else "up_strock"
+                amplitude = np.abs(cur_peak_val - next_peak_val)
+                mid_index = (all_peaks[cur_peak_ind, 0] + all_peaks[next_peak_ind, 0])/2
+                half_wingbit_obj = HalfWingbit(start=all_peaks[cur_peak_ind, 0],
+                                          end=all_peaks[next_peak_ind, 0],
+                                          frames=halfbit_frames,
+                                          phi_vals=phi[halfbit_frames],
+                                          start_peak_val=cur_peak_val,
+                                          end_peak_val=next_peak_val,
+                                          avarage_value=avarage_val,
+                                          strock_direction=strock_direction)
+                half_wingbits[wing].append(half_wingbit_obj)
+                phi_amplitudes[wing].append((mid_index, amplitude))
+        left_half_wingbits, right_half_wingbits = half_wingbits
+        left_wing_amplitudes, right_wing_amplitudes = np.array(phi_amplitudes[0]), np.array(phi_amplitudes[1])
+        return left_wing_amplitudes, right_wing_amplitudes, left_half_wingbits, right_half_wingbits
 
     @staticmethod
     def add_nan_frames(original_array, N):
@@ -138,9 +235,7 @@ class FlightAnalysis:
         self.z_body = FlightAnalysis.fill_with_nans(self.z_body, indices)
         self.roll_angle = FlightAnalysis.fill_with_nans(self.roll_angle, indices)
         self.roll_speed = FlightAnalysis.fill_with_nans(self.roll_speed, indices)
-        self.w_x = FlightAnalysis.fill_with_nans(self.w_x, indices)
-        self.w_y = FlightAnalysis.fill_with_nans(self.w_y, indices)
-        self.w_z = FlightAnalysis.fill_with_nans(self.w_z, indices)
+        self.omega_lab = FlightAnalysis.fill_with_nans(self.omega_lab, indices)
         self.stroke_planes = FlightAnalysis.fill_with_nans(self.stroke_planes, indices)
         self.wings_phi_left = FlightAnalysis.fill_with_nans(self.wings_phi_left, indices)
         self.wings_phi_right = FlightAnalysis.fill_with_nans(self.wings_phi_right, indices)
@@ -159,32 +254,69 @@ class FlightAnalysis:
             "roll_speed", "stroke_planes", "center_of_mass", "body_speed",
             "wing_tips_speed", "wings_phi_left", "wings_phi_right", "wings_theta_left", "wings_theta_right",
             "wings_psi_left", "wings_psi_right",
-            "w_x", "w_y", "w_z", "angular_speed"
+             "omega_lab", "omega_body", "angular_speed_lab", "angular_speed_body"
         ]
 
         for attr in attributes:
             if hasattr(self, attr):
-                data = getattr(self, attr)
-                # Call the add_nan_frames method and update the attribute
-                updated_data = FlightAnalysis.add_nan_frames(data, self.first_analysed_frame)
-                setattr(self, attr, updated_data)
-        pass
+                if attr not in ["left_half_wingbits", "self.right_half_wingbits",
+                                "left_amplitudes", "right_amplitudes"]:
+                    data = getattr(self, attr)
+                    # Call the add_nan_frames method and update the attribute
+                    updated_data = FlightAnalysis.add_nan_frames(data, self.first_analysed_frame)
+                    setattr(self, attr, updated_data)
+
     def get_first_analysed_frame(self):
         directory_path = os.path.dirname(os.path.realpath(self.points_3D_path))
         start_frame = get_start_frame(directory_path)
         return int(start_frame)
 
-    def get_head_tail_points(self, smooth=True):
+    @staticmethod
+    def low_pass_filter(data, cutoff, fs):
+        """
+        Apply a low-pass filter to the data array.
+
+        Parameters:
+            data (np.array): Input data array.
+            cutoff (float): Cutoff frequency in Hz.
+            fs (int): Sampling frequency of the data.
+
+        Returns:
+            np.array: Filtered data.
+        """
+        n = len(data)  # length of the data
+        freq = np.fft.fftfreq(n, d=1 / fs)  # frequency array
+
+        # Fourier transform of the data
+        data_fft = np.fft.fft(data)
+
+        # Create a mask for frequencies higher than the cutoff
+        mask = abs(freq) > cutoff
+
+        # Apply mask to the Fourier spectrum
+        data_fft[mask] = 0
+
+        # Inverse Fourier Transform to get back to time domain
+        filtered_data = np.fft.ifft(data_fft)
+
+        return filtered_data.real  # Return the real part of the complex output
+
+    def get_head_tail_points(self, smooth=True, window_length=73*3, polyorder=2, lam=100):
         head_tail_points = self.points_3D[:, self.head_tail_inds, :]
         if smooth:
             head_tail_smoothed = np.zeros_like(head_tail_points)
             for pnt in range(head_tail_points.shape[1]):
                 points_orig = head_tail_points[:, pnt, :]
-                points = np.apply_along_axis(medfilt, axis=0, arr=points_orig, kernel_size=21)
+                points = np.apply_along_axis(medfilt, axis=0, arr=points_orig, kernel_size=1)
                 A = np.arange(len(points))
                 for axis in range(3):
-                    spline = make_smoothing_spline(y=points[:, axis], x=A, lam=1000000)
+                    points[:, axis] = savgol_filter(np.copy(points[:, axis]), window_length, polyorder)
+                    # points[:, axis] = self.low_pass_filter(points[:, axis], cutoff=1, fs=1)
+                    spline = make_smoothing_spline(A, points[:, axis], lam=lam*len(A))
                     points[:, axis] = spline(A)
+                # plt.plot(points_orig)
+                # plt.plot(points)
+                # plt.show()
                 head_tail_smoothed[:, pnt, :] = points
             head_tail_points = head_tail_smoothed
         return head_tail_points
@@ -222,6 +354,8 @@ class FlightAnalysis:
 
     def get_wings_psi(self):
         all_psi = np.zeros((2, self.num_frames))
+        all_psi_rad = np.zeros((2, self.num_frames))  # Store radians here for unwrapping
+
         for frame in range(self.first_y_body_frame, self.num_frames):
             for wing in range(2):
                 strkpln = self.stroke_planes[frame, :-1]
@@ -233,17 +367,25 @@ class FlightAnalysis:
                     spn = self.left_wing_span[frame]
                     chord = self.left_wing_chord[frame]
                     signy = -1
+
                 Surf_sp = np.cross(strkpln, spn)
                 Surf_sp /= np.linalg.norm(Surf_sp)
                 yax = np.cross(spn, Surf_sp)
                 yax /= np.linalg.norm(yax)
-                ypsi = signy * np.dot(chord,yax)
+                ypsi = signy * np.dot(chord, yax)
                 xpsi = np.dot(chord, Surf_sp)
                 angtmp = np.arctan2(ypsi, xpsi)
-                # angtmp = np.mod(angtmp, 2 * np.pi)
-                psi = np.rad2deg(angtmp)
-                all_psi[wing, frame] = psi
-        left_wing_psi, right_wing_psi = all_psi
+                all_psi_rad[wing, frame] = angtmp  # Store radians
+
+        # Unwrap radians to prevent jumps
+        all_psi_rad = np.unwrap(all_psi_rad, axis=1)
+
+        # Convert radians to degrees
+        all_psi_deg = np.rad2deg(all_psi_rad)
+
+        # Split into left and right wing psi
+        left_wing_psi, right_wing_psi = all_psi_deg
+
         return left_wing_psi, right_wing_psi
 
     def get_wings_joints(self):
@@ -472,14 +614,29 @@ class FlightAnalysis:
         return theta_left, theta_right
 
 
-    def get_waving_frequency(self, data, prominence=100, distance=50, window_size=7, show=False):
+    def get_waving_frequency(self, data):
+        refined_peaks, peak_values = self.get_peaks(data)
+        distances = np.diff(refined_peaks)
+        frequencies = (1 / distances) * sampling_rate
+        average_distance = np.mean(distances)
+        average_frequency = (1 / average_distance) * sampling_rate
+        return refined_peaks, frequencies, average_frequency
+
+    def get_phi_peaks(self, phi):
+        max_peaks_inds, max_peak_values = self.get_peaks(phi, show=False, prominence=90)
+        all_max_peaks = np.stack([max_peaks_inds, max_peak_values]).T
+        min_peaks_inds, min_peak_values = self.get_peaks(-phi, show=False, prominence=90)
+        min_peak_values = [-min_peak for min_peak in min_peak_values]
+        return max_peak_values, max_peaks_inds, min_peak_values, min_peaks_inds
+
+    def get_peaks(self, data, distance=50, prominence=100, show=False, window_size=7):
         peaks, _ = find_peaks(data, prominence=prominence, distance=distance)
         if show:
             plt.figure(figsize=(10, 6))
             x_values = np.arange(self.first_y_body_frame, self.end_frame)
             plt.plot(x_values, data[self.first_y_body_frame: self.end_frame], label='Data', marker='o')
-
         refined_peaks = []
+        peak_values = []
         for peak in peaks:
             # Define the window around the peak
             start = max(0, peak - window_size // 2)
@@ -501,15 +658,15 @@ class FlightAnalysis:
                 refined_peak = vertex
             else:
                 refined_peak = peak
-
+            value = p(refined_peak)
             refined_peaks.append(refined_peak)
+            peak_values.append(value)
 
             # Plotting the polynomial over the window
             if show:
                 x_fit = np.linspace(start, end, 100)
                 y_fit = p(x_fit)
                 plt.plot(x_fit, y_fit, label=f'Fit around peak at {peak}', linestyle='--')
-
         if show:
             plt.scatter(peaks, data[peaks], color='red', label='Initial Peaks')
             plt.scatter(refined_peaks, data[np.round(refined_peaks).astype(int)], color='green', marker='x',
@@ -519,12 +676,7 @@ class FlightAnalysis:
             plt.ylabel('Amplitude')
             plt.title('Peak Detection and Polynomial Fit')
             plt.show()
-        distances = np.diff(refined_peaks)
-        frequencies = (1 / distances) * sampling_rate
-        average_distance = np.mean(distances)
-        average_frequency = (1 / average_distance) * sampling_rate
-        return refined_peaks, frequencies, average_frequency
-
+        return refined_peaks, peak_values
 
     @staticmethod
     def project_vector_to_plane(Vs, Ps):
@@ -665,15 +817,26 @@ class FlightAnalysis:
             w_y[frame] = np.rad2deg(wy_frame) * sampling_rate
             w_z[frame] = np.rad2deg(wz_frame) * sampling_rate
 
+        omega_lab = np.column_stack((w_x, w_y, w_z))
+        omega_body = np.zeros_like(omega_lab)
+        for frame in range(N):
+            omega_lab_i = omega_lab[frame, :]
+            R = Rs[frame]
+            omega_body_i = R.T.dot(omega_lab_i)
+            omega_body[frame, :] = omega_body_i
 
-        nan_frames = np.full((start_frame), np.nan)
-        w_x, w_y, w_z = np.concatenate((nan_frames, w_x)), np.concatenate((nan_frames, w_y)), np.concatenate((nan_frames, w_z))
+        nan_frames = np.full((start_frame, 3), np.nan)
+        omega_lab = np.concatenate((nan_frames, omega_lab), axis=0)
+        omega_body = np.concatenate((nan_frames, omega_body), axis=0)
 
-        nan_frames = np.full((num_frames - end_frame), np.nan)
-        w_x, w_y, w_z = np.concatenate((w_x, nan_frames)), np.concatenate((w_y, nan_frames)), np.concatenate(
-            (w_z, nan_frames))
-        angular_speed = np.sqrt(w_x**2 + w_y**2 +w_z**2)
-        return w_x, w_y, w_z, angular_speed
+        nan_frames = np.full((num_frames - end_frame, 3), np.nan)
+        omega_lab = np.concatenate((omega_lab, nan_frames), axis=0)
+        omega_body = np.concatenate((omega_body, nan_frames), axis=0)
+
+        angular_speed_body = np.linalg.norm(omega_body, axis=-1)
+        angular_speed_lab = np.linalg.norm(omega_lab, axis=-1)
+
+        return omega_lab, omega_body, angular_speed_lab, angular_speed_body
     @staticmethod
     def get_auto_correlation_x_body(x_body):
         T = len(x_body) // 2
@@ -788,7 +951,8 @@ class FlightAnalysis:
             plane_normal = wing_tips_plane[:-1]
             y_body = np.cross(plane_normal, self.x_body[ind])
             y_body = y_body / np.linalg.norm(y_body)
-            if (i > 0) and (np.dot(y_body, y_bodies[i - 1]) < 0):
+            left_span = self.left_wing_span[ind]
+            if np.dot(y_body, left_span) < 0:
                 y_body = - y_body
             y_bodies.append(y_body)
             # self.plot_plane_and_points(ind, wing_tips_plane, points, y_body)
@@ -807,6 +971,9 @@ class FlightAnalysis:
         # make sure that the all_y_bodies are (1) unit vectors and (2) perpendicular to x_body
         y_bodies_corrected = all_y_bodies - self.x_body * self.row_wize_dot(self.x_body, all_y_bodies).reshape(-1, 1)
         y_bodies_corrected = normalize(y_bodies_corrected, 'l2')
+
+        # plt.plot(idx4StrkPln, y_bodies)
+        # plt.show()
 
         return y_bodies_corrected, first_y_body_frame, end
 
@@ -944,21 +1111,21 @@ def calculate_auto_correlation_roni_movies():
     Z_y_body = 30
     Z_z_body = 31
 
-    # h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\manipulated_05_12_22.hdf5"
-    # new_h5_path = os.path.join(r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data", "autocorrelations_roni_100.h5")
     h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\manipulated_05_12_22.hdf5"
-    new_h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_roni_500.h5"
+    new_h5_path = os.path.join(r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data", "autocorrelations_roni_100.h5")
+    # h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\manipulated_05_12_22.hdf5"
+    # new_h5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_roni_500.h5"
     with h5py.File(new_h5_path, "w") as new_h5_file:
         with h5py.File(h5_path, 'r') as h5_file:
             # Access the relevant datasets
-            for mov in range(1, 500, 1):
+            for mov in range(1, 100, 1):
                 try:
                     print(f"Movie {mov}")
                     mov_vectors = h5_file[f'mov{mov}/vectors']
                     # Extract the specified columns
-                    x_body = np.vstack(mov_vectors[:, [X_x_body, Y_x_body, Z_x_body]])
-                    y_body = np.vstack(mov_vectors[:, [X_y_body, Y_y_body, Z_y_body]])
-                    z_body = np.vstack(mov_vectors[:, [X_z_body, Y_z_body, Z_z_body]])
+                    x_body = np.vstack(mov_vectors[:, [X_x_body, X_y_body, X_z_body]])
+                    y_body = np.vstack(mov_vectors[:, [Y_x_body, Y_y_body, Y_z_body]])
+                    z_body = np.vstack(mov_vectors[:, [Z_x_body, Z_y_body, Z_z_body]])
 
                     AC_coordinate_systems = FlightAnalysis.get_auto_correlation_axis_angle(x_body, y_body, z_body,
                                                                                            0, len(x_body))
@@ -1016,8 +1183,8 @@ def visualize_autocorrelations_plotly_to_html(base_path_1, base_path_2, dataset_
 
 
 def plot_auto_correlations():
-    h5_path_1 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_undistubed.h5"
-    h5_path_2 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations_roni_100.h5"
+    h5_path_1 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations\autocorrelations_undistubed.h5"
+    h5_path_2 = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\autocorrelations\autocorrelations_roni_100.h5"
     output_html1 = r'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\plot_autocorelation_CS_angle_100.html'
     visualize_autocorrelations_plotly_to_html(base_path_1=h5_path_1, base_path_2=h5_path_2,
                                               dataset_name='AC_coordinate_systems',
@@ -1084,53 +1251,92 @@ def get_frequencies_from_all(base_path, csv_path):
     print(np.nanmean(all_freqs))
 
 
-def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True):
+def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_for_all=False):
     # Ensure the directory exists
     if not os.path.isdir(base_path):
         print(f"Directory {base_path} does not exist")
         return
 
-    if os.path.isfile(output_hdf5_path):
-        print(f"File {output_hdf5_path} exsists")
+    if os.path.isfile(output_hdf5_path) and one_h5_for_all:
+        print(f"File {output_hdf5_path} exists")
         return
 
-    # Create or open the HDF5 file
-    with h5py.File(output_hdf5_path, 'w') as hdf:
-        # Filter out directories not starting with 'mov'
-        movies = [dir for dir in os.listdir(base_path) if dir.startswith('mov')]
-        movies = sorted(movies, key=lambda x: int(x.replace('mov', '')))
-        # movies = ["mov54"]
+    # Filter out directories not starting with 'mov'
+    movies = [dir for dir in os.listdir(base_path) if dir.startswith('mov')]
+    # movies = sorted(movies, key=lambda x: int(x.replace('mov', '')))
+    # movies = ["mov53"]
+    if one_h5_for_all:
+        # Create or open the single HDF5 file
+        with h5py.File(output_hdf5_path, 'w') as hdf:
+            for movie in movies:
+                movie_dir = os.path.join(base_path, movie)
+                points_3D_path = os.path.join(movie_dir, 'points_3D_smoothed_ensemble_best_method.npy') if smooth else os.path.join(movie_dir, 'points_3D_ensemble_best_method.npy')
+
+                if os.path.isfile(points_3D_path):
+                    try:
+                        FA = FlightAnalysis(points_3D_path, create_html=True)  # Assuming FlightAnalysis is properly defined
+
+                        # Create a group for this movie
+                        group = hdf.create_group(movie)
+
+                        start_frame = FA.first_y_body_frame
+                        end_frame = FA.end_frame
+
+                        # Store attributes as datasets within the group
+                        for attr_name, attr_value in FA.__dict__.items():
+                            if hasattr(attr_value, '__len__'):  # Check for array-like objects or lists
+                                group.create_dataset(attr_name, data=attr_value)
+
+                        print(f"Data saved for {movie}")
+                    except Exception as e:
+                        print(f"Exception occurred while processing {movie}: {e}")
+                else:
+                    print(f"Missing data for {movie}")
+    else:
+        # Create an HDF5 file for each movie
+        # movies = ['mov53']
         for movie in movies:
             movie_dir = os.path.join(base_path, movie)
-            if smooth:
-                points_3D_path = os.path.join(movie_dir, 'points_3D_smoothed_ensemble_best.npy')
-            else:
-                points_3D_path = os.path.join(movie_dir, 'points_3D_ensemble_best.npy')
+            points_3D_path = os.path.join(movie_dir,
+                                          'points_3D_smoothed_ensemble_best.npy') if smooth else os.path.join(movie_dir,
+                                                                                                              'points_3D_ensemble_best.npy')
 
             if os.path.isfile(points_3D_path):
                 # try:
                     FA = FlightAnalysis(points_3D_path, create_html=True)  # Assuming FlightAnalysis is properly defined
 
-                    # Create a group for this movie
-                    group = hdf.create_group(movie)
+                    name = f'{movie}_analysis_smoothed.h5' if smooth else f'{movie}_analysis.h5'
 
-                    start_frame = FA.first_y_body_frame
-                    end_frame = FA.end_frame
+                    # Define the output HDF5 file path for the movie
+                    movie_hdf5_path = os.path.join(movie_dir, name)
 
-                    # Store attributes as datasets within the group
-                    # Iterate through all attributes of the FlightAnalysis instance
-                    for attr_name, attr_value in FA.__dict__.items():
-                        # Store each attribute, ensuring it's a supported dataset type (e.g., NumPy arrays)
-                        if hasattr(attr_value, '__len__'):  # Check for array-like objects or lists
-                            group.create_dataset(attr_name, data=attr_value)
+                    # Create the HDF5 file for this movie
+                    with h5py.File(movie_hdf5_path, 'w') as hdf:
+                        # Store attributes as datasets within the group
+                        for attr_name, attr_value in FA.__dict__.items():
+                            if attr_name in ["left_half_wingbits", "right_half_wingbits",
+                                             "left_full_wingbits", "right_full_wingbits"]:
+                                wing_bit_part = attr_value
+                                kind = "half" if "half" in attr_name else "full"
+                                group = hdf.create_group(attr_name)  # Create a group for half_wingbits
+                                for i, obj in enumerate(wing_bit_part):
+                                    obj_group = group.create_group(f'{kind}_wingbit_{i}')
+                                    for sub_attr_name, sub_attr_value in obj.__dict__.items():
+                                        # Create a dataset inside the group for each attribute of the object
+                                        obj_group.create_dataset(sub_attr_name, data=sub_attr_value)
+                            else:
+                                if hasattr(attr_value, '__len__'):
+                                    # print(attr_name) # Check for array-like objects or lists
+                                    hdf.create_dataset(attr_name, data=attr_value)
 
-                    print(f"Data saved for {movie}")
+                    print(f"Data saved for {movie} in {movie_hdf5_path}")
                 # except Exception as e:
                 #     print(f"Exception occurred while processing {movie}: {e}")
             else:
                 print(f"Missing data for {movie}")
 
-    print(f"All data saved to {output_hdf5_path}")
+    print(f"All data saved to {output_hdf5_path}" if one_h5_for_all else "All data saved to individual movie HDF5 files")
+
 
 
 def add_nans(original_array, num_of_nans):
@@ -1194,21 +1400,26 @@ def compare_autocorrelations_before_and_after_dark(input_hdf5_path, T=20):
 
 
 if __name__ == '__main__':
-    # points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\code on cluster\selected_movies\mov10_u\points_3D_ensemble.npy"
-    points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov78\points_3D_smoothed_ensemble_best.npy"
-    # FlightAnalysis(points_path, create_html=True, find_auto_correlation=False, show_phi=False)
+    movie = 104
+    # points_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\points_3D_smoothed_ensemble_best.npy"
+    # FlightAnalysis(points_path, create_html=False, find_auto_correlation=False, show_phi=False)
+    # calculate_auto_correlation_roni_movies()
+    # plot_auto_correlations()
 
 
-    output_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\all_movies_data.h5"
-    # compare_autocorrelations_before_and_after_dark(output_hdf5_path)
-
-    # plot_movie_html(1)
-    # plot_movie_html(2)    # plot_movie_html(3)
-    # plot_movie_html(4)
+    # output_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\all_movies_data.h5"
+    # # compare_autocorrelations_before_and_after_dark(output_hdf5_path)
+    #
+    # # plot_movie_html(1)
+    # # plot_movie_html(2)    # plot_movie_html(3)
+    # # plot_movie_html(4)
     base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys"
+    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster"
     # csv_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\summary_results.csv"
     # # get_frequencies_from_all(base_path, csv_path)
     output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\all_movies_data_not_smoothed.h5"
     # output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\all_movies_data_smoothed.h5"
-    save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=False)
+    # save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_for_all=False)
+
+    save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_for_all=False)
 

@@ -4,11 +4,12 @@ from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras import models
 from tensorflow.keras.layers import *
 from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, Add, MaxPooling2D, Concatenate, Lambda, Reshape, \
-                                    Activation, Dropout, LeakyReLU, BatchNormalization, Resizing
+    Activation, Dropout, LeakyReLU, BatchNormalization, Resizing
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 
 ALPHA = 0.01
+
 
 class Network:
     def __init__(self, config, image_size, number_of_output_channels):
@@ -24,6 +25,14 @@ class Network:
         self.dilation_rate = config["dilation rate"]
         self.dropout = config["dropout ratio"]
         self.batches_per_epoch = config["batches per epoch"]
+        if "VIT" in self.model_type:
+            self.patch_size = config["patch_size"],
+            if type(self.patch_size) == tuple:
+                self.patch_size = self.patch_size[0]
+            self.projection_dim = config["projection_dim"]
+            self.num_heads = config["num_heads"]
+            self.transformer_layers = config["transformer_layers"]
+            self.fully_connected_expand = config["fully_connected_expand"]
         self.model = self.config_model()
 
     def get_model(self):
@@ -42,7 +51,7 @@ class Network:
             model = self.C2F_per_wing()
         elif self.model_type == COARSE_PER_WING:
             model = self.coarse_per_wing()
-        elif self.model_type == MODEL_18_POINTS_PER_WING_VIT:
+        elif self.model_type == MODEL_18_POINTS_PER_WING_VIT or self.model_type == ALL_POINTS_MODEL_VIT:
             model = self.get_transformer()
         elif self.model_type == RESNET_18_POINTS_PER_WING:
             model = self.resnet50_encoder_shallow_decoder()
@@ -51,7 +60,14 @@ class Network:
         return model
 
     def get_transformer(self):
-        model_vit = vitPose.vision_transformer()
+        model_vit = vitPose.vision_transformer(image_size=self.image_size[0],
+                                               patch_size=self.patch_size,
+                                               projection_dim=self.projection_dim,
+                                               num_heads=self.num_heads,
+                                               transformer_layers=self.transformer_layers,
+                                               num_input_channels=self.image_size[-1],
+                                               num_output_channels=self.number_of_output_channels,
+                                               fully_connected_expand=self.fully_connected_expand)
         return model_vit
 
     def head_tail_all_cams(self):
@@ -110,13 +126,14 @@ class Network:
     def basic_nn(self):
         x_in = Input(self.image_size, name="x_in")
         encoder = self.encoder2d_atrous((self.image_size[0], self.image_size[1], self.image_size[2]),
-                                         self.num_base_filters,
-                                         self.num_blocks, self.kernel_size,
-                                         self.dilation_rate,
-                                         self.dropout)
+                                        self.num_base_filters,
+                                        self.num_blocks, self.kernel_size,
+                                        self.dilation_rate,
+                                        self.dropout)
         encoder.summary()
         decoder = self.decoder2d((encoder.output_shape[1], encoder.output_shape[2], encoder.output_shape[3]),
-                            self.number_of_output_channels, self.num_base_filters, self.num_blocks, self.kernel_size)
+                                 self.number_of_output_channels, self.num_base_filters, self.num_blocks,
+                                 self.kernel_size)
         decoder.summary()
         x_out = decoder(encoder(x_in))
 
@@ -161,14 +178,15 @@ class Network:
         x_in_p2 = Concatenate()([x_in, x_out_p1])  # (192, 192, 4) cat (192, 192, 7) = (192, 192, 11)
         # continue the same
         encoder_p2 = self.encoder2d_atrous((x_in_p2.shape[1], x_in_p2.shape[2], x_in_p2.shape[3]),
-                                        self.num_base_filters,
-                                        self.num_blocks, self.kernel_size,
-                                        self.dilation_rate,
-                                        self.dropout, add_name="2")
+                                           self.num_base_filters,
+                                           self.num_blocks, self.kernel_size,
+                                           self.dilation_rate,
+                                           self.dropout, add_name="2")
         encoder_p2.summary()
-        decoder_p2 = self.decoder2d((encoder_p2.output_shape[1], encoder_p2.output_shape[2], encoder_p2.output_shape[3]),
-                                 self.number_of_output_channels, self.num_base_filters, self.num_blocks,
-                                 self.kernel_size, add_name="2")
+        decoder_p2 = self.decoder2d(
+            (encoder_p2.output_shape[1], encoder_p2.output_shape[2], encoder_p2.output_shape[3]),
+            self.number_of_output_channels, self.num_base_filters, self.num_blocks,
+            self.kernel_size, add_name="2")
         decoder_p2.summary()
         x_out = decoder_p2(encoder_p2(x_in_p2))
 
@@ -184,8 +202,8 @@ class Network:
         num_time_channels = self.image_size[2] - 2
         # decoder gets an image of shape (M, N, num_time_channels + 1 wing)
         shared_encoder = self.encoder2d_atrous((self.image_size[0], self.image_size[1], num_time_channels + 1),
-                                          self.num_base_filters, self.num_blocks, self.kernel_size,
-                                               self.dilation_rate,self.dropout)
+                                               self.num_base_filters, self.num_blocks, self.kernel_size,
+                                               self.dilation_rate, self.dropout)
         shared_encoder.summary()
 
         # decoder gets 2 encoder outputs, [wing 1, wing 2] and outputs the points for wing 1 (7 points)
@@ -229,7 +247,8 @@ class Network:
         # encoder encodes 1 image at a time
         shared_encoder = self.encoder2d_atrous((self.image_size[0], self.image_size[1],
                                                 self.image_size[2] // num_cameras),
-                                          self.num_base_filters, self.num_blocks, self.kernel_size, self.dilation_rate, self.dropout)
+                                               self.num_base_filters, self.num_blocks, self.kernel_size,
+                                               self.dilation_rate, self.dropout)
         shared_encoder.summary()
 
         # for average
@@ -290,7 +309,8 @@ class Network:
         # encoder encodes 1 image at a time
         shared_encoder = self.encoder2d_atrous((self.image_size[0], self.image_size[1],
                                                 self.image_size[2] // num_cameras),
-                                          self.num_base_filters, self.num_blocks, self.kernel_size, self.dilation_rate, self.dropout)
+                                               self.num_base_filters, self.num_blocks, self.kernel_size,
+                                               self.dilation_rate, self.dropout)
         shared_encoder.summary()
 
         # for average
@@ -353,9 +373,9 @@ class Network:
             include_top=False, weights=None, input_shape=self.image_size)(x_in)
 
         decoder = Conv2DTranspose(encoder.shape[-1] // 2,
-                                kernel_size=self.kernel_size, strides=2, padding="same",
-                                activation=LeakyReLU(alpha=ALPHA),
-                                kernel_initializer="glorot_normal")(encoder)
+                                  kernel_size=self.kernel_size, strides=2, padding="same",
+                                  activation=LeakyReLU(alpha=ALPHA),
+                                  kernel_initializer="glorot_normal")(encoder)
 
         decoder = Conv2DTranspose(decoder.shape[-1] // 2,
                                   kernel_size=self.kernel_size, strides=2, padding="same",
@@ -373,16 +393,15 @@ class Network:
                                   kernel_initializer="glorot_normal")(decoder)
 
         x_out = Conv2DTranspose(self.number_of_output_channels,
-                                  kernel_size=self.kernel_size, strides=2, padding="same",
-                                  activation=LeakyReLU(alpha=ALPHA),
-                                  kernel_initializer="glorot_normal")(decoder)
+                                kernel_size=self.kernel_size, strides=2, padding="same",
+                                activation=LeakyReLU(alpha=ALPHA),
+                                kernel_initializer="glorot_normal")(decoder)
 
         net = Model(inputs=x_in, outputs=x_out)
         net.summary()
         net.compile(optimizer=Adam(amsgrad=False),
                     loss=self.loss_function)
         return net
-
 
     @staticmethod
     def encoder2d_atrous(img_size, filters, num_blocks, kernel_size, dilation_rate, dropout, add_name=""):
@@ -430,10 +449,12 @@ class Network:
                                         padding="same", activation=LeakyReLU(alpha=ALPHA),
                                         kernel_initializer="glorot_normal")(x_out)
 
-            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same", activation=LeakyReLU(alpha=ALPHA))(
+            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same",
+                           activation=LeakyReLU(alpha=ALPHA))(
                 x_out)
 
-            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same", activation=LeakyReLU(alpha=ALPHA))(
+            x_out = Conv2D(filters * (2 ** (block_ind)), kernel_size=kernel_size, padding="same",
+                           activation=LeakyReLU(alpha=ALPHA))(
                 x_out)
 
         x_out = Conv2DTranspose(num_output_channels, kernel_size=kernel_size, strides=2, padding="same",

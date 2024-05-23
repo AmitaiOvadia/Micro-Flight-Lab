@@ -7,13 +7,13 @@ import json
 import h5py
 import numpy as np
 import os
-from tensorflow import keras
+# from tensorflow import keras
 from tensorflow.keras.layers import Lambda
 from scipy.interpolate import make_smoothing_spline
 from skimage import util, measure
 import tensorflow as tf
 from scipy.spatial.distance import cdist
-
+import torch
 from scipy.io import loadmat
 # imports of the wings1 detection
 from time import time
@@ -24,6 +24,8 @@ from scipy.ndimage import binary_dilation, binary_closing, center_of_mass, shift
 from datetime import date
 import shutil
 from skimage.morphology import convex_hull_image
+from torchvision import transforms
+import keras
 
 # from scipy.spatial.distance import pdist
 # from scipy.ndimage.measurements import center_of_mass
@@ -70,6 +72,7 @@ class Predictor2D:
         with open(configuration_path) as C:
             config = json.load(C)
             self.config = config
+            self.software = config['software']
             self.triangulate = Triangulate(self.config)
             self.box_path = config["box path"]
             self.wings_pose_estimation_model_path = config["wings pose estimation model path"]
@@ -102,12 +105,26 @@ class Predictor2D:
         self.im_size = self.box_sparse.shape[2]
         self.num_frames = self.box_sparse.shape[0]
         self.num_pass = 0
-
-        self.wings_pose_estimation_model = \
-            Predictor2D.get_pose_estimation_model(self.wings_pose_estimation_model_path)
-        if self.model_type != WINGS_AND_BODY_SAME_MODEL:
-            self.head_tail_pose_estimation_model = \
-                Predictor2D.get_pose_estimation_model(self.head_tail_pose_estimation_model_path)
+        if self.software == 'tensorflow':
+            self.wings_pose_estimation_model = \
+                Predictor2D.get_pose_estimation_model_tensorflow(self.wings_pose_estimation_model_path)
+            if self.model_type != WINGS_AND_BODY_SAME_MODEL:
+                self.head_tail_pose_estimation_model = \
+                    Predictor2D.get_pose_estimation_model_tensorflow(self.head_tail_pose_estimation_model_path)
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            try:
+                torch.zeros(4).cuda()
+            except:
+                print("No GPU found, doesnt use cuda")
+            if torch.cuda.is_available():
+                print("**************** CUDA is available. Using GPU. ****************", flush=True)
+            else:
+                print("**************** CUDA is not available. Using CPU. ****************", flush=True)
+            self.wings_pose_estimation_model = \
+                self.get_pose_estimation_model_pytorch(self.wings_pose_estimation_model_path)
+            self.wings_pose_estimation_model = self.wings_pose_estimation_model.to(self.device)
+            self.transform = transforms.Compose([transforms.ToTensor()])
         self.wings_detection_model = self.get_wings_detection_model()
         self.scores = np.zeros((self.num_frames, self.num_cams, 2))
         self.predict_method = self.choose_predict_method()
@@ -186,7 +203,7 @@ class Predictor2D:
             self.predict_method = self.choose_predict_method()
             return_model_peaks = False if self.model_type == ALL_CAMS_PER_WING else True
             self.wings_pose_estimation_model = \
-                self.get_pose_estimation_model(self.wings_pose_estimation_model_path_second_pass,
+                self.get_pose_estimation_model_tensorflow(self.wings_pose_estimation_model_path_second_pass,
                                                return_model_peaks=return_model_peaks)
             points_3D = self.get_points_3D(alpha=None)
             smoothed_3D = self.smooth_3D_points(points_3D)
@@ -810,8 +827,9 @@ class Predictor2D:
 
     def predict_wings(self, n=100):
         Ypks = []
+        n = max(int(self.num_frames // 50), 1)
         all_frames = np.arange(self.num_frames)
-        n = min(n, self.num_frames)
+        # n = min(n, self.num_frames)
         splited_frames = np.array_split(all_frames, n)
         for cam in range(self.num_cams):
             print(f"predict camera {cam + 1}", flush=True)
@@ -822,7 +840,7 @@ class Predictor2D:
                 for i in range(n):
                     input_i = self.box_sparse.get_camera_dense(cam, channels=[0, 1, 2, self.num_times_channels + wing],
                                                                frames=splited_frames[i])
-                    Ypk_i, _, _, _ = self.predict_Ypk(input_i, self.batch_size, self.wings_pose_estimation_model)
+                    Ypk_i = self.predict_input(input_i)
                     Ypk.append(Ypk_i)
                 Ypk = np.concatenate(Ypk, axis=0)
                 Ypks_per_wing.append(Ypk)
@@ -832,6 +850,34 @@ class Predictor2D:
         Ypk_all = np.concatenate(Ypks, axis=1)
         Ypk_all = np.transpose(Ypk_all, [0, 1, 3, 2])
         return Ypk_all
+
+    def predict_input(self, input_tensor):
+        if self.software == 'tensorflow':
+            Ypk, _, _, _ = self.predict_Ypk(input_tensor, self.batch_size, self.wings_pose_estimation_model)
+        else:
+            input_tensor = input_tensor.transpose([0, 3, 1, 2])
+            input_tensor = torch.from_numpy(input_tensor)
+            input_tensor = input_tensor.to(self.device)
+            confmaps = self.wings_pose_estimation_model(input_tensor)
+            Ypk = Predictor2D.get_points_from_confmaps(confmaps)
+            pass
+        return Ypk
+
+    @staticmethod
+    def find_points(confmaps):
+        # points = find_peaks_soft_argmax(confmaps)
+        points = Predictor2D.tf_find_peaks(confmaps).numpy()
+        # points = points.transpose([0, 2, 1])
+        # points = points[:, :, :-1]
+        return points
+
+    @staticmethod
+    def get_points_from_confmaps(confmaps):
+        confmaps = confmaps.detach().cpu().numpy()
+        confmaps = np.transpose(confmaps, [0, 2, 3, 1])
+        output_points = Predictor2D.find_points(confmaps)
+        # output_points = np.reshape(output_points, [-1, 2])
+        return output_points
 
     def predict_body(self):
         Ypks = []
@@ -1009,13 +1055,20 @@ class Predictor2D:
         return mask
 
     @staticmethod
-    def get_pose_estimation_model(pose_estimation_model_path, return_model_peaks=True):
+    def get_pose_estimation_model_tensorflow(pose_estimation_model_path, return_model_peaks=True):
+        from tensorflow.keras.layers import LeakyReLU
+        custom_objects = {'LeakyReLU': LeakyReLU}
         """ load a pretrained LEAP pose estimation model model"""
-        model = keras.models.load_model(pose_estimation_model_path)
+        model = keras.models.load_model(pose_estimation_model_path, custom_objects=custom_objects)
         if return_model_peaks:
             model = Predictor2D.convert_to_peak_outputs(model, include_confmaps=False)
         print("weights_path:", pose_estimation_model_path)
         print("Loaded model: %d layers, %d params" % (len(model.layers), model.count_params()))
+        return model
+
+    def get_pose_estimation_model_pytorch(self, pose_estimation_model_path):
+        model = torch.jit.load(pose_estimation_model_path, map_location=torch.device(self.device))
+        model.eval()
         return model
 
     @staticmethod
@@ -1099,12 +1152,9 @@ class Predictor2D:
         return inds_to_del
 
 
-# if __name__ == '__main__':
-#     config_file = 'predict_2D_config.json'
-#     predictor = Predictor2D(config_file)
-#     predictor.create_base_box()
-#     predictor.save_base_box()
-#
-#     predictor_2 = Predictor2D(config_file, load_box_from_sparse=True)
-#     predictor_2.run_predict_2D()
-#     pass
+if __name__ == '__main__':
+    config_file = 'predict_2D_config.json'
+    predictor = Predictor2D(config_file)
+    predictor.run_predict_2D()
+
+

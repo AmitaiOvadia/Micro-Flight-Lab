@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-
+from skimage.morphology import disk, erosion, dilation
 from constants import *
 import h5py
 import tensorflow as tf
@@ -9,6 +9,8 @@ from scipy.ndimage import binary_dilation, binary_closing, distance_transform_ed
 
 class Preprocessor:
     def __init__(self, config):
+        self.confmaps_orig = None
+        self.box_orig = None
         self.data_path = config['data_path']
         self.test_path = config['test_path']
         self.mix_with_test = bool(config['mix_with_test'])
@@ -27,6 +29,8 @@ class Preprocessor:
             self.box = self.box[..., [1, -2, -1]]
         self.num_frames = self.box.shape[0]
         self.num_channels = self.box.shape[-1]
+        self.num_cams = self.box.shape[1]
+        self.image_size = self.box.shape[2]
         self.preprocess_function = self.get_preprocces_function()
 
         # get useful indexes
@@ -54,11 +58,40 @@ class Preprocessor:
             self.num_frames = self.box.shape[0]
             self.mix_with_test = False
 
-    def get_box(self):
+        self.body_masks, self.body_sizes = self.get_body_masks()
+        self.retrieve_points_3D()
+        self.retrieve_cropzone()
+
+    def retrieve_points_3D(self):
+        self.points_3D = h5py.File(self.data_path, "r")["/points_3D"][:]
+        self.points_3D = np.transpose(self.points_3D, [1, 2, 0])[:self.box.shape[0]]
+        self.num_points = self.points_3D.shape[1]
+        self.num_wing_points = self.num_points - 2
+        self.left_inds = np.arange(0, self.num_wing_points // 2)
+        self.right_inds = np.arange(self.num_wing_points // 2, self.num_wing_points)
+        self.head_tail_inds = np.array([-2, -1])
+        left_wing = self.points_3D[:, np.append(self.left_inds, self.head_tail_inds), :]
+        right_wing = self.points_3D[:, np.append(self.right_inds, self.head_tail_inds), :]
+        self.points_3D_per_wing = np.concatenate((left_wing, right_wing), axis=0)
+        self.points_3D_per_camera = np.repeat(np.expand_dims(self.points_3D, axis=1), self.box.shape[1], axis=1)
+
+    def retrieve_cropzone(self):
+        self.cropzone = h5py.File(self.data_path, "r")["/cropZone"][:]
+
+    def get_cropzone(self):
+        return self.cropzone
+
+    def get_box(self): 
         return self.box
 
     def get_confmaps(self):
         return self.confmaps
+
+    def get_points_3D_per_wing(self):
+        if self.model_type == ALL_CAMS_DISENTANGLED_PER_WING_CNN or self.model_type == ALL_CAMS_DISENTANGLED_PER_WING_VIT:
+            return self.points_3D_per_wing
+        else:
+            return None
 
     def do_preprocess(self):
         if self.mix_with_test:
@@ -84,7 +117,8 @@ class Preprocessor:
         return X, Y
 
     def get_preprocces_function(self):
-        if self.model_type == ALL_POINTS_MODEL or self.model_type == HEAD_TAIL or self.model_type == TWO_WINGS_TOGATHER:
+        if (self.model_type == ALL_POINTS_MODEL or self.model_type == HEAD_TAIL
+                or self.model_type == TWO_WINGS_TOGATHER or self.model_type == ALL_POINTS_MODEL_VIT):
             return self.reshape_to_cnn_input
         elif self.model_type == PER_WING_MODEL or self.model_type == C2F_PER_WING \
              or self.model_type == COARSE_PER_WING \
@@ -94,16 +128,20 @@ class Preprocessor:
             return self.do_reshape_per_wing
         elif self.model_type == BODY_PARTS_MODEL:
             return self.reshape_to_body_parts
-        elif self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS or self.model_type == PER_WING_SMALL_WINGS_MODEL:
+        elif (self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS
+              or self.model_type == PER_WING_SMALL_WINGS_MODEL):
             return self.do_reshape_per_wing
         elif self.model_type == HEAD_TAIL_ALL_CAMS:
             return self.do_preprocess_HEAD_TAIL_ALL_CAMS
         elif self.model_type == HEAD_TAIL_PER_CAM or self.model_type == HEAD_TAIL_PER_CAM_POINTS_LOSS:
             return self.do_preprocess_HEAD_TAIL_PER_CAM
-        elif self.model_type == MODEL_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS or \
-                self.model_type == RESNET_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_PER_WING_VIT:
+        elif (self.model_type == MODEL_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS or \
+                self.model_type == RESNET_18_POINTS_PER_WING or self.model_type == MODEL_18_POINTS_PER_WING_VIT or
+              self.model_type == MODEL_18_POINTS_PER_WING_VIT_TO_POINTS or
+              self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS_VIT):
             return self.do_preprocess_18_pnts
-        elif self.model_type == ALL_CAMS_18_POINTS:
+        elif (self.model_type == ALL_CAMS_18_POINTS or self.model_type == ALL_CAMS_DISENTANGLED_PER_WING_VIT
+              or self.model_type == ALL_CAMS_DISENTANGLED_PER_WING_CNN or self.model_type == ALL_CAMS_VIT):
             return self.reshape_for_ALL_CAMS_18_POINTS
 
     def do_mix_with_test(self):
@@ -190,11 +228,11 @@ class Preprocessor:
                     left_values += left_mask[left_peaks_i[1, i], left_peaks_i[0, i]]
                     right_values += right_mask[right_peaks_i[1, i], right_peaks_i[0, i]]
 
-                # don't append if one mask is missing
+                # don't append if one mask is missing # later fix: all masks exist
                 mask_exist = True
-                if left_values < min_in_mask or right_values < min_in_mask:
-                    mask_exist = False
-                    num_of_bad_masks += 1
+                # if left_values < min_in_mask or right_values < min_in_mask:
+                #     mask_exist = False
+                #     num_of_bad_masks += 1
 
                 if trainset_type == MOVIE_TRAIN_SET or (trainset_type == RANDOM_TRAIN_SET and mask_exist):
                     # copy fly image
@@ -206,6 +244,12 @@ class Preprocessor:
                     # copy confmaps
                     new_right_wing_confmaps[frame, cam, :, :, :] = right_confmap
                     new_left_wing_confmaps[frame, cam, :, :, :] = left_confmap
+
+        # save the original box and confidence maps
+        self.box_orig = np.zeros(list(new_left_wing_box.shape[:-1]) + [5])
+        self.box_orig[..., [0, 1, 2, 3]] = new_left_wing_box
+        self.box_orig[..., -1] = new_right_wing_box[..., -1]
+        self.confmaps_orig = np.concatenate((new_left_wing_confmaps, new_right_wing_confmaps), axis=-1)
 
         if model_type == PER_WING_MODEL:
             box = np.concatenate((new_left_wing_box, new_right_wing_box), axis=0)
@@ -302,7 +346,7 @@ class Preprocessor:
                 self.box[frame, cam, :, :, self.first_mask_ind] = adjusted_mask
 
     @staticmethod
-    def take_n_good_cameras(box, confmaps, n, wing_size_rank=3):
+    def take_n_good_cameras(box, confmaps, all_wings_sizes, n, wing_size_rank=3):
         num_frames = box.shape[0]
         num_cams = box.shape[1]
         new_num_cams = n
@@ -315,10 +359,7 @@ class Preprocessor:
         small_wings_confmaps = np.zeros((num_frames, image_shape, image_shape, num_channels_confmap))
         d_size_wings_inds = np.zeros((num_frames,))
         for frame in range(num_frames):
-            wings_size = np.zeros(num_cams)
-            for cam in range(num_cams):
-                wing_mask = box[frame, cam, :, :, -1]
-                wings_size[cam] = np.count_nonzero(wing_mask)
+            wings_size = all_wings_sizes[frame]
             wings_size_argsort = np.argsort(wings_size)[::-1]
             d_size_wing_ind = wings_size_argsort[wing_size_rank]
             d_size_wings_inds[frame] = d_size_wing_ind
@@ -387,18 +428,19 @@ class Preprocessor:
             self.adjust_masks_size_per_wing()
         if self.model_type == TRAIN_ON_2_GOOD_CAMERAS_MODEL or self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL:
             n = 3 if self.model_type == TRAIN_ON_3_GOOD_CAMERAS_MODEL else 2
-            self.box, self.confmaps, _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, n)
-        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS or self.model_type == HEAD_TAIL_ALL_CAMS:
+            self.box, self.confmaps, _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, self.wings_sizes, n)
+        if (self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_AND_3_GOOD_CAMS or
+                self.model_type == HEAD_TAIL_ALL_CAMS or self.model_type  == ALL_CAMS_DISENTANGLED_PER_WING_VIT):
             n = 3 if self.model_type == ALL_CAMS_AND_3_GOOD_CAMS else 4
             if n == 3:
-                self.box, self.confmaps,  _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, n)
+                self.box, self.confmaps,  _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, self.wings_sizes,n)
             self.reshape_for_ALL_CAMS()
             self.num_samples = self.box.shape[0]
             return
         if self.model_type == PER_WING_SMALL_WINGS_MODEL:
-            _, _, self.box, self.confmaps, _ = self.take_n_good_cameras(self.box, self.confmaps, 3)
+            _, _, self.box, self.confmaps, _ = self.take_n_good_cameras(self.box, self.confmaps, self.wings_sizes,3)
         if self.model_type == PER_WING_1_SIZE_RANK:
-            _, _, self.box, self.confmaps, _ = self.take_n_good_cameras(self.box, self.confmaps, 3, self.wing_size_rank)
+            _, _, self.box, self.confmaps, _ = self.take_n_good_cameras(self.box, self.confmaps, self.wings_sizes,3, self.wing_size_rank)
         else:
             self.box = np.reshape(self.box, newshape=[self.box.shape[0] * self.box.shape[1],
                                                       self.box.shape[2], self.box.shape[3],
@@ -482,8 +524,14 @@ class Preprocessor:
         right_confmaps = np.concatenate((right_confmaps, head_tail_confmaps), axis=-1)
         self.confmaps = np.concatenate((left_confmaps, right_confmaps), axis=0)
         self.adjust_masks_size_per_wing()
-        if self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS:
-            self.box, self.confmaps, _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, 3)
+
+        self.wings_sizes = self.get_neto_wings_masks()
+        wings_sizes_left = self.wings_sizes[..., 0]
+        wings_sizes_right = self.wings_sizes[..., 1]
+        wings_sizes_all = np.concatenate((wings_sizes_left, wings_sizes_right), axis=0)
+
+        if self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS or self.model_type == MODEL_18_POINTS_3_GOOD_CAMERAS_VIT:
+            self.box, self.confmaps, _, _, _ = self.take_n_good_cameras(self.box, self.confmaps, wings_sizes_all, 3)
         self.box = np.reshape(self.box, newshape=[self.box.shape[0] * self.box.shape[1],
                                                   self.box.shape[2], self.box.shape[3],
                                                   self.box.shape[4]])
@@ -524,6 +572,44 @@ class Preprocessor:
                                         self.confmaps[:, 2, ...],
                                         self.confmaps[:, 3, ...]), axis=-1)
         self.num_samples = self.box.shape[0]
+
+
+    def get_body_masks(self, opening_rad=6):
+        """
+        find the fly's body, and the distance transform for later analysis in every camera in 2D using segmentation
+        """
+        body_masks = np.zeros(shape=(self.num_frames, self.num_cams, self.image_size, self.image_size))
+        body_sizes = np.zeros((self.num_frames, self.num_cams))
+        for frame in range(self.num_frames):
+            for cam in range(self.num_cams):
+                fly_3_ch = self.box[frame, cam, :, :, :self.num_time_channels]
+                fly_3_ch_av = np.sum(fly_3_ch, axis=-1) / self.num_time_channels
+                binary_body = fly_3_ch_av >= 0.7
+                selem = disk(opening_rad)
+                # Perform dilation
+                dilated = dilation(binary_body, selem)
+                # Perform erosion
+                mask = erosion(dilated, selem)
+                body_sizes[frame, cam] = np.count_nonzero(mask)
+                body_masks[frame, cam, ...] = mask
+        return body_masks, body_sizes
+
+    def get_neto_wings_masks(self):
+        wings_size = np.zeros((self.num_frames, self.num_cams, 2))
+        for frame in range(self.num_frames):
+            for cam in range(self.num_cams):
+                body_mask = self.body_masks[frame, cam, :, :]
+                fly = self.box_orig[frame, cam, :, :, 1]
+                for wing_num in range(2):
+                    other_wing_mask = self.box_orig[frame, cam, :, :, self.num_time_channels + (not wing_num)]
+                    wing_mask = self.box_orig[frame, cam, :, :, self.num_time_channels + wing_num]
+                    body_and_other_wing_mask = np.bitwise_or(body_mask.astype(bool), other_wing_mask.astype(bool))
+                    intersection = np.logical_and(wing_mask, body_and_other_wing_mask)
+                    neto_wing = wing_mask - intersection
+                    neto_wing = np.logical_and(neto_wing, fly)
+                    wings_size[frame, cam, wing_num] = np.count_nonzero(neto_wing)
+        return wings_size
+
 
 
     @staticmethod

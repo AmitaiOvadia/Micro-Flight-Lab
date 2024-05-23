@@ -14,6 +14,7 @@ from scipy.optimize import curve_fit
 from scipy.linalg import svd
 
 from scipy.interpolate import griddata
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 class Visualizer:
@@ -779,6 +780,403 @@ class Visualizer:
             fig.write_html(output_html_path)
             print(f"Plot saved to {output_html_path}")
 
+    @staticmethod
+    def get_data_from_h5(h5_path, data_name):
+        data = h5py.File(h5_path, 'r')[data_name][:]
+        return data
+
+
+    @staticmethod
+    def visualize_analisys_3D(h5_path_movie_path):
+        zoom_factor = 0.8  # Adjust as needed
+
+        # Assuming points is your (N, M, 3) array
+        points = Visualizer.get_data_from_h5(h5_path_movie_path, 'points_3D')
+        num_frames = len(points)
+
+        # stroke planes
+        my_stroke_planes = Visualizer.get_data_from_h5(h5_path_movie_path, 'stroke_planes')[:, :-1]
+
+        # center of masss
+        my_CM = Visualizer.get_data_from_h5(h5_path_movie_path, 'center_of_mass')
+
+        # body vectors
+        my_x_body = Visualizer.get_data_from_h5(h5_path_movie_path, 'x_body')
+        my_y_body = Visualizer.get_data_from_h5(h5_path_movie_path, 'y_body')
+        my_z_body = Visualizer.get_data_from_h5(h5_path_movie_path, 'z_body')
+
+        # wing vectors
+        my_left_wing_span = Visualizer.get_data_from_h5(h5_path_movie_path, 'left_wing_span')
+        my_right_wing_span = Visualizer.get_data_from_h5(h5_path_movie_path, 'right_wing_span')
+        my_left_wing_chord = Visualizer.get_data_from_h5(h5_path_movie_path,'left_wing_chord')
+        my_right_wing_chord = Visualizer.get_data_from_h5(h5_path_movie_path,'right_wing_chord')
+
+        # wing tips
+        my_left_wing_tip = Visualizer.get_data_from_h5(h5_path_movie_path,'wings_tips_left')
+        my_right_wing_tip = Visualizer.get_data_from_h5(h5_path_movie_path,'wings_tips_right')
+
+        # wings cm
+        my_left_wing_CM = Visualizer.get_data_from_h5(h5_path_movie_path,'left_wing_CM')
+        my_right_wing_CM = Visualizer.get_data_from_h5(h5_path_movie_path,'right_wing_CM')
+
+        # points = points[:1000]
+
+        # Calculate the limits of the plot
+        x_min = np.nanmin(points[:, :, 0])
+        y_min = np.nanmin(points[:, :, 1])
+        z_min = np.nanmin(points[:, :, 2])
+
+        x_max = np.nanmax(points[:, :, 0])
+        y_max = np.nanmax(points[:, :, 1])
+        z_max = np.nanmax(points[:, :, 2])
+
+        # Create a color array
+        my_points_to_show = np.array([my_left_wing_CM, my_right_wing_CM, my_CM, my_left_wing_tip, my_right_wing_tip])
+        num_points = points.shape[1]
+        color_array = colors.hsv_to_rgb(np.column_stack((np.linspace(0, 1, num_points), np.ones((num_points, 2)))))
+
+        fig = plt.figure(figsize=(20, 20))  # Adjust the figure size here
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Set the limits of the plot
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max])
+        ax.set_zlim([z_min, z_max])
+
+        # Define the connections between points
+        connections = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (0, 6),
+                       (8, 9), (9, 10), (10, 11), (11, 12), (12, 13), (13, 14), (8, 14),
+                       # (7, 15),
+                       (16, 17)]
+
+        # Create the slider
+        axframe = plt.axes([0.2, 0.02, 0.65, 0.03], facecolor='lightgoldenrodyellow')
+        slider = Slider(axframe, 'Frame', 0, len(points) - 1, valinit=0, valstep=1)
+
+        def add_quiver_axes(ax, origin, x_vec, y_vec, z_vec, scale=0.001, labels=None,  color='r'):
+            x, y, z = origin
+            if x_vec is not None:
+                ax.quiver(x, y, z, x_vec[0], x_vec[1], x_vec[2], length=scale, color=color)
+            if y_vec is not None:
+                ax.quiver(x, y, z, y_vec[0], y_vec[1], y_vec[2], length=scale, color=color)
+            if z_vec is not None:
+                ax.quiver(x, y, z, z_vec[0], z_vec[1], z_vec[2], length=scale, color=color)
+
+            # Add optional labels if provided
+            if labels:
+                if x_vec is not None:
+                    ax.text(x + x_vec[0] * scale, y + x_vec[1] * scale, z + x_vec[2] * scale, labels[0], color=color)
+                if y_vec is not None:
+                    ax.text(x + y_vec[0] * scale, y + y_vec[1] * scale, z + y_vec[2] * scale, labels[1], color=color)
+                if z_vec is not None:
+                    ax.text(x + z_vec[0] * scale, y + z_vec[1] * scale, z + z_vec[2] * scale, labels[2], color=color)
+
+        def plot_plane(ax, center, normal, y_body, size=0.005, color='g', alpha=0.5):
+            d = size / 2
+
+            # Ensure y_body is perpendicular to the normal
+            y_body = y_body / np.linalg.norm(y_body)
+
+            # Create a vector u that is perpendicular to both normal and y_body
+            u = np.cross(normal, y_body)
+            u = u / np.linalg.norm(u)
+
+            # Calculate the corners of the plane
+            corners = np.array([
+                center + d * (u + y_body),
+                center + d * (u - y_body),
+                center + d * (-u - y_body),
+                center + d * (-u + y_body),
+            ])
+
+            # Create the polygon for the plane
+            vertices = [corners]
+            plane = Poly3DCollection(vertices, color=color, alpha=alpha)
+            ax.add_collection3d(plane)
+
+
+        def update(val, plot_head_tail_points=False, plot_all_my_points=True, show_roni=False, show_me=True):
+            ax.cla()  # Clear current axes
+            frame = int(slider.val)
+
+            if plot_all_my_points:
+                for i in range(num_points):
+                    if i not in [7, 15]:
+                        ax.scatter(points[frame, i, 0], points[frame, i, 1], points[frame, i, 2], c=color_array[i])
+                for i, j in connections:
+                    ax.plot(points[frame, [i, j], 0], points[frame, [i, j], 1], points[frame, [i, j], 2], c='k')
+
+            # Plot points
+            if plot_head_tail_points:
+                ax.scatter(points[frame, -1, 0], points[frame, -1, 1], points[frame, -1, 2], c=color_array[0])
+                ax.scatter(points[frame, -2, 0], points[frame, -2, 1], points[frame, -2, 2], c=color_array[0])
+                ax.plot(points[frame, [-1, -2], 0], points[frame, [-1, -2], 1], points[frame, [-1, -2], 2], c='k')
+
+            # Plot wing tips
+            ax.scatter(my_left_wing_tip[frame, 0], my_left_wing_tip[frame, 1], my_left_wing_tip[frame, 2],
+                       c=color_array[0])
+            ax.scatter(my_right_wing_tip[frame, 0], my_right_wing_tip[frame, 1], my_right_wing_tip[frame, 2],
+                       c=color_array[0])
+
+            # Plot the center of mass
+            my_cm_x, my_cm_y, my_cm_z = my_CM[frame]
+            ax.scatter(my_cm_x, my_cm_y, my_cm_z, c=color_array[0])
+
+            # Add the stroke plane
+            plot_plane(ax, my_CM[frame], my_stroke_planes[frame], my_y_body[frame])
+
+            if show_me:
+                add_quiver_axes(ax, (my_cm_x, my_cm_y, my_cm_z), my_x_body[frame], my_y_body[frame], my_z_body[frame],
+                                color='r', labels=['Xb', 'Yb', 'Zb'])
+                add_quiver_axes(ax, my_left_wing_CM[frame], my_left_wing_span[frame], my_left_wing_chord[frame], None,
+                                color='r', labels=['Span', 'Chord'])
+                add_quiver_axes(ax, my_right_wing_CM[frame], my_right_wing_span[frame], my_right_wing_chord[frame], None,
+                                color='r', labels=['Span', 'Chord'])
+
+            try:
+                zoom_scale = 0.003
+                ax.set_xlim([my_cm_x - zoom_scale, my_cm_x + zoom_scale])
+                ax.set_ylim([my_cm_y - zoom_scale, my_cm_y + zoom_scale])
+                ax.set_zlim([my_cm_z - zoom_scale, my_cm_z + zoom_scale])
+            except:
+                max_range = max(x_max - x_min, y_max - y_min, z_max - z_min) * zoom_factor
+                mid_x = (x_max + x_min) / 2
+                mid_y = (y_max + y_min) / 2
+                mid_z = (z_max + z_min) / 2
+
+                ax.set_xlim(mid_x - max_range / 2, mid_x + max_range / 2)
+                ax.set_ylim(mid_y - max_range / 2, mid_y + max_range / 2)
+                ax.set_zlim(mid_z - max_range / 2, mid_z + max_range / 2)
+
+            ax.set_box_aspect([1, 1, 1])
+
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update)
+
+        # Function to handle keyboard events
+        def handle_key_event(event):
+            if event.key == 'right':
+                slider.set_val(min(slider.val + 1, slider.valmax))
+            elif event.key == 'left':
+                slider.set_val(max(slider.val - 1, slider.valmin))
+
+        fig.canvas.mpl_connect('key_press_event', handle_key_event)
+
+        # Initial plot
+        update(0)
+        plt.show()
+
+    @staticmethod
+    def visualize_models_selection(all_models_combinations):
+        left_wing_models = all_models_combinations[0]
+        right_wing_models = all_models_combinations[1]
+        head_tail_models = all_models_combinations[2]
+        side_points_models = all_models_combinations[3]
+
+        models = head_tail_models
+        M = left_wing_models.shape[1]
+        # Set up the scatter plot
+        fig, ax = plt.subplots(2, 1, figsize=(10, 12))
+
+        # Define colors for each model
+        colors = plt.cm.get_cmap('tab10', M)
+
+        # Plot scatter data
+        for model in range(M):
+            frames = np.where(models[:, model] == 1)[0]
+            ax[0].scatter(frames, np.full_like(frames, model), color=colors(model), label=f'Model {model + 1}',
+                          s=1)
+
+        # Scatter plot labels and legend
+        ax[0].set_xlabel('Frames')
+        ax[0].set_ylabel('Models')
+        ax[0].set_title('Model Selection Visualization')
+        ax[0].set_yticks(np.arange(M))
+        ax[0].set_yticklabels([f'Model {i + 1}' for i in range(M)])
+        ax[0].legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+
+        # Plot histogram data
+        model_usage = np.sum(models, axis=0)
+        ax[1].bar(np.arange(M), model_usage, color=[colors(i) for i in range(M)])
+
+        # Histogram labels
+        ax[1].set_xlabel('Models')
+        ax[1].set_ylabel('Usage Count')
+        ax[1].set_title('Model Usage Histogram')
+        ax[1].set_xticks(np.arange(M))
+        ax[1].set_xticklabels([f'Model {i + 1}' for i in range(M)])
+
+        # Display plots
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
+    def plot_psi_or_theta_vs_phi(h5_path_movie_path, wing_bits=[0, 1, 2], wing='left', other_angle='theta'):
+        # other angle is psi or theta
+        fig = go.Figure()
+        # Plot Pitch Body Angle
+        for wing_bit in wing_bits:
+            data_name = f"{wing}_full_wingbits/full_wingbit_{wing_bit}/phi_vals"
+            phi = Visualizer.get_data_from_h5(h5_path_movie_path, data_name)
+            data_name = f"{wing}_full_wingbits/full_wingbit_{wing_bit}/{other_angle}_vals"
+            angle = np.squeeze(Visualizer.get_data_from_h5(h5_path_movie_path, data_name))
+            fig.add_trace(go.Scatter(
+                x=phi,
+                y=angle,
+                mode='lines',
+                name=f'{other_angle} vs phi wingbit {wing_bit}',
+                # line=dict(dash='dash')
+            ))
+        fig.update_layout(
+            title=f'{wing} wing wingbits theta vs phi',
+            xaxis_title='phi (degrees)',
+            yaxis_title=f'{other_angle} (degrees)',
+            legend_title='Legend'
+        )
+        # Save the plot as an HTML file
+        html_file_name = f'{other_angle} vs phi.html'
+        dir = os.path.dirname(h5_path_movie_path)
+        path = os.path.join(dir, html_file_name)
+        fig.write_html(path)
+        print(f'Saved: {path}')
+
+    @staticmethod
+    def compare_body_angles(h5_path_movie_path):
+        angles_names = ['yaw', 'pitch', 'roll']
+        # convert_to_ms = self.frame_rate / 1000
+        yaw = Visualizer.get_data_from_h5(h5_path_movie_path, f'yaw_angle')
+        pitch = Visualizer.get_data_from_h5(h5_path_movie_path, f'pitch_angle')
+        roll = Visualizer.get_data_from_h5(h5_path_movie_path, f'roll_angle')
+        angles = [yaw, pitch, roll]
+        for i in range(len(angles_names)):
+            data = angles[i]
+            angle = angles_names[i]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=np.arange(len(data)),
+                y=data,
+                mode='lines',
+                name=f'My {angle.capitalize()}',
+                # line=dict(dash='dash')
+            ))
+            fig.update_layout(
+                title=f'{angle.capitalize()} Body Angle',
+                xaxis_title='Milliseconds',
+                yaxis_title=f'{angle.capitalize()} Angle (degrees)',
+                legend_title='Legend'
+            )
+            save_name = f'{angle}_body_angle.html'
+            dir = os.path.dirname(h5_path_movie_path)
+            path = os.path.join(dir, save_name)
+            fig.write_html(path)
+
+    @staticmethod
+    def show_amplitude_graph(h5_path_movie_path, wing='left'):
+        amplitudes = Visualizer.get_data_from_h5(h5_path_movie_path, f'{wing}_amplitudes')
+        phi = Visualizer.get_data_from_h5(h5_path_movie_path, f'wings_phi_{wing}')
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=amplitudes[:, 0],
+            y=amplitudes[:, 1],
+            mode='lines',
+            name=f'{wing} wing amplitude',
+            # line=dict(dash='dash')
+        ))
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(phi)),
+            y=phi,
+            mode='lines',
+            name=f'{wing} wing phi',
+            # line=dict(dash='dash')
+        ))
+
+        fig.update_layout(
+            title=f'{wing} phi and amplitudes',
+            xaxis_title='Frames',
+            yaxis_title=f'amplitude and',
+            legend_title='Legend'
+        )
+        save_name = f'{wing}_wing_phi_and_amplitude.html'
+        dir = os.path.dirname(h5_path_movie_path)
+        path = os.path.join(dir, save_name)
+        fig.write_html(path)
+
+    @staticmethod
+    def show_left_vs_right_amplitude(h5_path_movie_path,):
+        left_amplitudes = Visualizer.get_data_from_h5(h5_path_movie_path, f'left_amplitudes')
+        right_amplitudes = Visualizer.get_data_from_h5(h5_path_movie_path, f'right_amplitudes')
+        phi_left = Visualizer.get_data_from_h5(h5_path_movie_path, f'wings_phi_left')
+        phi_right = Visualizer.get_data_from_h5(h5_path_movie_path, f'wings_phi_right')
+        roll = Visualizer.get_data_from_h5(h5_path_movie_path, f'roll_angle')
+        pitch = Visualizer.get_data_from_h5(h5_path_movie_path, f'pitch_angle')
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(phi_left)),
+            y=pitch,
+            mode='lines',
+            name=f'pitch',
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=left_amplitudes[:, 0],
+            y=left_amplitudes[:, 1] - right_amplitudes[:, 1],
+            mode='lines',
+            name=f'left minus right',
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(phi_left)),
+            y=phi_left,
+            mode='lines',
+            name=f'phi left',
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(phi_right)),
+            y=phi_right,
+            mode='lines',
+            name=f'phi right',
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=left_amplitudes[:, 0],
+            y=left_amplitudes[:, 1],
+            mode='lines',
+            name=f'left wing amplitude',
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=right_amplitudes[:, 0],
+            y=right_amplitudes[:, 1],
+            mode='lines',
+            name=f'right wing amplitude',
+            # line=dict(dash='dash')
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=np.arange(len(roll)),
+            y=roll,
+            mode='lines',
+            name=f'roll',
+            # line=dict(dash='dash')
+        ))
+
+        fig.update_layout(
+            title=f'left vs right wing amplitudes',
+            xaxis_title='Frames',
+            yaxis_title=f'amplitude and',
+            legend_title='Legend'
+        )
+
+        save_name = f'left vs right wing amplitudes.html'
+        dir = os.path.dirname(h5_path_movie_path)
+        path = os.path.join(dir, save_name)
+        fig.write_html(path)
+
+
 
 if __name__ == '__main__':
     # input_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\all_movies_data.h5"
@@ -788,27 +1186,39 @@ if __name__ == '__main__':
     # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov62\movie_62_160_1888_ds_3tc_7tj.h5"
     # Visualizer.display_movie_from_path(movie_path)
 
+    # display analysis
+    movie = 78
+    h5_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\mov{movie}_analysis_smoothed.h5"
+    Visualizer.plot_psi_or_theta_vs_phi(h5_path)
+    # Visualizer.show_left_vs_right_amplitude(h5_path)
+    # Visualizer.compare_body_angles(h5_path)
+    # Visualizer.plot_theta_vs_phi(h5_path, wing_bits=[1,2,3,4,5,6,7])
+    # Visualizer.show_amplitude_graph(h5_path)
+    # Visualizer.show_left_vs_right_amplitude(h5_path)
+    # Visualizer.visualize_analisys_3D(h5_path)
+
     # display 3D points
 
-    points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov78\points_3D_smoothed_ensemble_best.npy"
-    points_3D = np.load(points_path)
-    # cm = (points_3D[:, -1, :] - points_3D[:, -2, :])/2
-    # dists = np.linalg.norm(points_3D[:, -2, :] - points_3D[:, -1, :], axis=-1)
-    # dists = dists - dists.mean()
-    # plt.plot(cm)
-    # plt.show()
-    Visualizer.show_points_in_3D(points_3D[:300])
+    # points_path = r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_ensemble_best_method.npy"
+    # points_3D = np.load(points_path)
+    # Visualizer.show_points_in_3D(points_3D)
 
     # display box and 2D predictions
-    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov104\saved_box_dir\box.h5"
-    # start = 500
-    # end = 1000
+    # path = r"C:\Users\amita\OneDrive\Desktop\temp\box.h5"
+    # start = 0
+    # end = 200
     # box = h5py.File(path, "r")["/array"][start:end]
-    # points_2D = np.load(r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov104\points_ensemble_smoothed_reprojected.npy")
-    # Visualizer.show_predictions_all_cams(box[start:end], points_2D[start:end])
+    # points_2D = np.load(r"C:\Users\amita\OneDrive\Desktop\temp\points_ensemble_reprojected.npy")
+    # Visualizer.show_predictions_all_cams(box, points_2D[start:end])
 
     # display box and 2D predictions
-    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\mov104\movie_104_10_1007_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_May 02\predicted_points_and_box_reprojected.h5"
-    # box = h5py.File(path, "r")["/box"][:]
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example datasets\mov6\movie_6_100_498_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_May 17\predicted_points_and_box_reprojected.h5"
+    # box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example datasets\mov6\saved_box_dir\box.h5"
+    # box = h5py.File(box_path, "r")["/array"][:]
     # points_2D = h5py.File(path, "r")["/positions_pred"][:]
     # Visualizer.show_predictions_all_cams(box, points_2D)
+
+    # visualize model selection
+    # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\all_models_combinations.npy"
+    # all_models_combinations = np.load(path)
+    # Visualizer.visualize_models_selection(all_models_combinations)
