@@ -20,6 +20,7 @@ from utils import get_scores_from_readme, clean_directory, get_movie_length, get
 from multiprocessing import Pool, cpu_count
 import tensorflow as tf
 import torch
+from models_config import *
 
 try:
     torch.zeros(4).cuda()
@@ -34,6 +35,15 @@ else:
     print("TensorFlow is using CPU.", flush=True)
 
 WINDOW_SIZE = 31
+CAMERAS_PAIRS = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+CAMERA_PAIRS_INDEXES = [0, 1, 2, 3, 4, 5]
+
+# EXCLUDE_CAM_3 = [0, 1, 3]
+# EXCLUDE_CAM_2 = [0, 2, 4]
+# EXCLUDE_CAM_1 = [1, 2, 5]
+# EXCLUDE_CAM_0 = [3, 4, 5]
+# EXCLUDE_NON = [0, 1, 2, 3, 4, 5]
+# ALL_OPTIONS = [EXCLUDE_NON, EXCLUDE_CAM_0, EXCLUDE_CAM_1, EXCLUDE_CAM_2, EXCLUDE_CAM_3]
 
 
 def create_movie_html(movie_dir_path, name="points_3D_smoothed_ensemble_best.npy"):
@@ -54,80 +64,6 @@ def create_movie_html(movie_dir_path, name="points_3D_smoothed_ensemble_best.npy
                                      start_frame=start_frame, save_path=save_path)
         # except Exception as e:
         #     print(f"{movie_dir_path}\n{e}")
-
-
-def config_1(config):
-    # 3 good cameras 1
-    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["predict again using reprojected masks"] = 0
-    return config
-
-
-def config_2(config):
-    # 3 good cameras 1
-    config["wings pose estimation model path"] = r"models/3 good cameras/MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["predict again using reprojected masks"] = 0
-    return config
-
-
-def config_3(config):
-    # 3 good cameras 2
-    config["wings pose estimation model path"] = r"models/3 good cameras/MODEL_18_POINTS_3_GOOD_CAMERAS_Jan 03_01/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["predict again using reprojected masks"] = 0
-    return config
-
-
-def config_4(config):
-    # 2 passes reprojected masks
-    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
-    config["wings pose estimation model path second path"] = "models/per wing/MODEL_18_POINTS_PER_WING_Jan 20/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["predict again using reprojected masks"] = 1
-    return config
-
-
-def config_5(config):
-    # 2 passes reprojected masks, all cameras model 1
-    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
-    config["wings pose estimation model path second path"] = r"models/4 cameras/concatenated encoder/ALL_CAMS_18_POINTS_Jan 19_01/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["model type second pass"] = "ALL_CAMS_PER_WING"
-    config["predict again using reprojected masks"] = 1
-    return config
-
-
-def config_6(config):
-    # 2 passes reprojected masks, all cameras model 2
-    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
-    config["wings pose estimation model path second path"] = r"models/4 cameras/concatenated encoder/ALL_CAMS_18_POINTS_Jan 20_01/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["model type second pass"] = "ALL_CAMS_PER_WING"
-    config["predict again using reprojected masks"] = 1
-    return config
-
-def config_7(config):
-    # 2 passes reprojected masks, all cameras model 1
-    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
-    config["wings pose estimation model path second path"] = r"models/per wing/different seed tough augmentations/MODEL_18_POINTS_PER_WING_Apr 07_08/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["predict again using reprojected masks"] = 1
-    return config
-
-
-def config_8(config):
-    # 2 passes reprojected masks, all cameras model 2
-    config["wings pose estimation model path"] = r"models/per wing/MODEL_18_POINTS_PER_WING_Jan 11_03/best_model.h5"
-    config["wings pose estimation model path second path"] = r"models/per wing/different seed tough augmentations/MODEL_18_POINTS_PER_WING_Apr 07_09/best_model.h5"
-    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
-    config["predict again using reprojected masks"] = 1
-    return config
-
 
 def predict_3D_points_all_pairs(base_path):
     # Create an empty list to store the file paths
@@ -186,23 +122,26 @@ def all_possible_combinations(lst, fraq=0.6):
 
 
 def get_best_ensemble_combination(all_points_list, score_function=From2Dto3D.get_validation_score):
+    # [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
     candidates = list(range(len(all_points_list)))
     all_combinations_list = all_possible_combinations(candidates, fraq=0.2)
+    ALL_OPTIONS = all_possible_combinations(lst=CAMERA_PAIRS_INDEXES, fraq=0.1)
     # Initialize variables to store the best score and its corresponding combination
     best_score = float('inf')  # Start with the lowest possible score
     best_combination = None  # To store the best combination leading to the best score
     best_points_3D = None  # To optionally store the 3D points of the best combination
     for combination in all_combinations_list:
-        all_comb_points = [all_points_list[i] for i in combination]
-        result = np.concatenate(all_comb_points, axis=2)
-        points_3D = get_3D_points_median(result)
-        score = score_function(points_3D)
-        # print(f"score: {score} combination: {combination}", flush=True)
-        # Update best_score and best_combination if the current score is higher
-        if score < best_score:
-            best_score = score
-            best_combination = combination
-            best_points_3D = points_3D  # Optionally save the 3D points as well
+        for ind, cams_pairs_comb in enumerate(ALL_OPTIONS):
+            all_comb_points = [all_points_list[i][:, :, cams_pairs_comb, :] for i in combination]
+            result = np.concatenate(all_comb_points, axis=2)
+            points_3D = get_3D_points_median(result)
+            score = score_function(points_3D)
+            # print(f"score: {score} combination: {combination}", flush=True)
+            # Update best_score and best_combination if the current score is higher
+            if score < best_score:
+                best_score = score
+                best_combination = (combination, cams_pairs_comb)
+                best_points_3D = points_3D  # Optionally save the 3D points as well
     score = score_function(best_points_3D)
     return best_combination, best_points_3D, score
 
@@ -310,9 +249,8 @@ def get_best_points_per_point(all_points_list, points_inds, window_size=WINDOW_S
         window_start = i
         window_data = get_window(extended_data, window_size, window_start)
         # camera_pairs_indexes = get_best_cameras_per_window(window_data, score_function=score_function)
-        camera_pairs_indexes = [0, 1, 2, 3, 4, 5]
         # given the best camera pairs indexes, choose the best models
-        window_data_chosen_pairs = [points[:, :, camera_pairs_indexes, :] for points in window_data]
+        window_data_chosen_pairs = [points[:, :, CAMERA_PAIRS_INDEXES, :] for points in window_data]
         best_combination_w, best_points_3D_w, score = get_best_ensemble_combination(window_data_chosen_pairs,
                                                                                     score_function=score_function)
         all_combinations.append(best_combination_w)
@@ -338,8 +276,7 @@ def process_frame(args):
     extended_data = get_extented_data(all_chosen_points, half_window)
     window_start = frame
     window_data = get_window(extended_data, window_size, window_start)
-    camera_pairs_indexes = [0, 1, 2, 3, 4, 5]
-    window_data_chosen_pairs = [points[:, :, camera_pairs_indexes, :] for points in window_data]
+    window_data_chosen_pairs = [points[:, :, CAMERA_PAIRS_INDEXES, :] for points in window_data]
     best_combination_w, best_points_3D_w, score = get_best_ensemble_combination(window_data_chosen_pairs,
                                                                                 score_function=score_function)
     chosen_point = best_points_3D_w[half_window]
@@ -361,10 +298,11 @@ def get_best_points_per_point_multiprocessing(all_points_list, points_inds, wind
     # Initialize final array
     final_array = np.zeros((num_frames, num_points, 3))
     number_of_models = len(all_points_list)
-    models_combinations = np.zeros((num_frames, number_of_models))
+    models_combinations = np.zeros((num_frames, number_of_models, len(CAMERAS_PAIRS)))
     # Fill the final array with the results
     for frame, chosen_point, best_combination_window in results:
-        models_combinations[frame, best_combination_window] = 1
+        for i in range(len(best_combination_window[1])):
+            models_combinations[frame, best_combination_window[0], best_combination_window[1][i]] = 1
         final_array[frame] = chosen_point
 
     return final_array, models_combinations
@@ -475,15 +413,29 @@ def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_
                     if os.path.isfile(file_path):
                         file_list.append(file_path)
 
+    # config_functions = [
+    #     config_1_new, config_2_new, config_3_new,
+    #     config_4_new,
+    #     config_5_new, config_6_new, config_7_new, config_8_new
+    # ]
+
     config_functions = [
         config_1, config_2, config_3,
         config_4,
         config_5, config_6, config_7, config_8
     ]
 
+    # config_functions = [
+    #     config_1_4, config_2_4, config_3_4,
+    #     config_4_4,
+    #     config_5_4, config_6_4, config_7_4, config_8_4
+    # ]
+
     if config_functions_inds is not None:
         config_functions = [config_functions[i] for i in config_functions_inds]
     # file_list = file_list[::-1]
+    # mov_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov53\movie_53_10_2398_ds_3tc_7tj.h5"
+    # file_list = [mov_path]
     for movie_path in file_list:
         print(movie_path, flush=True)
         dir_path = os.path.dirname(movie_path)
@@ -533,13 +485,14 @@ def predict_all_movies(base_path, config_path_2D, movies=None, config_functions_
                 new_config_path = os.path.join(dir_path, 'configuration predict 2D.json')
                 with open(new_config_path, 'w') as file:
                     json.dump(config_2D, file, indent=4)
-                # try:
-                predictor_model = Predictor2D(new_config_path, load_box_from_sparse=True)
-                predictor_model.run_predict_2D()
-                # except Exception as e:
-                #     print(f"Error while processing movie {movie_path} model {model}: {e}")
+                try:
+                    predictor_model = Predictor2D(new_config_path, load_box_from_sparse=True)
+                    predictor_model.run_predict_2D()
+                except Exception as e:
+                    print(f"Error while processing movie {movie_path} model {model}: {e}")
 
         # use ensemble
+        print("started predicting ensemble")
         best_points_3D, smoothed_3D = find_3D_points_from_ensemble(dir_path)
         # find the reprojections
         cropzone = predictor.get_cropzone()
@@ -567,15 +520,29 @@ def delete_specific_files(base_path, filenames):
                     print(f"Error deleting {file_path}: {e}", flush=True)
 
 
+def predict_and_analyze_dir():
+    from extract_flight_data import save_movies_data_to_hdf5
+    config_path = r"predict_2D_config.json"  # get the first argument
+    base_path = r'roni movies'
+    # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example datasets"
+    movies = None
+    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies"
+    predict_all_movies(base_path, config_path, already_predicted_2D=True)
+    # save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+    # save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=False, one_h5_for_all=False)
+
+
 if __name__ == '__main__':
+    predict_and_analyze_dir()
+
     # delete start and done
     # filenames = ['started.txt', 'done.txt']
     # base_path = 'dark 24-1 movies'
     # delete_specific_files(base_path, filenames)
-    #
-    config_path = r"predict_2D_config.json"
-    predictor = Predictor2D(config_path)
-    predictor.run_predict_2D()
+
+    # config_path = r"predict_2D_config.json"
+    # predictor = Predictor2D(config_path)
+    # predictor.run_predict_2D()
 
     # dir_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov101"
     # best_points_3D, smoothed_3D = find_3D_points_from_ensemble(dir_path, test=False)
@@ -587,11 +554,11 @@ if __name__ == '__main__':
     # create_movie_html(dir_path)
 
 
-    config_path = r"predict_2D_config.json"  # get the first argument
-    base_path = r'free 24-1 movies'
-    # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example datasets"
-    movies = None
-    predict_all_movies(base_path, config_path, already_predicted_2D=False)
+    # config_path = r"predict_2D_config.json"  # get the first argument
+    # base_path = r'test movies'
+    # # base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example datasets"
+    # movies = None
+    # predict_all_movies(base_path, config_path, already_predicted_2D=False)
 
     # plot_movies_html(base_path)
 

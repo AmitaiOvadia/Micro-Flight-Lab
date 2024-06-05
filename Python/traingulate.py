@@ -15,7 +15,6 @@ class Triangulate:
         self.camera_matrices = self.load_camera_matrices()
         self.inv_camera_matrices = self.load_inv_camera_matrices()
         self.camera_centers = self.load_camera_centers()
-
         self.Ks = self.load_Ks()
         self.Rs = self.load_Rs()
         self.translations = self.load_translations()

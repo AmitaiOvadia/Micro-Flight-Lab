@@ -89,7 +89,8 @@ class Predictor2D:
             self.num_times_channels = config["number of time channels"]
             self.mask_increase_initial = config["mask increase initial"]
             self.mask_increase_reprojected = config["mask increase reprojected"]
-            self.predict_again_using_reprojected_masks = bool(config["predict again using reprojected masks"])
+            self.use_reprojected_masks = bool(config["use reprojected masks"])
+            self.predict_again_using_3D_consistent = config["predict again 3D consistent"]
             self.base_output_path = config["base output path"]
             self.json_2D_3D_path = config["2D to 3D config path"]
         self.load_from_sparse = load_box_from_sparse
@@ -106,11 +107,11 @@ class Predictor2D:
         self.num_frames = self.box_sparse.shape[0]
         self.num_pass = 0
         if self.software == 'tensorflow':
+            return_model_peaks = True
+            if self.model_type == ALL_CAMS_PER_WING or self.model_type == ALL_CAMS_ALL_POINTS:
+                return_model_peaks = False
             self.wings_pose_estimation_model = \
-                Predictor2D.get_pose_estimation_model_tensorflow(self.wings_pose_estimation_model_path)
-            if self.model_type != WINGS_AND_BODY_SAME_MODEL:
-                self.head_tail_pose_estimation_model = \
-                    Predictor2D.get_pose_estimation_model_tensorflow(self.head_tail_pose_estimation_model_path)
+                Predictor2D.get_pose_estimation_model_tensorflow(self.wings_pose_estimation_model_path, return_model_peaks)
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             try:
@@ -196,20 +197,21 @@ class Predictor2D:
         # box = self.box_sparse.retrieve_dense_box()
         # Visualizer.show_predictions_all_cams(box, self.predicted_points)
         print("done")
-        if self.predict_again_using_reprojected_masks:
+        if self.predict_again_using_3D_consistent:
             print("starting the reprojected masks creation")
             self.num_pass += 1
             self.model_type = self.model_type_second_pass
             self.predict_method = self.choose_predict_method()
-            return_model_peaks = False if self.model_type == ALL_CAMS_PER_WING else True
+            return_model_peaks = False if self.model_type == ALL_CAMS_PER_WING or self.model_type == ALL_CAMS_ALL_POINTS else True
             self.wings_pose_estimation_model = \
                 self.get_pose_estimation_model_tensorflow(self.wings_pose_estimation_model_path_second_pass,
                                                return_model_peaks=return_model_peaks)
-            points_3D = self.get_points_3D(alpha=None)
-            smoothed_3D = self.smooth_3D_points(points_3D)
-            self.get_reprojection_masks(smoothed_3D, self.mask_increase_reprojected)
-            print("created reprojection masks", flush=True)
-            print("predicting second round, now with reprojected masks", flush=True)
+            if self.use_reprojected_masks:
+                points_3D = self.get_points_3D(alpha=None)
+                smoothed_3D = self.smooth_3D_points(points_3D)
+                self.get_reprojection_masks(smoothed_3D, self.mask_increase_reprojected)
+                print("created reprojection masks", flush=True)
+                print("predicting second round, now with reprojected masks", flush=True)
             self.predicted_points = self.predict_method()
             self.preds_2D = self.predicted_points[..., :-1]
             self.conf_preds = self.predicted_points[..., -1]
@@ -316,7 +318,7 @@ class Predictor2D:
         if alpha is None:
             scores1 = []
             scores2 = []
-            alphas = [0.6, 0.7, 0.8, 0.9, 1]
+            alphas = [0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9, 1]
             print("start choosing 3D points")
             for alpha in alphas:
                 points_3D_i = self.choose_best_score_2_cams(alpha=alpha)
@@ -340,22 +342,23 @@ class Predictor2D:
             return points_3D_out
 
     @staticmethod
-    def smooth_3D_points(points_3D):
+    def smooth_3D_points(points_3D, lam=1):
         points_3D_smoothed = np.zeros_like(points_3D)
         num_joints = points_3D_smoothed.shape[1]
+        num_points = len(points_3D)
+        lam = None
         for pnt in range(num_joints):
             for axis in range(3):
                 # print(pnt, axis)
                 vals = points_3D[:, pnt, axis]
                 # set lambda as the regularising parameters: smoothing vs close to data
                 # lam = 300 if pnt in SIDE_POINTS else None
-                lam = None
                 A = np.arange(vals.shape[0])
                 if pnt in BODY_POINTS:
                     vals = medfilt(vals, kernel_size=11)
                     W = np.ones_like(vals)
                 else:
-                    filtered_data = medfilt(vals, kernel_size=3)
+                    filtered_data = medfilt(vals, kernel_size=5)
                     # Compute the absolute difference between the original data and the filtered data
                     diff = np.abs(vals - filtered_data)
                     # make the diff into weights in [0,1]
@@ -756,6 +759,8 @@ class Predictor2D:
                 return self.predict_all_points
             if self.model_type == ALL_CAMS_PER_WING:
                 return self.predict_all_cams_per_wing
+            if self.model_type == ALL_CAMS_ALL_POINTS:
+                return self.predict_all_cams_all_points
             return self.predict_wings_and_body
 
     def predict_all_cams_per_wing(self, n=100):
@@ -799,10 +804,39 @@ class Predictor2D:
         print("done predicting projected masks", flush=True)
         return all_wing_and_body_points
 
+    def predict_all_cams_all_points(self,  n=100):
+        print(f"started predicting projected masks, split box into {n} parts", flush=True)
+        all_points = []
+        n = max(int(self.num_frames // 50), 1)
+        all_frames = np.arange(self.num_frames)
+        n = min(self.num_frames, n)
+        splited_frames = np.array_split(all_frames, n)
+        for i in range(n):
+            print(f"predicting part number {i + 1}")
+            input_wing_cams = []
+            for cam_idx in range(self.num_cams):
+                input_wing_cam = self.box_sparse.get_camera_dense(camera_idx=cam_idx,
+                                                                  channels=[0, 1, 2, 3, 4],
+                                                                  frames=splited_frames[i])
+                input_wing_cams.append(input_wing_cam)
+            input_part = np.concatenate(input_wing_cams, axis=-1)
+            output = self.wings_pose_estimation_model(input_part)
+            peaks = self.tf_find_peaks(output).numpy()
+            # peaks = peaks[:, :2, :]
+            peaks = np.transpose(peaks, [0, 2, 1])
+            peaks_per_camera = np.split(peaks, self.num_cams, axis=1)
+            peaks_per_camera = np.stack(peaks_per_camera, axis=1)
+            all_points.append(peaks_per_camera)
+        all_wing_and_body_points = np.concatenate(all_points, axis=0)
+        return all_wing_and_body_points
+
     def predict_all_points(self):
         all_points = []
+        frames = np.arange(0, self.num_frames)
         for cam in range(self.num_cams):
-            input = self.box[:, cam, ...]
+            input = self.box_sparse.get_camera_dense(camera_idx=cam,
+                                                                  channels=[0, 1, 2, 3, 4],
+                                                                  frames=frames)
             points_cam_i, _, _, _ = self.predict_Ypk(input, self.batch_size, self.wings_pose_estimation_model)
             all_points.append(points_cam_i[np.newaxis, ...])
         wings_and_body_pnts = np.concatenate(all_points, axis=0)
@@ -1056,10 +1090,8 @@ class Predictor2D:
 
     @staticmethod
     def get_pose_estimation_model_tensorflow(pose_estimation_model_path, return_model_peaks=True):
-        from tensorflow.keras.layers import LeakyReLU
-        custom_objects = {'LeakyReLU': LeakyReLU}
         """ load a pretrained LEAP pose estimation model model"""
-        model = keras.models.load_model(pose_estimation_model_path, custom_objects=custom_objects)
+        model = keras.models.load_model(pose_estimation_model_path)
         if return_model_peaks:
             model = Predictor2D.convert_to_peak_outputs(model, include_confmaps=False)
         print("weights_path:", pose_estimation_model_path)
@@ -1156,5 +1188,6 @@ if __name__ == '__main__':
     config_file = 'predict_2D_config.json'
     predictor = Predictor2D(config_file)
     predictor.run_predict_2D()
+
 
 

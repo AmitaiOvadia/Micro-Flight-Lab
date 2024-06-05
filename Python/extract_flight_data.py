@@ -25,7 +25,7 @@ sampling_rate = 16000
 dt = 1 / 16000
 LEFT = 0
 RIGHT = 1
-NUM_TIPS_FOR_PLANE = 10
+NUM_TIPS_FOR_PLANE = 15
 WINGS_JOINTS_INDS = [7, 15]
 WING_TIP_IND = 2
 UPPER_PLANE_POINTS = [0, 1, 2, 3]
@@ -59,7 +59,8 @@ class FullWingBit:
 
 
 class FlightAnalysis:
-    def __init__(self, points_3D_path, find_auto_correlation=False, create_html=False, show_phi=False):
+    def __init__(self, points_3D_path, find_auto_correlation=False,
+                       create_html=False, show_phi=False):
 
         # set attributes
         self.points_3D_path = points_3D_path
@@ -85,7 +86,8 @@ class FlightAnalysis:
         self.x_body = self.get_head_tail_vec()
         self.set_right_left()
         self.wings_tips_left, self.wings_tips_right = self.get_wing_tips()
-        self.wings_joints_points = self.get_wings_joints()
+        self.wings_joints_points = self.get_wings_joints(smooth=True)
+        self.wings_joints_vec = self.get_wings_joints_vec()
         self.all_2_planes = self.get_planes(points_inds=self.all_wing_inds)
         self.all_upper_planes = self.get_planes(points_inds=self.all_wing_inds[:, UPPER_PLANE_POINTS])
         self.all_lower_planes = self.get_planes(points_inds=self.all_wing_inds[:, LOWER_PLANE_POINTS])
@@ -100,20 +102,22 @@ class FlightAnalysis:
         # check = FlightAnalysis.row_wize_dot(self.left_wing_chord, self.left_wing_chord)
 
         self.center_of_mass = self.get_center_of_mass()
-        self.CM_speed, self.CM_velocity = self.get_body_speed()
+        self.CM_speed, self.CM_dot = self.get_body_speed()
+
         self.y_body, self.first_y_body_frame, self.end_frame = self.get_roni_y_body()
         self.z_body = self.get_z_body()
-        self.wings_joints_vec = self.get_wings_joints_vec(smooth=False)
-        self.wings_joints_vec_smoothed = self.get_wings_joints_vec(smooth=True)
 
         self.yaw_angle = self.get_body_yaw()
         self.pitch_angle = self.get_body_pitch()
-        self.roll_angle = self.get_body_roll()  # todo not calculated correctly
+        self.roll_angle = self.get_body_roll()
+
+        self.yaw_dot = self.get_dot(self.yaw_angle)
+        self.pitch_dot = self.get_dot(self.pitch_angle)
+        self.roll_dot = self.get_roll_dot()
 
         self.average_roll_angle = np.mean(self.roll_angle[self.first_y_body_frame:self.end_frame])
-        self.roll_speed = self.get_roll_velocity()
-        self.average_roll_speed = np.nanmean(np.abs(self.roll_speed))
-        self.average_roll_velocity = np.nanmean(self.roll_speed)
+        self.average_roll_speed = np.nanmean(np.abs(self.roll_dot))
+        self.average_roll_velocity = np.nanmean(self.roll_dot)
         self.stroke_planes = self.get_stroke_planes()
         self.wing_tips_speed = self.get_wing_tips_speed()
 
@@ -131,7 +135,7 @@ class FlightAnalysis:
                                                                                                    self.z_body, self.first_y_body_frame,
                                                                                                    self.end_frame)
         # plt.plot(self.omega_body[:, :])
-        # plt.plot(self.roll_angle)
+        # plt.plot(self.roll_angle * 100)
         # plt.show()
         if find_auto_correlation:
             self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body,
@@ -147,6 +151,12 @@ class FlightAnalysis:
                                          start_frame=self.first_y_body_frame, save_path=save_path_html)
         self.adjust_starting_frame()
         pass
+
+    def get_roll_dot(self):
+        roll_dot_final = np.zeros_like(self.roll_angle)
+        roll_dot = self.get_dot(self.roll_angle[self.first_y_body_frame:self.end_frame])
+        roll_dot_final[self.first_y_body_frame:self.end_frame] = roll_dot
+        return roll_dot_final
 
     def get_full_wingbits_objects(self):
         all_half_wingbits_objects = [self.left_half_wingbits, self.right_half_wingbits]
@@ -234,7 +244,7 @@ class FlightAnalysis:
         self.y_body = FlightAnalysis.fill_with_nans(self.y_body, indices)
         self.z_body = FlightAnalysis.fill_with_nans(self.z_body, indices)
         self.roll_angle = FlightAnalysis.fill_with_nans(self.roll_angle, indices)
-        self.roll_speed = FlightAnalysis.fill_with_nans(self.roll_speed, indices)
+        self.roll_dot = FlightAnalysis.fill_with_nans(self.roll_dot, indices)
         self.omega_lab = FlightAnalysis.fill_with_nans(self.omega_lab, indices)
         self.stroke_planes = FlightAnalysis.fill_with_nans(self.stroke_planes, indices)
         self.wings_phi_left = FlightAnalysis.fill_with_nans(self.wings_phi_left, indices)
@@ -248,10 +258,11 @@ class FlightAnalysis:
         attributes = [
             "points_3D", "head_tail_points", "x_body", "y_body", "z_body",
             "wings_tips_left", "wings_tips_right", "left_wing_CM", "right_wing_CM", "wings_joints_points",
+            "CM_dot", "CM_speed",
             "left_wing_span", "right_wing_span", "left_wing_chord", "right_wing_chord",
             "all_2_planes", "all_upper_planes", "all_lower_planes", "wings_span_vecs",
             "wings_joints_vec", "wings_joints_vec_smoothed", "yaw_angle", "pitch_angle", "roll_angle",
-            "roll_speed", "stroke_planes", "center_of_mass", "body_speed",
+            "roll_dot", "pitch_dot", "yaw_dot", "stroke_planes", "center_of_mass", "body_speed",
             "wing_tips_speed", "wings_phi_left", "wings_phi_right", "wings_theta_left", "wings_theta_right",
             "wings_psi_left", "wings_psi_right",
              "omega_lab", "omega_body", "angular_speed_lab", "angular_speed_body"
@@ -301,25 +312,25 @@ class FlightAnalysis:
 
         return filtered_data.real  # Return the real part of the complex output
 
-    def get_head_tail_points(self, smooth=True, window_length=73*3, polyorder=2, lam=100):
-        head_tail_points = self.points_3D[:, self.head_tail_inds, :]
-        if smooth:
-            head_tail_smoothed = np.zeros_like(head_tail_points)
-            for pnt in range(head_tail_points.shape[1]):
-                points_orig = head_tail_points[:, pnt, :]
-                points = np.apply_along_axis(medfilt, axis=0, arr=points_orig, kernel_size=1)
-                A = np.arange(len(points))
-                for axis in range(3):
-                    points[:, axis] = savgol_filter(np.copy(points[:, axis]), window_length, polyorder)
-                    # points[:, axis] = self.low_pass_filter(points[:, axis], cutoff=1, fs=1)
-                    spline = make_smoothing_spline(A, points[:, axis], lam=lam*len(A))
-                    points[:, axis] = spline(A)
-                # plt.plot(points_orig)
-                # plt.plot(points)
-                # plt.show()
-                head_tail_smoothed[:, pnt, :] = points
-            head_tail_points = head_tail_smoothed
-        return head_tail_points
+
+
+    @staticmethod
+    def savgol_smoothing(input_points, lam, polyorder, window_length, median_kernel=1, plot=False):
+        points_smoothed = np.zeros_like(input_points)
+        for pnt in range(input_points.shape[1]):
+            points_orig = input_points[:, pnt, :]
+            points = np.apply_along_axis(medfilt, axis=0, arr=points_orig, kernel_size=median_kernel)
+            A = np.arange(len(points))
+            for axis in range(3):
+                points[:, axis] = savgol_filter(np.copy(points[:, axis]), window_length, polyorder)
+                spline = make_smoothing_spline(A, points[:, axis], lam=lam * len(A))
+                points[:, axis] = spline(A)
+            if plot:
+                plt.plot(points_orig)
+                plt.plot(points)
+                plt.show()
+            points_smoothed[:, pnt, :] = points
+        return points_smoothed
 
     def get_wings_cords(self):
         wings_spans = np.concatenate((self.left_wing_span[:, np.newaxis, :],
@@ -385,11 +396,23 @@ class FlightAnalysis:
 
         # Split into left and right wing psi
         left_wing_psi, right_wing_psi = all_psi_deg
-
         return left_wing_psi, right_wing_psi
 
-    def get_wings_joints(self):
-        return self.points_3D[:, WINGS_JOINTS_INDS, :]
+    def get_head_tail_points(self, smooth=True):
+        head_tail_points = self.points_3D[:, self.head_tail_inds, :]
+        if smooth:
+            head_tail_smoothed = FlightAnalysis.savgol_smoothing(head_tail_points, lam=100, polyorder=1,
+                                                                 window_length=73*1, median_kernel=41)
+            head_tail_points = head_tail_smoothed
+        return head_tail_points
+
+    def get_wings_joints(self, smooth=True):
+        wings_joints = self.points_3D[:, WINGS_JOINTS_INDS, :]
+        if smooth:
+            wings_joints_smoothed = FlightAnalysis.savgol_smoothing(wings_joints, lam=100, polyorder=1,
+                                                                    window_length=3*73, median_kernel=41)
+            wings_joints = wings_joints_smoothed
+        return wings_joints
 
     def get_wings_CM(self):
         CM_left = np.mean(self.points_3D[:, self.left_wing_inds, :], axis=1)
@@ -415,25 +438,13 @@ class FlightAnalysis:
         return wing_tips_speed
 
     @staticmethod
-    def get_speed(points_3d, lam=2):
+    def get_speed(points_3d):
         T = np.arange(len(points_3d))
         derivative_3D = np.zeros((len(points_3d), 3))
-        lam_T = lam * len(points_3d)
         for axis in range(3):
-            spline = make_smoothing_spline(y=points_3d[:, axis], x=T, lam=lam_T)
-            ax = spline(T)
-            # plt.plot(ax)
-            # plt.plot(points_3d[:, axis])
-            # plt.show()
-
-            derivative = spline.derivative()(T)
-            # plt.plot(derivative)
-            # plt.show()
-            derivative_3D[:, axis] = derivative
-        derivative_3D = derivative_3D / dt  # find the real speed
-        velocity_3D = derivative_3D
-        body_speed = np.linalg.norm(derivative_3D, axis=1)
-        return body_speed, velocity_3D
+            derivative_3D[:, axis] = FlightAnalysis.get_dot(points_3d[:, axis])
+        speed = np.linalg.norm(derivative_3D, axis=1)
+        return speed, derivative_3D
 
     def get_wings_spans(self):
         """
@@ -485,19 +496,6 @@ class FlightAnalysis:
 
     def get_wings_joints_vec(self, smooth=False):
         wings_joints_vec = self.wings_joints_points[:, LEFT] - self.wings_joints_points[:, RIGHT]
-        if smooth:
-            wings_joints_vec_smoothed = np.zeros_like(self.wings_joints_points)
-            for pnt in range(self.wings_joints_points.shape[1]):
-                points_orig = self.wings_joints_points[:, pnt, :]
-                points = np.apply_along_axis(medfilt, axis=0, arr=points_orig, kernel_size=21)
-                A = np.arange(len(points))
-                for axis in range(3):
-                    spline = make_smoothing_spline(y=points[:, axis], x=A, lam=100000)
-                    points[:, axis] = spline(A)
-
-                wings_joints_vec_smoothed[:, pnt, :] = points
-            wings_joints_vec = wings_joints_vec_smoothed[:, LEFT, :] - wings_joints_vec_smoothed[:, RIGHT, :]
-
         wings_joints_vec = normalize(wings_joints_vec, axis=1, norm='l2')
         return wings_joints_vec
 
@@ -539,11 +537,14 @@ class FlightAnalysis:
         # roll_wings_joints = np.rad2deg(np.arcsin(self.wings_joints_vec[:, 2]))
         return all_roll_angles
 
-    def get_roll_velocity(self, window_length=5, polyorder=2):
-        roll_speed = savgol_filter(self.roll_angle, window_length, polyorder, deriv=1, delta=(1 / sampling_rate))
-        roll_speed[:self.first_y_body_frame + 3] = np.nan
-        roll_speed[self.end_frame - 3:] = np.nan
-        return roll_speed
+    @staticmethod
+    def get_dot(data, window_length=5, polyorder=2):
+        data_dot = savgol_filter(data, window_length, polyorder, deriv=1, delta=(1 / sampling_rate))
+        # plt.plot(data_dot / 100)
+        # plt.plot(data)
+        # plt.axhline(y=0, color='gray', linestyle='--')
+        # plt.show()
+        return data_dot
 
     def get_body_angles(self):
         yaw_angle = self.get_body_yaw()
@@ -629,8 +630,8 @@ class FlightAnalysis:
         min_peak_values = [-min_peak for min_peak in min_peak_values]
         return max_peak_values, max_peaks_inds, min_peak_values, min_peaks_inds
 
-    def get_peaks(self, data, distance=50, prominence=100, show=False, window_size=7):
-        peaks, _ = find_peaks(data, prominence=prominence, distance=distance)
+    def get_peaks(self, data, distance=50, prominence=100, show=False, window_size=7, height=None):
+        peaks, _ = find_peaks(data, height=height, prominence=prominence, distance=distance )
         if show:
             plt.figure(figsize=(10, 6))
             x_values = np.arange(self.first_y_body_frame, self.end_frame)
@@ -924,24 +925,9 @@ class FlightAnalysis:
         indices = np.insert(diffs >= threshold, 0, True)
         return data[indices]
 
-    def choose_span(self):
-        dotspanAx_wing1 = self.row_wize_dot(self.left_wing_span, self.x_body)
-        dotspanAx_wing2 = self.row_wize_dot(self.right_wing_span, self.x_body)
-
-        distSpans = np.arccos(self.row_wize_dot(self.left_wing_span, self.right_wing_span))
-        angBodSp = np.rad2deg(np.arccos(self.row_wize_dot(self.right_wing_span, self.x_body)))
-        mean_strks = np.mean(np.array([dotspanAx_wing1, dotspanAx_wing2]), axis=0)
-        idx4StrkPln = self.find_zero_crossings_up(mean_strks)
-
-        idx4StrkPln = self.remove_close_elements(idx4StrkPln)
-        idx4StrkPln = np.array([i for i in idx4StrkPln if abs(angBodSp[i] - 90) <= 20])
-        return idx4StrkPln
 
     def get_roni_y_body(self):
-        # should be used after head_tail_vec is obtained
         idx4StrkPln = self.choose_span()
-        idx4StrkPln = idx4StrkPln[
-            (NUM_TIPS_FOR_PLANE <= idx4StrkPln) & (idx4StrkPln <= self.num_frames - NUM_TIPS_FOR_PLANE)]
         y_bodies = []
         for i, ind in enumerate(idx4StrkPln):
             left = self.wings_tips_left[ind - NUM_TIPS_FOR_PLANE:ind + NUM_TIPS_FOR_PLANE, :]
@@ -962,20 +948,98 @@ class FlightAnalysis:
         first_y_body_frame = np.min(idx4StrkPln)
         end = np.max(idx4StrkPln)
         x = np.arange(first_y_body_frame, end)
-        f1 = interp1d(idx4StrkPln, y_bodies[:, 0], kind='cubic')
-        f2 = interp1d(idx4StrkPln, y_bodies[:, 1], kind='cubic')
-        f3 = interp1d(idx4StrkPln, y_bodies[:, 2], kind='cubic')
+        f1 = interp1d(idx4StrkPln, y_bodies[:, 0], kind='quadratic')
+        f2 = interp1d(idx4StrkPln, y_bodies[:, 1], kind='quadratic')
+        f3 = interp1d(idx4StrkPln, y_bodies[:, 2], kind='quadratic')
         Ybody_inter = np.vstack((f1(x), f2(x), f3(x))).T
+
+        Ybody_inter = FlightAnalysis.savgol_smoothing(Ybody_inter[:, np.newaxis, :], lam=1, polyorder=1,
+                                        window_length=73*2, median_kernel=1)
+        Ybody_inter = np.squeeze(Ybody_inter)
         Ybody_inter = normalize(Ybody_inter, axis=1, norm='l2')
         all_y_bodies[first_y_body_frame:end, :] = Ybody_inter
         # make sure that the all_y_bodies are (1) unit vectors and (2) perpendicular to x_body
         y_bodies_corrected = all_y_bodies - self.x_body * self.row_wize_dot(self.x_body, all_y_bodies).reshape(-1, 1)
         y_bodies_corrected = normalize(y_bodies_corrected, 'l2')
 
+
         # plt.plot(idx4StrkPln, y_bodies)
+        # plt.plot(y_bodies_corrected)
         # plt.show()
 
         return y_bodies_corrected, first_y_body_frame, end
+
+    def choose_span(self):
+        dotspanAx_wing1 = self.row_wize_dot(self.right_wing_span, self.x_body)
+        dotspanAx_wing2 = self.row_wize_dot(self.left_wing_span, self.x_body)
+
+        dotspanAx_wing2 = self.filloutliers(dotspanAx_wing2, 'pchip')
+        dotspanAx_wing1 = self.filloutliers(dotspanAx_wing1, 'pchip')
+
+        distSpans = np.degrees(
+            np.arccos(np.clip(self.row_wize_dot(self.right_wing_span, self.left_wing_span), -1.0, 1.0)))
+        angBodSp = np.degrees(
+            np.arccos(np.clip(self.row_wize_dot(self.right_wing_span, self.x_body), -1.0, 1.0)))
+
+        mean_strks = np.mean([dotspanAx_wing1, dotspanAx_wing2], axis=0)
+        changeSgn = np.vstack((mean_strks < 0, mean_strks >= 0))
+
+        FrbckStrk = self.find_up_down_strk(changeSgn, mean_strks, 0)
+        idx4StrkPln = self.choose_grang_wing1_wing2(distSpans, FrbckStrk, 140, 10)
+
+        diff_threshold = 60
+        while np.any(np.diff(idx4StrkPln) < diff_threshold):
+            idx4StrkPln = np.delete(idx4StrkPln, np.where(np.diff(idx4StrkPln) < diff_threshold)[0] + 1)
+
+        idx4StrkPln = np.unique(idx4StrkPln)
+        idx4StrkPln = idx4StrkPln[angBodSp[idx4StrkPln] > 70]
+
+        return idx4StrkPln
+
+    def choose_grang_wing1_wing2(self, distSpans, FrbckStrk, angleTH, Search_cell):
+        idx4StrkPln = FrbckStrk[distSpans[FrbckStrk] > angleTH]
+
+        for i in range(len(idx4StrkPln)):
+            inds2ch = np.arange(idx4StrkPln[i] - Search_cell, idx4StrkPln[i] + Search_cell + 1)
+            inds2ch = inds2ch[(inds2ch >= 0) & (inds2ch < len(distSpans))]
+            idx4StrkPln[i] = inds2ch[np.argmax(distSpans[inds2ch])]
+
+        return idx4StrkPln
+
+    @staticmethod
+    def filloutliers(data, method):
+        # Simple implementation of outlier filling using interpolation
+        if method == 'pchip':
+            median = np.median(data)
+            std_dev = np.std(data)
+            threshold = 3 * std_dev
+            outliers = np.abs(data - median) > threshold
+            data[outliers] = np.interp(np.flatnonzero(outliers), np.flatnonzero(~outliers), data[~outliers])
+            return data
+        else:
+            raise ValueError("Unsupported method")
+
+    @staticmethod
+    def find_up_down_strk(changeSgn, mean_strks, up_down_strk):
+        """
+        Find where the signs change (compared to 0 on the body axis).
+        In this position, the wings are farthest apart.
+
+        Parameters:
+        changeSgn (ndarray): Array indicating sign changes.
+        mean_strks (ndarray): Mean strokes array.
+        up_down_strk (int): Value to compare for finding up and down strokes.
+
+        Returns:
+        ndarray: Indices of down strokes.
+        """
+        downstrk = np.where((changeSgn[0, :-1] + changeSgn[1, 1:]) == up_down_strk)[0]
+        mean_val = np.vstack((mean_strks[downstrk + 1], mean_strks[downstrk]))
+        indMin = np.argmin(np.abs(mean_val), axis=0)
+        idx_vec = np.vstack((downstrk + 1, downstrk))
+        idxdwnStrk = idx_vec[(indMin, np.arange(indMin.size))]
+        return idxdwnStrk
+    #################################################################################################################
 
     def plot_plane_and_points(self, ind, plane, points, y_body):
         size = 0.005
@@ -1264,7 +1328,7 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
     # Filter out directories not starting with 'mov'
     movies = [dir for dir in os.listdir(base_path) if dir.startswith('mov')]
     # movies = sorted(movies, key=lambda x: int(x.replace('mov', '')))
-    # movies = ["mov53"]
+    # movies = ["mov101"]
     if one_h5_for_all:
         # Create or open the single HDF5 file
         with h5py.File(output_hdf5_path, 'w') as hdf:
@@ -1298,8 +1362,8 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
         for movie in movies:
             movie_dir = os.path.join(base_path, movie)
             points_3D_path = os.path.join(movie_dir,
-                                          'points_3D_smoothed_ensemble_best.npy') if smooth else os.path.join(movie_dir,
-                                                                                                              'points_3D_ensemble_best.npy')
+                                          'points_3D_smoothed_ensemble_best_method.npy') if smooth else os.path.join(movie_dir,
+                                                                                                              'points_3D_ensemble_best_method.npy')
 
             if os.path.isfile(points_3D_path):
                 # try:
@@ -1327,6 +1391,9 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
                             else:
                                 if hasattr(attr_value, '__len__'):
                                     # print(attr_name) # Check for array-like objects or lists
+                                    hdf.create_dataset(attr_name, data=attr_value)
+                                elif isinstance(attr_value, (int, float)):
+                                    # Check for int or float attributes
                                     hdf.create_dataset(attr_name, data=attr_value)
 
                     print(f"Data saved for {movie} in {movie_hdf5_path}")
@@ -1414,12 +1481,12 @@ if __name__ == '__main__':
     # # plot_movie_html(2)    # plot_movie_html(3)
     # # plot_movie_html(4)
     base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys"
+    base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies"
     # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster"
     # csv_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\summary_results.csv"
     # # get_frequencies_from_all(base_path, csv_path)
     output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\all_movies_data_not_smoothed.h5"
     # output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\all_movies_data_smoothed.h5"
     # save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_for_all=False)
-
-    save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_for_all=False)
+    save_movies_data_to_hdf5(base_path, output_hdf5_path=output_hdf5_path, smooth=True, one_h5_for_all=False)
 

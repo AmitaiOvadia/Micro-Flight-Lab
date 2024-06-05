@@ -18,7 +18,7 @@ class BoxSparse:
             self.load_from_scipy_sparse_format(sparse_path)
         elif box_path is not None:
             # Load from box path if provided and not loading from sparse format
-            box = self.get_box()
+            box = self.get_box()[:30]
             self.sparse_frames = self.convert_to_sparse(box)
         else:
             # Initialize with zeros if no box path provided and not loading from sparse format
@@ -109,7 +109,6 @@ class BoxSparse:
         # Adjust num_channels to include 2 additional channels
         if self.num_times_channels > 2:
             self.num_channels = self.num_times_channels + 2
-
         for frame_idx in range(self.num_frames):
             for camera_idx in range(self.num_cams):
                 for channel_idx in range(self.num_channels):
