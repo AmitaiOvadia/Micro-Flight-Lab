@@ -225,3 +225,83 @@ def config_8_4(config):
     config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
     config["predict again 3D consistent"] = 1
     return config
+
+
+# models 5.0
+def config_1_5(config):
+    # 3 good cameras 1
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09 not reprojected/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 0
+    return config
+
+
+def config_2_5(config):
+    # 3 good cameras 1
+    config["wings pose estimation model path"] = r"models 5.0/3 good cameras/MODEL_18_POINTS_3_GOOD_CAMERAS_Jun 09/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 0
+    return config
+
+
+def config_3_5(config):
+    # 3 good cameras 2
+    config["wings pose estimation model path"] = r"models 5.0/3 good cameras/MODEL_18_POINTS_3_GOOD_CAMERAS_Jun 09_01/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 0
+    return config
+
+
+def config_4_5(config):
+    # 2 passes reprojected masks
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09 not reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09_02 0.7-1.3 reprojected/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config
+
+
+def config_5_5(config):
+    # 2 passes reprojected masks, all cameras model 1
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09 0.7-1.3 not reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/4 cameras/ALL_CAMS_18_POINTS_Jun 09/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "ALL_CAMS_PER_WING"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config
+
+
+def config_6_5(config):
+    # 2 passes reprojected masks, all cameras model 2
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09 0.7-1.3 not reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/4 cameras/ALL_CAMS_18_POINTS_Jun 11_01/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "ALL_CAMS_PER_WING"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config
+
+
+def config_7_5(config):
+    # 2 passes reprojected masks, all cameras model 1
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09 0.7-1.3 not reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09_04 0.8-1.2 reprojected/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config
+
+
+def config_8_5(config):
+    # 2 passes reprojected masks, all cameras model 2
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09 0.7-1.3 not reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 09_02 0.7-1.3 reprojected/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config

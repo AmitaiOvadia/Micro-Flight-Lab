@@ -186,7 +186,7 @@ class Predictor2D:
                     shift_to_do = all_shifts_smoothed[frame, cam, i, :]
                     shifted_fly = shift(fly, shift_to_do, order=2)
                     self.box[frame, cam, :, :, time_channel] = shifted_fly
-        Visualizer.display_movie_from_box(self.box)
+        # Visualizer.display_movie_from_box(self.box)
 
     @staticmethod
     def get_fly_cm(im_orig):

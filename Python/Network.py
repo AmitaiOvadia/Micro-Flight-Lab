@@ -25,6 +25,7 @@ class Network:
         self.dilation_rate = config["dilation rate"]
         self.dropout = config["dropout ratio"]
         self.batches_per_epoch = config["batches per epoch"]
+        # self.do_attention = config["do_attention"]
         if "VIT" in self.model_type:
             self.patch_size = config["patch_size"],
             if type(self.patch_size) == tuple:
@@ -39,7 +40,7 @@ class Network:
         return self.model
 
     def config_model(self):
-        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_18_POINTS:
+        if self.model_type == ALL_CAMS or self.model_type == ALL_CAMS_18_POINTS or self.model_type == ALL_CAMS_ALL_POINTS:
             model = self.all_4_cams()
         elif self.model_type == ALL_CAMS_AND_3_GOOD_CAMS:
             model = self.all_3_cams()
@@ -303,6 +304,20 @@ class Network:
         # loss="categorical_crossentropy")
         return net
 
+    @staticmethod
+    def self_attention_layer(x, num_heads=8, key_dim=64):
+        # Reshape to (batch_size, height * width, channels)
+        batch_size, height, width, channels = tf.shape(x)[0], x.shape[1], x.shape[2], x.shape[3]
+        x_reshaped = Reshape((height * width, channels))(x)
+
+        # Apply Multi-Head Attention
+        attn_output = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)(x_reshaped, x_reshaped)
+
+        # Reshape back to (batch_size, height, width, channels)
+        attn_output_reshaped = Reshape((height, width, channels))(attn_output)
+
+        return Add()([x, attn_output_reshaped])
+
     def all_4_cams(self):
         x_in = Input(self.image_size, name="x_in")  # image size should be (M, M, num_channels * num cameras)
         num_cameras = 4
@@ -312,12 +327,6 @@ class Network:
                                                self.num_base_filters, self.num_blocks, self.kernel_size,
                                                self.dilation_rate, self.dropout)
         shared_encoder.summary()
-
-        # for average
-        # shared_decoder = decoder2d(
-        #    (shared_encoder.output_shape[1], shared_encoder.output_shape[2], 2 * shared_encoder.output_shape[3])
-        #    , num_output_channels, filters, num_blocks, kernel_size)
-        # for cat
 
         # decoder accepts 1 encoder output concatenated with all other cameras encoders output so 1 + num cams
         shared_decoder = self.decoder2d(
@@ -334,6 +343,11 @@ class Network:
             x_in_split_3 = Lambda(lambda x: x[..., 8:12])(x_in)
             x_in_split_4 = Lambda(lambda x: x[..., 12:16])(x_in)
 
+        elif num_input_channels == 20:
+            x_in_split_1 = Lambda(lambda x: x[..., 0:5])(x_in)
+            x_in_split_2 = Lambda(lambda x: x[..., 5:10])(x_in)
+            x_in_split_3 = Lambda(lambda x: x[..., 10:15])(x_in)
+            x_in_split_4 = Lambda(lambda x: x[..., 15:20])(x_in)
         # different outputs of encoder
         code_out_1 = shared_encoder(x_in_split_1)
         code_out_2 = shared_encoder(x_in_split_2)
@@ -342,12 +356,8 @@ class Network:
 
         # concatenated output of the 3 different encoders
         x_code_merge = Concatenate()([code_out_1, code_out_2, code_out_3, code_out_4])
-
-        # shorter latent vector : each map_out gets only the other encoded vectors
-        # map_out_1 = shared_decoder(Concatenate()([code_out_1, code_out_2, code_out_3, code_out_4]))
-        # map_out_2 = shared_decoder(Concatenate()([code_out_2, code_out_1, code_out_3, code_out_4]))
-        # map_out_3 = shared_decoder(Concatenate()([code_out_3, code_out_1, code_out_2, code_out_4]))
-        # map_out_4 = shared_decoder(Concatenate()([code_out_4, code_out_1, code_out_2, code_out_3]))
+        # if self.do_attention:
+        #     x_code_merge = Network.self_attention_layer(x_code_merge)
 
         # prepare encoder's input as camera + concatenated latent vector of all cameras
         map_out_1 = shared_decoder(Concatenate()([code_out_1, x_code_merge]))

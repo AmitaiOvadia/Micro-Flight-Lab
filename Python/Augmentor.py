@@ -17,6 +17,7 @@ class Augmentor:
         self.interpolation_order = config["interpolation order"]
         self.do_horizontal_flip = bool(config["horizontal flip"])
         self.do_vertical_flip = bool(config["vertical flip"])
+        self.shear_range = config["shear_range"]
         self.number_of_input_channels = number_of_input_channels
         self.number_of_output_channels = number_of_output_channels
         self.custom_augmentation_function = self.get_custom_augmentation_function()
@@ -39,7 +40,8 @@ class Augmentor:
                                  vertical_flip=self.do_vertical_flip,
                                  width_shift_range=self.xy_shifts,
                                  height_shift_range=self.xy_shifts,
-                                 interpolation_order=self.interpolation_order)
+                                 interpolation_order=self.interpolation_order,
+                                 shear_range=self.shear_range)
 
         datagen_x = ImageDataGenerator(**data_gen_args)
         datagen_y = ImageDataGenerator(**data_gen_args)
@@ -47,8 +49,8 @@ class Augmentor:
         datagen_x.fit(box, augment=True, seed=self.seed)
         datagen_y.fit(confmaps, augment=True, seed=self.seed)
 
-        flow_box = datagen_x.flow(box, batch_size=self.batch_size, seed=self.seed, shuffle=False)
-        flow_conf = datagen_y.flow(confmaps, batch_size=self.batch_size, seed=self.seed, shuffle=False)
+        flow_box = datagen_x.flow(box, batch_size=self.batch_size, seed=self.seed, shuffle=True)
+        flow_conf = datagen_y.flow(confmaps, batch_size=self.batch_size, seed=self.seed, shuffle=True)
 
         return self.custom_generator(flow_box, flow_conf)
 

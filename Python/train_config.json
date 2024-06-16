@@ -9,7 +9,7 @@
   "do curriculum learning" : 0,
   "loss_function": "mean_squared_error",
   "epochs pointwise loss": 0,
-  "val_fraction" : 0.1,
+  "val_fraction" : 0.5,
   "learning rate": 0.001,
 
   "// Network parameters //" : 0,
@@ -19,26 +19,39 @@
   "number of base filters" : 64,
   "number of encoder decoder blocks" : 2,
   "convolution kernel size" : 3,
+  "do_attention": 1,
+
+
+  "// VIT parameters //" : 0,
+  "patch_size": 16,
+  "projection_dim": 256,
+  "num_heads": 8,
+  "transformer_layers": 8,
+  "fully_connected_expand": 4,
+
+
 
   "// preprocess parameters //" : 0,
   "rank wing size": 2,
-  "model type":  "MODEL_18_POINTS_PER_WING_VIT",
+  "model type":  "MODEL_18_POINTS_PER_WING",
   "test_path" : "-",
-  "data_path" : "training_datasets/random_trainset_201_frames_18_joints.h5",
+  "data_path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\train_pose_estimation\\training_datasets\\combined_dataset.h5",
   "mix_with_test" : 0,
   "mask dilation" : 1,
   "single time channel": 0,
 
   "// augmentations parameters //" : 0,
-  "custom" : 1,
+  "custom" : 0,
   "augmentation shift x y" : 10,
-  "rotation range" : 180,
+  "rotation range" : 30,
   "seed" : 1,
-  "horizontal flip" : 1,
-  "vertical flip": 1,
+  "horizontal flip" : 0,
+  "vertical flip": 0,
+  "shear_range": 10,
     "// augmentations using keras ImageGenerator" : 0,
     "zoom range" : [0.8, 1.2],
-    "interpolation order" : 2,
+    "interpolation order" : 3,
+
 
 
     "// saving configurations //" : 0,

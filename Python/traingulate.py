@@ -4,11 +4,16 @@ import cv2
 import h5py
 import numpy as np
 
+distortion_coeffs = np.array([[-1.3083, 135.2352, 0, 0, 0],
+                     [-0.5633, 22.7305, 0, 0, 0],
+                     [-0.3261, 17.9664, 0, 0, 0],
+                     [-0.2860, 17.9070, 0, 0, 0]], dtype=np.float32)
 
 class Triangulate:
     def __init__(self, config):
         self.config = config
         self.calibration_data_path = self.config["calibration data path"]
+        print("Calibration data path:", self.calibration_data_path)
         self.image_hight = self.config["IMAGE_HEIGHT"]
         self.image_width = self.config["IMAGE_WIDTH"]
         self.rotation_matrix = self.load_rotation_matrix()
@@ -19,39 +24,40 @@ class Triangulate:
         self.Rs = self.load_Rs()
         self.translations = self.load_translations()
         self.num_cameras = len(self.camera_centers)
-        self.all_subs = Triangulate.get_all_couples()
+        self.all_couples = Triangulate.get_all_combinations(n=3)
+        self.all_cameras_combinations = Triangulate.get_all_combinations(n=5)
 
     def load_Ks(self):
-        Ks = h5py.File(self.calibration_data_path, "r")["/K_matrices"][:].T
+        Ks = h5py.File(self.calibration_data_path, "r")["K_matrices"][:].T
         for i, K in enumerate(Ks):
             K = K / K[2, 2]
             Ks[i] = K
         return Ks
 
     def load_Rs(self):
-        return h5py.File(self.calibration_data_path, "r")["/rotation_matrices"][:].T
+        return h5py.File(self.calibration_data_path, "r")["rotation_matrices"][:].T
 
     def load_translations(self):
-        return h5py.File(self.calibration_data_path, "r")["/translations"][:].T
+        return h5py.File(self.calibration_data_path, "r")["translations"][:].T
 
     def load_rotation_matrix(self):
-        return h5py.File(self.calibration_data_path, "r")["/rotation_matrix"][:].T
+        return h5py.File(self.calibration_data_path, "r")["rotation_matrix"][:].T
 
     def load_camera_matrices(self):
-        return h5py.File(self.calibration_data_path, "r")["/camera_matrices"][:].T
+        return h5py.File(self.calibration_data_path, "r")["camera_matrices"][:].T
 
     def load_inv_camera_matrices(self):
-        return h5py.File(self.calibration_data_path, "r")["/inv_camera_matrices"][:].T
+        return h5py.File(self.calibration_data_path, "r")["inv_camera_matrices"][:].T
 
     def load_camera_centers(self):
-        return h5py.File(self.calibration_data_path, "r")["/camera_centers"][:].T
+        return h5py.File(self.calibration_data_path, "r")["camera_centers"][:].T
 
     def triangulate_2D_to_3D_svd(self, points_2D, cropzone):
         num_frames, _, num_joints, _ = points_2D.shape
         points_3D_all = np.zeros((num_frames, num_joints, 6, 3))
         reprojection_errors = np.zeros((num_frames, num_joints, 6))
         traingulation_errors = np.zeros((num_frames, num_joints, 6))
-        for i, cameras_couple in enumerate(self.all_subs):
+        for i, cameras_couple in enumerate(self.all_couples):
             for joint in range(num_joints):
                 points_2D_sub_views = points_2D[:, cameras_couple, joint, :]
                 points_2D_sub_views = np.transpose(points_2D_sub_views, [1, 0, 2])
@@ -105,19 +111,33 @@ class Triangulate:
         points_3d = (self.rotation_matrix @ points_3d.T).T
         return points_3d, reprojection_errors, traingulation_errors
 
-    def uncrop(self, points_2d, cropzone):
+    def uncrop(self, points_2d, cropzone, add_one=True):
         num_cams, num_frames, _ = points_2d.shape
         new_shape = list(points_2d.shape)
-        new_shape[-1] += 1
+        if add_one:
+            new_shape[-1] += 1
         points_2d_h = np.zeros(new_shape)
         for frame in range(num_frames):
             for cam in range(num_cams):
                 x = cropzone[frame, cam, 1] + points_2d[cam, frame, 0]
                 y = cropzone[frame, cam, 0] + points_2d[cam, frame, 1]
+                # do undistort
+                # x, y = self.undistort_point(cam, x, y)
                 y = self.image_hight + 1 - y
-                point = [x, y, 1]
+                if add_one:
+                    point = [x, y, 1]
+                else:
+                    point = [x, y]
                 points_2d_h[cam, frame, :] = point
         return points_2d_h
+
+    def undistort_point(self, cam, x, y):
+        pixel_coords = np.array([[[x, y]]], dtype=np.float32)
+        K = self.Ks[cam]
+        dist_coeffs = distortion_coeffs[cam]
+        point = cv2.undistortPoints(pixel_coords, K, distCoeffs=dist_coeffs, P=K)
+        x, y = point[0, 0, :]
+        return x, y
 
     @staticmethod
     def h2e_coords(points_h):
@@ -139,7 +159,7 @@ class Triangulate:
         triangulation_errors = np.zeros((num_frames, num_points, 6))
         reprojection_errors = np.zeros((num_frames, num_points, 6))
         for point in range(num_points):
-            for i, couple in enumerate(self.all_subs):
+            for i, couple in enumerate(self.all_couples):
                 for frame in range(num_frames):
                     cam_a, cam_b = couple
 
@@ -322,7 +342,7 @@ class Triangulate:
         points_3D_all = np.zeros((num_frames, num_joints, 6, 3))
         reprojection_errors = np.zeros((num_frames, num_joints, 6))
         triangulation_errors = np.zeros((num_frames, num_joints, 6))
-        for i, sub in enumerate(self.all_subs):
+        for i, sub in enumerate(self.all_couples):
             for joint in range(num_joints):
                 points_2D_sub_views = points_2D[:, sub, joint, :]
                 points_2D_sub_views = np.transpose(points_2D_sub_views, [1, 0, 2])
@@ -332,6 +352,30 @@ class Triangulate:
                 reprojection_errors[:, joint, i] = reprojection_errors_j_i
                 triangulation_errors[:, joint, i] = triangulation_errors_j_i
         return points_3D_all, reprojection_errors, triangulation_errors
+
+    def triangulate_points_all_possible_views(self, points_2D, cropzone):
+        num_frames, _, num_joints, _ = points_2D.shape
+        points_3D_all = np.zeros((num_frames, num_joints, len(self.all_cameras_combinations), 3))
+        reprojection_errors = np.zeros((num_frames, num_joints, len(self.all_cameras_combinations)))
+        for i, sub in enumerate(self.all_cameras_combinations):
+            for joint in range(num_joints):
+                points_2D_sub_views = points_2D[:, sub, joint, :]
+                points_2D_sub_views = np.transpose(points_2D_sub_views, [1, 0, 2])
+                cropzone_sub_view = cropzone[:, sub, :]
+                points_3D_sub, reprojection_errors_j_i = self.triangulate_points_multiviews(
+                    points_2D_sub_views, cropzone_sub_view, sub)
+                points_3D_all[:, joint, i, :] = points_3D_sub
+                reprojection_errors[:, joint, i] = reprojection_errors_j_i
+        return points_3D_all, reprojection_errors
+
+    def triangulate_points_multiviews(self, points_2D_sub_views, cropzone_sub_views, sub):
+        projection_matrices = self.camera_matrices[sub, ...]
+        points_2d = self.uncrop(points_2D_sub_views, cropzone_sub_views, add_one=False)
+        points_2d_h = self.uncrop(points_2D_sub_views, cropzone_sub_views, add_one=True)
+        points_3D = Triangulate.multiview_triangulation(camera_matrices=projection_matrices, points_2d_list=points_2d)
+        reprojection_errors = self.extract_reprojection_error(points_2d_h, points_3D, projection_matrices)
+        points_3D = (self.rotation_matrix @ points_3D.T).T
+        return points_3D, reprojection_errors
 
     def triangulate_points_cv2(self, points_2d, cropzone, sub):
         """
@@ -395,17 +439,7 @@ class Triangulate:
 
     @staticmethod
     def extract_reprojection_error(points_2d_h, points_3d, projection_matrices):
-        """
-
-        Args:
-            points_2d_h:
-            points_3d:
-            projection_matrices:
-
-        Returns:
-
-        """
-        reprojection_errors = np.zeros((points_3d.shape[0], 2))
+        reprojection_errors = np.zeros((points_3d.shape[0], len(points_2d_h)))
         points_3d_hom = np.insert(points_3d, 3, np.ones((points_3d.shape[0])), axis=1)
         for i, proj_mat in enumerate(projection_matrices):
             projected_2D_i = (proj_mat @ points_3d_hom.T).T
@@ -418,33 +452,64 @@ class Triangulate:
     @staticmethod
     def custom_linear_triangulation(Pa, Pb, points_a, points_b):
         N = points_a.shape[0]
-        # Extract rows of Pa and Pb
+        A = np.zeros((N, 4, 4))
         p1a, p2a, p3a = Pa[0, :], Pa[1, :], Pa[2, :]
         p1b, p2b, p3b = Pb[0, :], Pb[1, :], Pb[2, :]
+        A[:, 0] = points_a[:, 0].reshape(-1, 1) * p3a - p1a
+        A[:, 1] = points_a[:, 1].reshape(-1, 1) * p3a - p2a
+        A[:, 2] = points_b[:, 0].reshape(-1, 1) * p3b - p1b
+        A[:, 3] = points_b[:, 1].reshape(-1, 1) * p3b - p2b
 
-        # Initialize the A matrix for all points
-        A = np.zeros((N, 4, 4))
-
-        # Fill the A matrix
-        A[:, 0, :] = points_a[:, 0:1] * p3a - p1a
-        A[:, 1, :] = points_a[:, 1:2] * p3a - p2a
-        A[:, 2, :] = points_b[:, 0:1] * p3b - p1b
-        A[:, 3, :] = points_b[:, 1:2] * p3b - p2b
-
-        # Solve AX = 0 using SVD for each A
-        X = np.zeros((N, 4))
-        for i in range(N):
-            _, _, Vt = np.linalg.svd(A[i])
-            X[i] = Vt[-1]  # The last row of Vt corresponds to the solution
-        # Normalize X to convert from homogeneous coordinates and exclude the last component
+        # Perform SVD on each A matrix
+        _, _, Vt = np.linalg.svd(A)
+        # take last row of Vt that corresponds to last column of V
+        X = Vt[:, -1, :]
         X = X[:, :-1] / X[:, -1:]
         return X
 
     @staticmethod
-    def get_all_couples():
+    def multiview_triangulation(camera_matrices, points_2d_list):
+        """
+        Perform linear triangulation from multiple views.
+
+        Args:
+        - camera_matrices (list of np.ndarray): List of camera projection matrices (each of shape (3, 4)).
+        - points_2d_list (list of np.ndarray): List of arrays of 2D points (each array of shape (N, 2)),
+                                                where N is the number of points.
+
+        Returns:
+        - X (np.ndarray): Triangulated 3D points (of shape (N, 3)).
+        """
+        assert len(camera_matrices) == len(
+            points_2d_list), "Number of camera matrices must equal number of 2D points lists"
+
+        num_views = len(camera_matrices)
+        num_points = points_2d_list[0].shape[0]
+
+        # Initialize A matrix
+        A = np.zeros((num_points, 2 * num_views, 4))
+
+        for i, (P, points_2d) in enumerate(zip(camera_matrices, points_2d_list)):
+            p1, p2, p3 = P[0, :], P[1, :], P[2, :]
+            A[:, 2 * i] = points_2d[:, 0].reshape(-1, 1) * p3 - p1
+            A[:, 2 * i + 1] = points_2d[:, 1].reshape(-1, 1) * p3 - p2
+
+        # Perform SVD on each A matrix
+        _, _, Vt = np.linalg.svd(A)
+
+        # Take the last row of Vt that corresponds to the last column of V
+        X = Vt[:, -1, :]
+
+        # Normalize the points
+        X = X[:, :-1] / X[:, -1:]
+
+        return X
+
+    @staticmethod
+    def get_all_combinations(n=3):
         s = {0, 1, 2, 3}
         all_subs = []
-        for i in range(2, 3):
+        for i in range(2, n):
             subs = Triangulate.findsubsets(s, i)
             all_subs += subs
         return all_subs
@@ -452,3 +517,20 @@ class Triangulate:
     @staticmethod
     def findsubsets(s, n):
         return list(itertools.combinations(s, n))
+
+
+if __name__ == '__main__':
+    import json
+    configuration_path = r'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\2D_to_3D_config.json'
+    point_2D_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\movie_78_10_4868_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_May 02\predicted_points_and_box.h5"
+    box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\movie_78_10_4868_ds_3tc_7tj.h5"
+    with open(configuration_path) as C:
+        config = json.load(C)
+        tr = Triangulate(config)
+        points_2D = h5py.File(point_2D_path, 'r')['/positions_pred'][:100]
+        cropzone = h5py.File(box_path, 'r')['/cropzone'][:100]
+        points_3D_all_multiviews, reprojection_errors_multiviews = tr.triangulate_points_all_possible_views(points_2D, cropzone)
+        points_3D_all, reprojection_errors, triangulation_errors = tr.triangulate_2D_to_3D_reprojection_optimization(points_2D, cropzone)
+        mean_reprojection_error = np.mean(reprojection_errors)
+        mean_3D_error = np.mean(triangulation_errors)
+        pass

@@ -447,7 +447,7 @@ class From2Dto3D:
                 # scores = noise_score  # todo now the score is only noise
                 # scores = scores * visibility_score
                 cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
-                best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
+                best_pair_ind = self.triangulate.all_couples.index(tuple(cameras_ind))
                 best_3D_point = candidates[best_pair_ind]
                 points_3D[frame, ind, :] = best_3D_point
 
@@ -462,7 +462,7 @@ class From2Dto3D:
                     scores = alpha * masks_sizes_score + (1 - alpha) * noise_score
                     # scores = scores * visibility_score
                     cameras_ind = np.sort(np.argpartition(scores, -2)[-2:])
-                    best_pair_ind = self.triangulate.all_subs.index(tuple(cameras_ind))
+                    best_pair_ind = self.triangulate.all_couples.index(tuple(cameras_ind))
                     best_3D_point = candidates[best_pair_ind]
                     points_3D[frame, pnt_num, :] = best_3D_point
         # now find the
@@ -521,7 +521,7 @@ class From2Dto3D:
                 confidence_scores = self.conf_preds[frame, :, joint]
                 indices = np.argpartition(confidence_scores, -2)[-2:]
                 indices = tuple(np.sort(indices))
-                best_pair_ind = self.triangulate.all_subs.index(indices)
+                best_pair_ind = self.triangulate.all_couples.index(indices)
                 best_conf_3D_point = candidates[best_pair_ind]
                 points_3D[frame, joint, :] = best_conf_3D_point
         return points_3D
