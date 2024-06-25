@@ -198,11 +198,11 @@ class Predictor2D:
         self.points_3D_all, self.reprojection_errors = self.get_all_3D_pnts_all_cameras_combinations(self.preds_2D,
                                                                                                      self.cropzone)
 
-        print("saving")
+        print("saving", flush=True)
         self.save_predictions_to_h5()
         # box = self.box_sparse.retrieve_dense_box()
         # Visualizer.show_predictions_all_cams(box, self.predicted_points)
-        print("done")
+        print("done saving", flush=True)
         if self.predict_again_using_3D_consistent:
             print("starting the reprojected masks creation")
             self.num_pass += 1
@@ -215,7 +215,8 @@ class Predictor2D:
             if self.use_reprojected_masks:
                 # points_3D = self.get_points_3D(alpha=None)
                 # smoothed_3D = self.smooth_3D_points(points_3D)
-                self.get_reprojection_masks(self.points_3D_smoothed, self.mask_increase_reprojected)
+                self.get_reprojection_masks(self.points_3D_smoothed, self.mask_increase_reprojected,
+                                            deside_between_new_and_orig=False)
                 print("created reprojection masks", flush=True)
                 print("predicting second round, now with reprojected masks", flush=True)
             self.predicted_points = self.predict_method()
@@ -474,7 +475,7 @@ class Predictor2D:
     def enforce_3D_left_right_consistency(self):
         self.points_3D_all, self.reprojection_errors, self.triangulation_errors = (
             self.get_all_3D_pnts_pairs(self.preds_2D, self.cropzone))
-        points_3D = self.get_points_3D(alpha=None)
+        _, points_3D, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
         right_points = np.zeros((self.num_frames, len(self.right_inds), 3))
         left_points = np.zeros((self.num_frames, len(self.left_inds), 3))
 
@@ -504,7 +505,7 @@ class Predictor2D:
                 right_points[frame] = cur_right_points
                 left_points[frame] = cur_left_points
 
-    def get_reprojection_masks(self, points_3D, extend_mask_radius=7):
+    def get_reprojection_masks(self, points_3D, extend_mask_radius=7, deside_between_new_and_orig=False):
         points_2D_reprojected = self.triangulate.get_reprojections(points_3D, self.cropzone)
         for frame in range(self.num_frames):
             for cam in range(self.num_cams):
@@ -523,11 +524,14 @@ class Predictor2D:
                     orig_mask = self.box_sparse.get_frame_camera_channel_dense(frame,
                                                                                cam,
                                                                                channel_idx=self.num_times_channels + wing)
-                    if np.count_nonzero(np.logical_and(mask, fly)) > np.count_nonzero(np.logical_and(orig_mask, fly)):
-                        self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing, mask)
+                    if deside_between_new_and_orig:
+                        if np.count_nonzero(np.logical_and(mask, fly)) > np.count_nonzero(np.logical_and(orig_mask, fly)):
+                            self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing, mask)
+                        else:
+                            self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing,
+                                                                           orig_mask)
                     else:
-                        self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing,
-                                                                       orig_mask)
+                        self.box_sparse.set_frame_camera_channel_dense(frame, cam, self.num_times_channels + wing, mask)
 
     def deside_if_switch(self, chosen_camera, frame):
         cur_left_points = self.preds_2D[frame, chosen_camera, self.left_inds, :]
@@ -745,7 +749,12 @@ class Predictor2D:
         # save 3D points
         From2Dto3D.save_points_3D(self.run_path, self.points_3D_all, name="points_3D_all.npy")
         # points_3D = self.get_points_3D(alpha=None)
-        final_score, self.points_3D, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
+        print("predicting 3D points by checking all triangulation combinations")
+        # try:
+        _, self.points_3D, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
+        # except Exception as e:
+        #     print(f"the points 3D selection has caused an exception\n{e}")
+        #     self.points_3D = self.get_points_3D(alpha=None)
         self.points_3D_smoothed = self.smooth_3D_points(self.points_3D)
         score1 = From2Dto3D.get_validation_score(self.points_3D)
         score2 = From2Dto3D.get_validation_score(self.points_3D_smoothed)
@@ -1220,16 +1229,16 @@ class Predictor2D:
 
     @staticmethod
     def get_best_ensemble_combination(all_points_list, score_function=From2Dto3D.get_validation_score):
-        candidates = list(range(len(all_points_list)))
+        models_candidates = list(range(len(all_points_list)))
         num_points_candidates = all_points_list[0].shape[2]
         points_candidates = np.arange(0, num_points_candidates)
-        all_combinations_list = Predictor2D.all_possible_combinations(candidates, fraq=0.2)
-        all_options_list = Predictor2D.all_possible_combinations(points_candidates, fraq=0.01)
+        all_models_combinations_list = Predictor2D.all_possible_combinations(models_candidates, fraq=0.2)
+        all_camera_pairs_list = Predictor2D.all_possible_combinations(points_candidates, fraq=0.01)
         best_score = float('inf')
         best_combination = None
         best_points_3D = None
-        for combination in all_combinations_list:
-            for cams_pairs_comb in all_options_list:
+        for combination in all_models_combinations_list:
+            for cams_pairs_comb in all_camera_pairs_list:
                 all_comb_points = [all_points_list[i][:, :, cams_pairs_comb, :] for i in combination]
                 result = np.concatenate(all_comb_points, axis=2)
                 points_3D = Predictor2D.get_3D_points_median(result)
@@ -1271,13 +1280,7 @@ class Predictor2D:
 
     @staticmethod
     def process_frame(args):
-        all_points_list, points_inds, window_size, score_function, frame = args
-        half_window = window_size // 2
-        all_chosen_points = [points[:, points_inds, ...] for points in all_points_list]
-        extended_data = Predictor2D.get_extended_data(all_chosen_points, half_window)
-        window_start = frame
-        window_data = Predictor2D.get_window(extended_data, window_size, window_start)
-        # window_data_chosen_pairs = [points[:, :, :] for points in window_data]
+        window_data, score_function, frame, half_window = args
         best_combination_w, best_points_3D_w, score = Predictor2D.get_best_ensemble_combination(
             window_data,
             score_function=score_function)
@@ -1286,10 +1289,20 @@ class Predictor2D:
 
     @staticmethod
     def get_best_points_per_point_multiprocessing(all_points_list, points_inds, window_size=31,
-                                                  score_function=find_std_of_2_points_dists):
+                                                  score_function=find_std_of_2_points_dists,
+                                                  candidtates_inds=(0, 1, 2, 3, 4, 5)):
         num_frames, _, num_candidates, ax = all_points_list[0].shape
         num_points = len(points_inds)
-        worker_args = [(all_points_list, points_inds, window_size, score_function, frame) for frame in range(num_frames)]
+        half_window = window_size // 2
+        all_chosen_points = [points[:, points_inds, ...] for points in all_points_list]
+        all_chosen_points = [points[:, :, candidtates_inds, ...] for points in all_chosen_points]
+        extended_data = Predictor2D.get_extended_data(all_chosen_points, half_window)
+
+        worker_args = []
+        for frame in range(num_frames):
+            window_start = frame
+            window_data = Predictor2D.get_window(extended_data, window_size, window_start)
+            worker_args.append((window_data, score_function, frame, half_window))
 
         with Pool(processes=cpu_count()) as pool:
             results = pool.map(Predictor2D.process_frame, worker_args)
@@ -1350,10 +1363,14 @@ class Predictor2D:
 
 
 
+
+
 if __name__ == '__main__':
-    config_file = 'predict_2D_config.json'
-    predictor = Predictor2D(config_file)
-    predictor.run_predict_2D()
+    points_3D_all = np.load(r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_all.npy")
+    Predictor2D.find_3D_points_optimize_neighbors([points_3D_all])
+    # config_file = 'predict_2D_config.json'
+    # predictor = Predictor2D(config_file)
+    # predictor.run_predict_2D()
 
 
 

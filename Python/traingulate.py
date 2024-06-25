@@ -4,10 +4,10 @@ import cv2
 import h5py
 import numpy as np
 
-distortion_coeffs = np.array([[-1.3083, 135.2352, 0, 0, 0],
-                     [-0.5633, 22.7305, 0, 0, 0],
-                     [-0.3261, 17.9664, 0, 0, 0],
-                     [-0.2860, 17.9070, 0, 0, 0]], dtype=np.float32)
+# distortion_coeffs = np.array([[-1.3083, 135.2352, 0, 0, 0],
+#                      [-0.5633, 22.7305, 0, 0, 0],
+#                      [-0.3261, 17.9664, 0, 0, 0],
+#                      [-0.2860, 17.9070, 0, 0, 0]], dtype=np.float32)
 
 class Triangulate:
     def __init__(self, config):
@@ -26,6 +26,12 @@ class Triangulate:
         self.num_cameras = len(self.camera_centers)
         self.all_couples = Triangulate.get_all_combinations(n=3)
         self.all_cameras_combinations = Triangulate.get_all_combinations(n=5)
+        # self.distortion = False
+        # try:
+        #     self.distortion_params = self.load_distortion_params()
+        #     self.distortion = True
+        # except:
+        #     print(f"no distortion parameters")
 
     def load_Ks(self):
         Ks = h5py.File(self.calibration_data_path, "r")["K_matrices"][:].T
@@ -34,6 +40,12 @@ class Triangulate:
             Ks[i] = K
         return Ks
 
+    def load_distortion_params(self):
+        distortion_params_full = np.zeros((4, 5))
+        distortion_params = h5py.File(self.calibration_data_path, "r")["distortion_params"][:].T
+        num_params_per_cam = distortion_params.shape[1]
+        distortion_params_full[:, :num_params_per_cam] = distortion_params
+        return distortion_params_full
     def load_Rs(self):
         return h5py.File(self.calibration_data_path, "r")["rotation_matrices"][:].T
 
@@ -122,7 +134,8 @@ class Triangulate:
                 x = cropzone[frame, cam, 1] + points_2d[cam, frame, 0]
                 y = cropzone[frame, cam, 0] + points_2d[cam, frame, 1]
                 # do undistort
-                # x, y = self.undistort_point(cam, x, y)
+                # if self.distortion:
+                #     x, y = self.undistort_point(cam, x, y)
                 y = self.image_hight + 1 - y
                 if add_one:
                     point = [x, y, 1]
@@ -134,7 +147,7 @@ class Triangulate:
     def undistort_point(self, cam, x, y):
         pixel_coords = np.array([[[x, y]]], dtype=np.float32)
         K = self.Ks[cam]
-        dist_coeffs = distortion_coeffs[cam]
+        dist_coeffs = self.distortion_params[cam]
         point = cv2.undistortPoints(pixel_coords, K, distCoeffs=dist_coeffs, P=K)
         x, y = point[0, 0, :]
         return x, y
@@ -193,6 +206,72 @@ class Triangulate:
                 reprojection_errors[:, point, i] = reprojection_errors_p_i
         return all_points_3D, reprojection_errors, triangulation_errors
 
+    def rays_midpoint_traingulation(self, points_2D, cropzone):
+        """
+        this function perfomrs triangulation from 2 views, by using Cyrill Stachniss lecture notes
+        from the video:
+        Triangulation for Image Pairs (Cyrill Stachniss)
+        https://www.youtube.com/watch?v=UZlRhEUWSas&t=51s
+        """
+        num_frames, _, num_points, _ = points_2D.shape
+        all_points_3D = np.zeros((num_frames, num_points, 6, 3))
+        triangulation_errors = np.zeros((num_frames, num_points, 6))
+        reprojection_errors = np.zeros((num_frames, num_points, 6))
+        points_2d_h = self.get_uncropped_xy1(points_2D, cropzone)
+        for frame in range(num_frames):
+            for i, couple in enumerate(self.all_couples):
+                for point_ind in range(num_points):
+                    rays = []
+                    camera_centers = []
+                    for cam in couple:
+                        K = self.Ks[cam]
+                        R = self.Rs[cam]
+                        K_inv = np.linalg.inv(K)
+                        point_pixel = points_2d_h[frame, cam, point_ind, :]
+                        Xk = np.dot(K_inv, point_pixel)
+                        ray_vec = np.dot(R.T, Xk)
+                        ray_vec /= np.linalg.norm(ray_vec)
+                        camera_center = self.camera_centers[cam]
+                        rays.append(ray_vec)
+                        camera_centers.append(camera_center)
+
+                    # construct Ax = b
+                    Xo_1, r = camera_centers[0], rays[0]
+                    Xo_2, s = camera_centers[1], rays[1]
+                    A = np.zeros((2, 2))
+                    b = np.zeros((2, 1))
+                    A[0, 0] = r.T @ r
+                    A[0, 1] = -s.T @ r
+                    A[1, 0] = r @ s
+                    A[1, 1] = -s.T @ s
+                    b[0] = (Xo_2 - Xo_1).T @ r
+                    b[1] = (Xo_2 - Xo_1).T @ s
+
+                    # solve Ax = b and get lamda and mu
+                    lam, mu = np.linalg.solve(A, b)
+
+                    # get the point by applying lambda and mu
+                    p1 = Xo_1 + lam * r
+                    p2 = Xo_2 + mu * s
+                    p = (p1 + p2)/2
+
+                    # get triangulation error
+                    d = np.linalg.norm(p1 - p2) / 2
+
+                    all_points_3D[frame, point_ind, i, :] = self.rotation_matrix @ p
+                    triangulation_errors[frame, point_ind, i] = d
+
+                    # get reprojection errors
+                    rep_errors = np.zeros(2)
+                    for j, cam in enumerate(couple):
+                        p_reprojected = self.camera_matrices[cam] @ np.append(p, 1)
+                        p_reprojected = p_reprojected / p_reprojected[-1]
+                        p_2d_orig = points_2d_h[frame, cam, point_ind]
+                        reprojection_error = np.linalg.norm(p_2d_orig - p_reprojected)
+                        rep_errors[j] = reprojection_error
+                    rep_error = rep_errors.mean()
+                    reprojection_errors[frame, point_ind, i] = rep_error
+        return points_3D_all, reprojection_errors, triangulation_errors
     def get_uncropped_xy1(self, points_2D, cropzone):
         new_shape = list(points_2D.shape)
         new_shape[-1] += 1
@@ -239,22 +318,22 @@ class Triangulate:
 
 
                     # experiment
-                    # K = self.Ks[cam]
-                    # dx = x_crop
-                    # dy = 800 + 1 - y_crop - 192
-                    # K_prime = K.copy()
-                    # K_prime[0, 2] -= dx  # adjust x-coordinate of the principal point
-                    # K_prime[1, 2] -= dy  # adjust y-coordinate of the principal point
-                    # R = self.Rs[cam]
-                    # t = self.translations[cam]
-                    # # M = K @ np.column_stack((R, t))
-                    # # M /= M[-1,-1]
-                    # M_prime = K_prime @ np.column_stack((R, t))
-                    # M_prime /= M_prime[-1, -1]
-                    # p2d_h = M_prime @ point_rot_h
-                    # p2d = p2d_h[:-1] / p2d_h[-1]
-                    # p2d[1] = 192 - p2d[1]
-                    # print(f"{np.mean(np.abs(p2d - point_2D_cropped))}")
+                    K = self.Ks[cam]
+                    dx = x_crop
+                    dy = 800 + 1 - y_crop - 192
+                    K_prime = K.copy()
+                    K_prime[0, 2] -= dx  # adjust x-coordinate of the principal point
+                    K_prime[1, 2] -= dy  # adjust y-coordinate of the principal point
+                    R = self.Rs[cam]
+                    t = self.translations[cam]
+                    # M = K @ np.column_stack((R, t))
+                    # M /= M[-1,-1]
+                    M_prime = K_prime @ np.column_stack((R, t))
+                    M_prime /= M_prime[-1, -1]
+                    p2d_h = M_prime @ point_rot_h
+                    p2d = p2d_h[:-1] / p2d_h[-1]
+                    p2d[1] = 192 - p2d[1]
+                    print(f"{np.mean(np.abs(p2d - point_2D_cropped))}")
 
         # self.estimating_camera_experiment(num_frames, points_2D_reprojected, points_3D)
         return points_2D_reprojected
@@ -521,16 +600,16 @@ class Triangulate:
 
 if __name__ == '__main__':
     import json
-    configuration_path = r'C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\2D_to_3D_config.json'
-    point_2D_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\movie_78_10_4868_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_May 02\predicted_points_and_box.h5"
-    box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\movie_78_10_4868_ds_3tc_7tj.h5"
+    configuration_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\2D_to_3D_config.json"
+    point_2D_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov2\movie_2_10_978_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Apr 11\predicted_points_and_box.h5"
+    box_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov2\movie_2_10_978_ds_3tc_7tj.h5"
     with open(configuration_path) as C:
         config = json.load(C)
         tr = Triangulate(config)
-        points_2D = h5py.File(point_2D_path, 'r')['/positions_pred'][:100]
-        cropzone = h5py.File(box_path, 'r')['/cropzone'][:100]
+        points_2D = h5py.File(point_2D_path, 'r')['/positions_pred'][:-1]
+        cropzone = h5py.File(box_path, 'r')['/cropzone'][:-1]
         points_3D_all_multiviews, reprojection_errors_multiviews = tr.triangulate_points_all_possible_views(points_2D, cropzone)
         points_3D_all, reprojection_errors, triangulation_errors = tr.triangulate_2D_to_3D_reprojection_optimization(points_2D, cropzone)
+        points_3D_all_rays_midpoint, reprojection_errors_rays_midpoint, triangulation_errors_rays_midpoint = tr.rays_midpoint_traingulation(points_2D, cropzone)
         mean_reprojection_error = np.mean(reprojection_errors)
         mean_3D_error = np.mean(triangulation_errors)
-        pass

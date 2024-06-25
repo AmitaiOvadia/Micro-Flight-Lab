@@ -17,11 +17,12 @@ from numpy.polynomial.polynomial import Polynomial
 from utils import get_start_frame
 import pandas as pd
 import plotly.graph_objects as go
+from matplotlib.widgets import Slider
 
 # matplotlib.use('TkAgg')
 
 
-sampling_rate = 16000
+SAMPLING_RATE = 16000
 dt = 1 / 16000
 LEFT = 0
 RIGHT = 1
@@ -107,13 +108,25 @@ class FlightAnalysis:
         self.y_body, self.first_y_body_frame, self.end_frame = self.get_roni_y_body()
         self.z_body = self.get_z_body()
 
-        self.yaw_angle = self.get_body_yaw()
-        self.pitch_angle = self.get_body_pitch()
-        self.roll_angle = self.get_body_roll()
+        self.yaw_angle = self.get_body_yaw(self.x_body)
+        self.pitch_angle = self.get_body_pitch(self.x_body)
+        self.roll_angle = self.get_body_roll(phi = self.yaw_angle,
+                                            theta = self.pitch_angle,
+                                            x_body = self.x_body,
+                                            yaw = self.yaw_angle,
+                                            pitch = self.pitch_angle,
+                                            start = self.first_y_body_frame,
+                                            end = self.end_frame,
+                                            y_body = self.y_body,)
 
-        self.yaw_dot = self.get_dot(self.yaw_angle)
-        self.pitch_dot = self.get_dot(self.pitch_angle)
-        self.roll_dot = self.get_roll_dot()
+        self.yaw_dot = self.get_dot(self.yaw_angle, sampling_rate=SAMPLING_RATE)
+        self.pitch_dot = self.get_dot(self.pitch_angle, sampling_rate=SAMPLING_RATE)
+        self.roll_dot = self.get_roll_dot(self.roll_angle)
+
+        self.yaw_dot_dot = self.get_dot(self.yaw_dot, sampling_rate=SAMPLING_RATE)
+        self.pitch_dot_dot = self.get_dot(self.pitch_dot, sampling_rate=SAMPLING_RATE)
+        self.roll_dot_dot = self.get_roll_dot(self.roll_dot)
+        self.p, self.q, self.r, self.p_dot, self.q_dot, self.r_dot = self.get_pqr()
 
         self.average_roll_angle = np.mean(self.roll_angle[self.first_y_body_frame:self.end_frame])
         self.average_roll_speed = np.nanmean(np.abs(self.roll_dot))
@@ -133,11 +146,15 @@ class FlightAnalysis:
 
         self.omega_lab, self.omega_body, self.angular_speed_lab, self.angular_speed_body = self.get_angular_velocities(self.x_body, self.y_body,
                                                                                                    self.z_body, self.first_y_body_frame,
-                                                                                                   self.end_frame)
+                                                                                                    self.end_frame)
+
         # self.verify_omega()
-        # plt.plot(self.omega_body[:, 0])
-        # plt.plot(self.roll_dot)
-        # plt.plot(self.roll_angle)
+        # plt.plot(self.p, label='p')
+        # plt.plot(self.q, label='q')
+        # plt.plot(self.r, label='r')
+        # # plt.plot(self.omega_body)
+        # plt.legend()
+        # plt.grid()
         # plt.show()
         if find_auto_correlation:
             self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body,
@@ -154,42 +171,120 @@ class FlightAnalysis:
         self.adjust_starting_frame()
         pass
 
+
     def verify_omega(self):
         # Get the number of samples (N)
-        N = len(self.yaw_angle)
+        import sympy as sp
+        # Define the symbols
+        # Define the time symbol and the angles as functions of time
+        t = sp.symbols('t')
+        alpha = sp.Function('alpha')(t)
+        beta = sp.Function('beta')(t)
+        gamma = sp.Function('gamma')(t)
 
-        # Initialize omega array (N, 3)
-        omega = np.zeros((N, 3))
+        # Define the trigonometric functions
+        c_alpha = sp.cos(alpha)
+        c_beta = sp.cos(beta)
+        c_gamma = sp.cos(gamma)
+        s_alpha = sp.sin(alpha)
+        s_beta = sp.sin(beta)
+        s_gamma = sp.sin(gamma)
 
-        # Compute sin and cos values for pitch and roll angles
-        sin_theta = np.sin(self.pitch_angle)
-        cos_theta = np.cos(self.pitch_angle)
-        sin_phi = np.sin(self.roll_angle)
-        cos_phi = np.cos(self.roll_angle)
+        # Create the rotation matrix R
+        R = sp.Matrix([
+            [c_alpha * c_beta, c_alpha * s_beta * s_gamma - c_gamma * s_alpha,
+             s_alpha * s_gamma + c_gamma * c_alpha * s_beta],
+            [c_beta * s_alpha, c_alpha * c_gamma + s_alpha * s_beta * s_gamma,
+             c_gamma * s_alpha * s_beta - c_alpha * s_gamma],
+            [-s_beta, c_beta * s_gamma, c_beta * c_gamma]
+        ])
+        dRdt = R.diff(t)
+        R_T = R.transpose()
+        # Compute omega as dRdt * R_T
+        omega_matrix = dRdt * R_T
 
-        for i in range(N):
-            # Construct the transformation matrix for each sample
-            transformation_matrix = np.array([
-                [1, 0, -sin_theta[i]],
-                [0, cos_phi[i], cos_theta[i] * sin_phi[i]],
-                [0, -sin_phi[i], cos_theta[i] * cos_phi[i]]
-            ])
+        # Ensure omega_matrix is a SymPy matrix
+        omega_matrix = sp.Matrix(omega_matrix)
 
-            # Euler angle rates vector
-            euler_rates = np.array([self.roll_dot[i], self.pitch_dot[i], self.yaw_dot[i]])
+        # Extract wx, wy, wz from the skew-symmetric matrix omega_matrix
+        omega_x = sp.simplify(omega_matrix[2, 1])
+        omega_y = sp.simplify(omega_matrix[0, 2])
+        omega_z = sp.simplify(omega_matrix[1, 0])
 
-            # Compute omega for the current sample
-            omega[i] = transformation_matrix @ euler_rates
-        plt.plot(omega[:, 0])
-        plt.plot(self.omega_body[:, 0])
-        plt.show()
+        N = len(self.roll_dot)
+        yaw_dot = np.radians(self.yaw_dot[self.first_y_body_frame:self.end_frame]) * SAMPLING_RATE
+        pitch_dot = np.radians(self.pitch_dot[self.first_y_body_frame:self.end_frame]) * SAMPLING_RATE
+        roll_dot = np.radians(self.roll_dot) * SAMPLING_RATE
+
+        yaw = np.radians(self.yaw_angle[self.first_y_body_frame:self.end_frame])
+        pitch = np.radians(self.pitch_angle[self.first_y_body_frame:self.end_frame])
+        roll = np.radians(self.roll_angle[self.first_y_body_frame:self.end_frame])
+
+        # wx = roll_dot * cos(yaw)*cos(pitch) - pitch_dot * sin(yaw)
+        # wy = pitch_dot * cos(yaw) + roll_dot * sin(yaw) * cos(pitch)
+        # wz = yaw_dot - roll_dot * sin(pitch)
+
+        omega_verified = np.zeros((N, 3))
+        wx = roll_dot * np.cos(yaw)*np.cos(pitch) - pitch_dot * np.sin(yaw)
+        wy = pitch_dot * np.cos(yaw) + roll_dot * np.sin(yaw) * np.cos(pitch)
+        wz = yaw_dot - roll_dot * np.sin(pitch)
+        omega_verified = np.column_stack([wx, wy, wz])
+
+        # plt.plot(yaw, color='b')
+        # plt.plot(pitch, color='g')
+        # plt.plot(roll, color='r')
+        # plt.show()
+        #
+        # ax=0
+        # plt.plot(omega_verified[:, ax] / 300)
+        # plt.plot(self.omega_lab[self.first_y_body_frame:self.end_frame, ax])
+        # # plt.plot(self.omega_body[self.first_y_body_frame:self.end_frame, 0])
+        # plt.show()
         pass
 
-    def get_roll_dot(self):
-        roll_dot_final = np.zeros_like(self.roll_angle)
-        roll_dot = self.get_dot(self.roll_angle[self.first_y_body_frame:self.end_frame])
-        roll_dot_final[self.first_y_body_frame:self.end_frame] = roll_dot
-        return roll_dot_final
+    def get_pqr(self):
+        # calculate the body angular acceleratrion and velocity: pqr and pqr_dot
+        roll, roll_dot, roll_dot_dot = np.zeros(self.num_frames), np.zeros(self.num_frames), np.zeros(self.num_frames)
+        pitch = -self.pitch_angle   # there is minus here
+        yaw = self.yaw_angle
+        roll[self.first_y_body_frame:self.end_frame] = self.roll_angle
+        pitch_dot = -self.pitch_dot   # there is minus here
+        yaw_dot = self.yaw_dot
+        roll_dot[self.first_y_body_frame:self.end_frame] = self.roll_dot
+        pitch_dot_dot = self.pitch_dot_dot
+        yaw_dot_dot = self.yaw_dot_dot
+        roll_dot_dot[self.first_y_body_frame:self.end_frame] = self.roll_dot_dot
+
+        p, q, r = self.get_pqr_calculation(pitch, pitch_dot, roll, roll_dot, yaw_dot)
+
+        p_dot = roll_dot_dot - yaw_dot_dot * np.sin(np.radians(pitch)) - yaw_dot * pitch_dot * np.cos(
+            np.radians(pitch));
+        q_dot = (pitch_dot_dot * np.cos(np.radians(roll)) - pitch_dot * np.sin(np.radians(roll)) * roll_dot
+                 + yaw_dot_dot * np.sin(np.radians(roll) * np.cos(pitch) +
+                                        +yaw_dot * np.cos(np.radians(roll)) * np.cos(np.radians(pitch)) * roll_dot
+                                        - yaw_dot * np.sin(np.radians(roll)) * np.sin(np.radians(pitch)) * pitch_dot))
+
+        r_dot = (-pitch_dot_dot * np.sin(np.radians(roll)) - pitch_dot * np.cos(np.radians(roll)) * roll_dot
+                 + yaw_dot_dot * np.cos(np.radians(roll)) * np.cos(np.radians(pitch))
+                 - yaw_dot * np.sin(np.radians(roll)) * np.cos(np.radians(pitch)) * roll_dot
+                 - yaw_dot * np.cos(np.radians(roll)) * np.sin(np.radians(pitch)) * pitch_dot)
+        return p, q, r, p_dot, q_dot, r_dot
+
+    @staticmethod
+    def get_pqr_calculation(pitch, pitch_dot, roll, roll_dot, yaw_dot):
+        # get everything in degrees.
+        # return in radians
+        pitch, pitch_dot, roll, roll_dot, yaw_dot = (np.radians(pitch), np.radians(pitch_dot),
+                                                     np.radians(roll), np.radians(roll_dot),
+                                                     np.radians(yaw_dot))
+        p = roll_dot - yaw_dot * np.sin(pitch)
+        q = pitch_dot * np.cos(roll) + yaw_dot * np.sin(roll) * np.cos(pitch)
+        r = -pitch_dot * np.sin(roll) + yaw_dot * np.cos(roll) * np.cos(pitch)
+        return p, q, r
+
+    def get_roll_dot(self, roll_angle):
+        roll_dot = self.get_dot(roll_angle, sampling_rate=SAMPLING_RATE)
+        return roll_dot
 
     def get_full_wingbits_objects(self):
         all_half_wingbits_objects = [self.left_half_wingbits, self.right_half_wingbits]
@@ -295,10 +390,18 @@ class FlightAnalysis:
         # fill all the not analysed frames with nans
         # fill with nans all arrays that rely on y_body
         indices = np.concatenate((np.arange(0, self.first_y_body_frame), np.arange(self.end_frame, self.num_frames - 1)))
-        self.y_body = FlightAnalysis.fill_with_nans(self.y_body, indices)
-        self.z_body = FlightAnalysis.fill_with_nans(self.z_body, indices)
+
+        # fix roll angle and roll dot
+        roll_angle, roll_dot = np.zeros(self.num_frames), np.zeros(self.num_frames)
+        roll_angle[self.first_y_body_frame:self.end_frame] = self.roll_angle
+        roll_dot[self.first_y_body_frame:self.end_frame] = self.roll_dot
+        self.roll_angle = roll_angle
+        self.roll_dot = roll_dot
+
         self.roll_angle = FlightAnalysis.fill_with_nans(self.roll_angle, indices)
         self.roll_dot = FlightAnalysis.fill_with_nans(self.roll_dot, indices)
+        self.y_body = FlightAnalysis.fill_with_nans(self.y_body, indices)
+        self.z_body = FlightAnalysis.fill_with_nans(self.z_body, indices)
         self.omega_lab = FlightAnalysis.fill_with_nans(self.omega_lab, indices)
         self.stroke_planes = FlightAnalysis.fill_with_nans(self.stroke_planes, indices)
         self.wings_phi_left = FlightAnalysis.fill_with_nans(self.wings_phi_left, indices)
@@ -455,7 +558,7 @@ class FlightAnalysis:
     def get_head_tail_points(self, smooth=True):
         head_tail_points = self.points_3D[:, self.head_tail_inds, :]
         if smooth:
-            window_length = min(73 * 1, self.num_frames)
+            window_length = min(73 * 3, self.num_frames)
             window_length = window_length - 1 if window_length % 2 == 0 else window_length
             median_kernel = min(41, self.num_frames)
             median_kernel = median_kernel - 1 if median_kernel % 2 == 0 else median_kernel
@@ -563,67 +666,63 @@ class FlightAnalysis:
         wings_joints_vec = normalize(wings_joints_vec, axis=1, norm='l2')
         return wings_joints_vec
 
-    def get_body_pitch(self):
-        pitch = np.rad2deg(np.arcsin(self.x_body[:, 2]))
+    @staticmethod
+    def get_body_pitch(x_body):
+        pitch = np.rad2deg(np.arcsin(x_body[:, 2]))
         return pitch
 
-    def get_body_yaw(self):
-        only_xy = normalize(self.x_body[:, :-1], axis=1, norm='l2')
+    @staticmethod
+    def get_body_yaw(x_body):
+        only_xy = normalize(x_body[:, :-1], axis=1, norm='l2')
         yaw = np.rad2deg(np.arctan2(only_xy[:, 1], only_xy[:, 0]))
         yaw = np.unwrap(yaw + 180, period=360) - 180
         return yaw
 
-    def get_Rzy(self, phi, theta):
+    @staticmethod
+    def get_Rzy(phi, theta, x_body, yaw, pitch):
         num_frames = phi.shape[0]
         Rzy_all = []
         for i in range(num_frames):
-            x_body_i = self.x_body[i]
-            Rzy = FlightAnalysis.euler_rotation_matrix(np.deg2rad(self.yaw_angle[i]), np.deg2rad(self.pitch_angle[i]), psi_rad=0)
+            x_body_i = x_body[i]
+            Rzy = FlightAnalysis.euler_rotation_matrix(np.deg2rad(yaw[i]), np.deg2rad(pitch[i]), psi_rad=0)
             Rzy_all.append(Rzy)
         Rzy_all = np.array(Rzy_all)
         return Rzy_all
 
-
-    def get_body_roll(self):
-        phi = self.yaw_angle
-        theta = self.pitch_angle
-        Rzy_all = self.get_Rzy(phi, theta)
-        all_roll_angles = np.zeros(self.num_frames,)
-        for frame in range(self.first_y_body_frame, self.num_frames):
+    @staticmethod
+    def get_body_roll(phi, theta, x_body,y_body,yaw, pitch, start, end):
+        num_frames = len(x_body)
+        Rzy_all = FlightAnalysis.get_Rzy(phi, theta, x_body, yaw, pitch)
+        all_roll_angles = np.zeros(num_frames,)
+        for frame in range(start, num_frames):
             Rzy = Rzy_all[frame]
-            yb_frame = self.y_body[frame]
+            yb_frame = y_body[frame]
             rotated_yb_frame = Rzy @ yb_frame
             roll_frame = np.arctan2(rotated_yb_frame[2], rotated_yb_frame[1])
             # roll_frame = np.rad2deg(roll_frame)
             all_roll_angles[frame] = roll_frame
         all_roll_angles = np.array(all_roll_angles)
-        all_roll_angles = all_roll_angles[self.first_y_body_frame:self.end_frame]
+        all_roll_angles = all_roll_angles[start:end]
         unwrap_roll_angles = np.unwrap(all_roll_angles)
         unwrap_roll_angles = np.degrees(unwrap_roll_angles)
         # plt.plot(unwrap_roll_angles)
         # plt.show()
-        all_roll_angles = np.zeros(self.num_frames,)
-        all_roll_angles[self.first_y_body_frame:self.end_frame] = unwrap_roll_angles
+        all_roll_angles = np.zeros(num_frames,)
+        all_roll_angles[start:end] = unwrap_roll_angles
         # roll_angle = np.rad2deg(np.arcsin(self.y_body[:, 2]))
         # roll_wings_joints = np.rad2deg(np.arcsin(self.wings_joints_vec[:, 2]))
-        plt.plot(all_roll_angles)
-        plt.show()
+        # plt.plot(all_roll_angles)
+        # plt.show()
         return unwrap_roll_angles
 
     @staticmethod
-    def get_dot(data, window_length=5, polyorder=2):
+    def get_dot(data, window_length=5, polyorder=2, sampling_rate=1):
         data_dot = savgol_filter(data, window_length, polyorder, deriv=1, delta=(1 / sampling_rate))
         # plt.plot(data_dot / 100)
         # plt.plot(data)
         # plt.axhline(y=0, color='gray', linestyle='--')
         # plt.show()
         return data_dot
-
-    def get_body_angles(self):
-        yaw_angle = self.get_body_yaw()
-        pitch_angle = self.get_body_pitch()
-        roll_angle = self.get_body_roll()
-        return yaw_angle, pitch_angle, roll_angle
 
     @staticmethod
     def calculate_angle(arr1, arr2):
@@ -691,9 +790,9 @@ class FlightAnalysis:
     def get_waving_frequency(self, data):
         refined_peaks, peak_values = self.get_peaks(data)
         distances = np.diff(refined_peaks)
-        frequencies = (1 / distances) * sampling_rate
+        frequencies = (1 / distances) * SAMPLING_RATE
         average_distance = np.mean(distances)
-        average_frequency = (1 / average_distance) * sampling_rate
+        average_frequency = (1 / average_distance) * SAMPLING_RATE
         return refined_peaks, frequencies, average_frequency
 
     def get_phi_peaks(self, phi):
@@ -861,7 +960,7 @@ class FlightAnalysis:
         return AC
 
     @staticmethod
-    def get_angular_velocities(x_body, y_body, z_body, start_frame, end_frame):
+    def get_angular_velocities(x_body, y_body, z_body, start_frame, end_frame, sampling_rate=SAMPLING_RATE):
         num_frames = len(x_body)
         x_body, y_body, z_body = (x_body[start_frame:end_frame],
                                   y_body[start_frame:end_frame],
@@ -874,10 +973,10 @@ class FlightAnalysis:
         for i in range(3):
             for j in range(3):
                 entry_ij = Rs[:, i, j]
-                spline = make_smoothing_spline(y=entry_ij, x=T)
-                vals = spline(T)
-                derivative = spline.derivative()(T)
-                dRdt[:, i, j] = derivative
+                # spline = make_smoothing_spline(y=entry_ij, x=T)
+                # vals = spline(T)
+                # derivative = spline.derivative()(T)
+                dRdt[:, i, j] = np.gradient(entry_ij)
 
         w_x, w_y, w_z = np.zeros((3, N))
         for frame in range(N):
@@ -887,6 +986,7 @@ class FlightAnalysis:
             wx_frame = (omega[2, 1] - omega[1, 2])/2
             wy_frame = (omega[0, 2] - omega[2, 0])/2
             wz_frame = (omega[1, 0] - omega[0, 1])/2
+            # print(wx_frame, wy_frame, wz_frame)
             w_x[frame] = np.rad2deg(wx_frame) * sampling_rate
             w_y[frame] = np.rad2deg(wy_frame) * sampling_rate
             w_z[frame] = np.rad2deg(wz_frame) * sampling_rate
@@ -896,7 +996,7 @@ class FlightAnalysis:
         for frame in range(N):
             omega_lab_i = omega_lab[frame, :]
             R = Rs[frame]
-            omega_body_i = R.T.dot(omega_lab_i)
+            omega_body_i = R.T @ omega_lab_i
             omega_body[frame, :] = omega_body_i
 
         nan_frames = np.full((start_frame, 3), np.nan)
@@ -1197,6 +1297,36 @@ class FlightAnalysis:
         points_3D[:, right_inds, :] = right_points
         points_3D[:, left_inds, :] = left_points
         return points_3D
+
+    @staticmethod
+    def euler_rotation_matrix(phi_rad, theta_rad, psi_rad):
+        """
+        Returns the Euler rotation matrix for the given angles in radians.
+
+        Parameters:
+        phi_rad (float): Rotation angle around the x-axis (in radians).
+        theta_rad (float): Rotation angle around the y-axis (in radians).
+        psi_rad (float): Rotation angle around the z-axis (in radians).
+
+        Returns:
+        np.ndarray: The 3x3 Euler rotation matrix.
+        """
+        theta_rad = -theta_rad
+
+        cph = np.cos(phi_rad)
+        sph = np.sin(phi_rad)
+        cth = np.cos(theta_rad)
+        sth = np.sin(theta_rad)
+        cps = np.cos(psi_rad)
+        sps = np.sin(psi_rad)
+
+        M = np.array([
+            [cth * cph, cth * sph, -sth],
+            [sps * sth * cph - cps * sph, sps * sth * sph + cps * cph, cth * sps],
+            [cps * sth * cph + sps * sph, cps * sth * sph - sps * cph, cth * cps]
+        ])
+
+        return M
 
 
 
@@ -1540,15 +1670,236 @@ def compare_autocorrelations_before_and_after_dark(input_hdf5_path, T=20):
 
 
 def create_one_movie_analisys():
-    movie = "mov53"
-    movie_dir = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov53"
-    points_3D_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov53\points_3D_smoothed_ensemble_best_method.npy"
+    num = 78
+    movie = f"mov{num}"
+    movie_dir = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{num}"
+    points_3D_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{num}\points_3D_smoothed_ensemble_best_method.npy"
     smooth = True
     create_movie_analysis_h5(movie, movie_dir, points_3D_path, smooth)
 
 
+def create_rotating_frames(N, dt, omegas):
+    x_body = np.array([1, 0, 0])
+    y_body = np.array([0, 1, 0])
+    z_body = np.array([0, 0, 1])
+
+    # Create arrays to store the frames
+    x_frames = np.zeros((N, 3))
+    y_frames = np.zeros((N, 3))
+    z_frames = np.zeros((N, 3))
+
+    # Initialize the frames with the initial reference frame
+    x_frames[0] = x_body
+    y_frames[0] = y_body
+    z_frames[0] = z_body
+
+    for i in range(1, N):
+        omega = omegas[i]
+        # Construct the skew-symmetric matrix for omega
+        omega_matrix = np.array([
+            [0, -omega[2], omega[1]],
+            [omega[2], 0, -omega[0]],
+            [-omega[1], omega[0], 0]
+        ])
+
+        # Apply the angular velocity tensor to generate the frames
+        R = np.stack((x_frames[i - 1], y_frames[i - 1], z_frames[i - 1]), axis=-1)
+        dR = np.dot(omega_matrix, R) * dt
+        R_new = R + dR
+
+        # Ensure orthogonality and normalization
+        U, _, Vt = np.linalg.svd(R_new, full_matrices=False)
+        R_new = np.dot(U, Vt)
+
+        x_frames[i] = R_new[:, 0]
+        y_frames[i] = R_new[:, 1]
+        z_frames[i] = R_new[:, 2]
+
+    return x_frames, y_frames, z_frames
+
+
+def experiment():
+    # Initial reference frame
+    N = 10000
+    dt = 1
+    t = np.linspace(0, 2*np.pi, N)  # Generate time array
+    # Generate N omegas with sine function
+    omegas = np.vstack([
+        0.0001 * np.sin(t),
+        0.0002 * np.sin(2*t),
+        0.0001 * np.sin(3*t)
+    ]).T
+
+    x_frames, y_frames, z_frames = create_rotating_frames(N, dt, omegas)
+
+    omega_lab, omega_body, angular_speed_lab, angular_speed_body = FlightAnalysis.get_angular_velocities(
+        x_frames, y_frames, z_frames, start_frame=0, end_frame=N, sampling_rate=1)
+    omega_lab = np.radians(omega_lab)
+
+    percentage_error = np.abs((omegas - omega_lab) / (omegas + 0.00000001)) * 100
+    mean_percentage_error = percentage_error.mean(axis=0)
+
+    plt.plot(omegas, color='r')
+    plt.plot(omega_lab, color='b')
+    plt.show()
+    return
+
+
+
+def create_rotating_frames_yaw_pitch_roll(N, yaw_angles, pitch_angles, roll_angles):
+    x_body = np.array([1, 0, 0])
+    y_body = np.array([0, 1, 0])
+    z_body = np.array([0, 0, 1])
+
+    # Create arrays to store the frames
+    x_frames = np.zeros((N, 3))
+    y_frames = np.zeros((N, 3))
+    z_frames = np.zeros((N, 3))
+
+    # Initialize the frames with the initial reference frame
+    x_frames[0] = x_body
+    y_frames[0] = y_body
+    z_frames[0] = z_body
+
+    for i in range(0, N):
+        # Get the yaw, pitch, and roll angles for the current frame
+        yaw_angle = yaw_angles[i]
+        pitch_angle = pitch_angles[i]
+        roll_angle = roll_angles[i]
+
+        R = FlightAnalysis.euler_rotation_matrix(yaw_angle, pitch_angle, roll_angle).T
+
+        # Apply the rotation to the initial body frame
+        x_frames[i] = R @ x_body
+        y_frames[i] = R @ y_body
+        z_frames[i] = R @ z_body
+
+    return x_frames, y_frames, z_frames
+
+
+
+
+# Example usage
+def experiment_2(what_to_enter):
+
+    # what_to_enter: coule be either omega or yaw, pitch roll
+    N = 1000
+    if what_to_enter == 'omega':
+        dt = 1
+        # Generate N omegas with sine function
+        d = 0.001
+        wx = np.zeros(N)
+        wy = np.zeros(N)
+        wz = np.zeros(N)
+
+        # wx = 3 * d * np.linspace(0, 10, N)
+        wy = 2 * d * np.ones(N)
+        wz = 10 * d * np.ones(N)
+        omegas = np.vstack([
+            wx,
+            wy,
+            wz
+        ]).T
+
+        x_frames, y_frames, z_frames = create_rotating_frames(N=N, omegas=omegas, dt=1)
+        Rs = np.stack((x_frames, y_frames, z_frames), axis=-1)
+
+        # rs = [scipy.spatial.transform.Rotation.from_matrix(Rs[i]) for i in range(N)]
+        # yaw = np.array([rs[i].as_euler('zyx', degrees=False)[0] for i in range(N)])
+        # pitch = np.array([rs[i].as_euler('zyx', degrees=False)[1] for i in range(N)])
+        # roll = np.array([rs[i].as_euler('zyx', degrees=False)[2] for i in range(N)])
+
+        yaw = np.unwrap(np.array([np.arctan2(r[1, 0], r[0, 0]) for r in  Rs]))
+        pitch = -np.unwrap(np.array([np.arcsin(-r[2, 0]) for r in  Rs]), period=np.pi)
+        roll = np.unwrap(np.array([np.arctan2(r[2, 1], r[2, 2]) for r in  Rs]))
+
+        yaw_mine = np.radians(FlightAnalysis.get_body_yaw(x_frames))
+        pitch_mine = np.radians(FlightAnalysis.get_body_pitch(x_frames))
+        roll_mine = np.radians(FlightAnalysis.get_body_roll(phi=np.degrees(yaw_mine) ,
+                                             theta=np.degrees(pitch_mine),
+                                             x_body=x_frames,
+                                              y_body=y_frames,
+                                             yaw=np.degrees(yaw_mine),
+                                             pitch=np.degrees(pitch_mine),
+                                             start=0,
+                                             end=N,))
+
+        is_close = (np.all(np.isclose(yaw_mine, yaw))
+                    and np.all(np.isclose(pitch_mine, pitch))
+                    and np.all(np.isclose(roll_mine, roll)))
+        print(f"is mine like the other way? {is_close}" )
+
+        plt.title("yaw, pitch, roll")
+        plt.plot(yaw, label='yaw', c='r')
+        plt.plot(pitch, label='pitch', c='g')
+        plt.plot(roll, label='roll', c='b')
+        plt.plot(yaw_mine, label='yaw mine', c='r', linestyle='--')
+        plt.plot(pitch_mine, label='pitch mine', c='g', linestyle='--')
+        plt.plot(roll_mine, label='roll mine', c='b', linestyle='--')
+        plt.legend()
+        plt.show()
+        pass
+    else:
+        yaw = np.zeros(N)
+        pitch = np.zeros(N)
+        roll = np.zeros(N)
+
+        yaw = np.linspace(0, 2 * 2*np.pi, N)  # Example yaw angles for each frame
+        # pitch = np.linspace(0,2 * 2*np.pi, N)  # Example pitch angles for each frame
+        roll = np.linspace(0, 2 * 2*np.pi, N)  # Example roll angles for each frame
+        x_frames, y_frames, z_frames = create_rotating_frames_yaw_pitch_roll(N, yaw, pitch, roll)
+
+    yaw_dot = np.gradient(yaw)
+    roll_dot = np.gradient(roll)
+    pitch_dot = np.gradient(pitch)
+
+    p, q, r = FlightAnalysis.get_pqr_calculation(-np.degrees(pitch), -np.degrees(pitch_dot), np.degrees(roll),
+                                                 np.degrees(roll_dot),
+                                                 np.degrees(yaw_dot))
+    wx_1, wy_1, wz_1 = p, q, r
+    omega_lab, omega_body, _, _ = FlightAnalysis.get_angular_velocities(x_frames, y_frames, z_frames, start_frame=0, end_frame=N, sampling_rate=1)
+    omega_lab, omega_body = np.radians(omega_lab), np.radians(omega_body)
+    wx_2, wy_2, wz_2 = omega_body[:, 0], omega_body[:, 1], omega_body[:, 2]
+
+    # plt.plot(omega_body)
+    # plt.plot(omega_lab, linestyle='--')
+    # plt.show()
+    # Plot all values in one plot
+
+    plt.title("yaw, pitch, roll")
+    plt.plot(yaw, label='yaw')
+    plt.plot(pitch, label='pitch')
+    plt.plot(roll, label='roll')
+    plt.legend()
+    plt.show()
+
+    plot_pqr = True
+    plot_est_omega = True
+    plt.figure(figsize=(12, 8))
+    if plot_pqr:
+        plt.plot(wx_1, label='p -> wx', c='b')
+        plt.plot(wy_1, label='q -> wy', c='r')
+        plt.plot(wz_1, label='r -> wz', c='g')
+    if plot_est_omega:
+        plt.plot(wx_2, label='est wx', linestyle='--', c='b')
+        plt.plot(wy_2, label='est wy', linestyle='--', c='r')
+        plt.plot(wz_2, label='est wz', linestyle='--', c='g')
+    plt.xlabel('Time')
+    plt.ylabel('Angular Velocity (rad/s)')
+    plt.title('Angular Velocities: wx, wy, wz')
+    plt.legend()
+    plt.show()
+
+    omega = np.column_stack((p, q, r)) * 50
+    # omega = omega_body * 500
+    Visualizer.visualize_rotating_frames(x_frames, y_frames, z_frames, omega)
+    pass
+
+
+
 if __name__ == '__main__':
-    create_one_movie_analisys()
+    experiment_2(what_to_enter='omega')
+    # create_one_movie_analisys()
     # movie = 104
     # points_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\points_3D_smoothed_ensemble_best.npy"
     # FlightAnalysis(points_path, create_html=False, find_auto_correlation=False, show_phi=False)
@@ -1562,13 +1913,8 @@ if __name__ == '__main__':
     # # plot_movie_html(1)
     # # plot_movie_html(2)    # plot_movie_html(3)
     # # plot_movie_html(4)
-    base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
-    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies"
-    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster"
-    # csv_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\summary_results.csv"
-    # # get_frequencies_from_all(base_path, csv_path)
-    output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\all_movies_data_not_smoothed.h5"
-    # output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\all_movies_data_smoothed.h5"
-    # save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_for_all=False)
-    save_movies_data_to_hdf5(base_path, output_hdf5_path=output_hdf5_path, smooth=True, one_h5_for_all=False)
+
+    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
+    # output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\all_movies_data_not_smoothed.h5"
+    # save_movies_data_to_hdf5(base_path, output_hdf5_path=output_hdf5_path, smooth=True, one_h5_for_all=False)
 
