@@ -19,6 +19,7 @@ from scipy.interpolate import griddata
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib.animation as animation
 from moviepy.editor import VideoFileClip
+import re
 
 
 class Visualizer:
@@ -796,16 +797,21 @@ class Visualizer:
     @staticmethod
     def create_movie_mp4(h5_path_movie_path,           save_frames=None,
                          reprojected_points_path=None, box_path=None,
-                         save_path=None,               rotate=False):
+                         save_path="movie_gif.gif",  rotate=False):
 
         zoom_factor = 1  # Adjust as needed
         points_2D = np.load(reprojected_points_path)
         first_analized_frame = Visualizer.get_data_from_h5(h5_path_movie_path, 'first_analysed_frame')[()]
         if save_frames is None:
             save_frames = np.arange(len(points_2D))
+
+            save_frames = save_frames  # todo
+
             frames_from_box_and_reprojected_points = save_frames
+            pass
         else:
             frames_from_box_and_reprojected_points = save_frames - first_analized_frame
+
 
         points_2D = points_2D[frames_from_box_and_reprojected_points]
         channel_1 = [1, 1+3, 1+6, 1+9]
@@ -914,40 +920,43 @@ class Visualizer:
             ax.add_collection3d(plane)
 
         def update(frame, plot_all_my_points=True, labels=False):
-            print(f"frame : {frame}")
+            analysis_frame = frame + first_analized_frame
+            print(f"frame : {analysis_frame}", flush=True)
             ax_3d.cla()  # Clear current axes
             if plot_all_my_points:
                 for i in range(num_points):
                     if i not in [7, 15]:
-                        ax_3d.scatter(points[frame, i, 0],
-                                      points[frame, i, 1],
-                                      points[frame, i, 2], c=color_array[i])
+                        ax_3d.scatter(points[analysis_frame, i, 0],
+                                      points[analysis_frame, i, 1],
+                                      points[analysis_frame, i, 2], color=color_array[i])
                 for i, j in connections:
-                    ax_3d.plot(points[frame, [i, j], 0],
-                               points[frame, [i, j], 1],
-                               points[frame, [i, j], 2], c='k',
+                    ax_3d.plot(points[analysis_frame, [i, j], 0],
+                               points[analysis_frame, [i, j], 1],
+                               points[analysis_frame, [i, j], 2], color='k',
                                linewidth=2)
 
             # Plot wing tips
-            ax_3d.scatter(my_left_wing_tip[frame, 0], my_left_wing_tip[frame, 1], my_left_wing_tip[frame, 2],
-                       c=color_array[0])
-            ax_3d.scatter(my_right_wing_tip[frame, 0], my_right_wing_tip[frame, 1], my_right_wing_tip[frame, 2],
-                       c=color_array[0])
+            ax_3d.scatter(my_left_wing_tip[analysis_frame, 0], my_left_wing_tip[analysis_frame, 1],
+                          my_left_wing_tip[analysis_frame, 2],
+                          color=color_array[0])
+            ax_3d.scatter(my_right_wing_tip[analysis_frame, 0], my_right_wing_tip[analysis_frame, 1],
+                          my_right_wing_tip[analysis_frame, 2],
+                          color=color_array[0])
 
             # Plot the center of mass
-            my_cm_x, my_cm_y, my_cm_z = my_CM[frame]
-            ax_3d.scatter(my_cm_x, my_cm_y, my_cm_z, c=color_array[0])
+            my_cm_x, my_cm_y, my_cm_z = my_CM[analysis_frame]
+            ax_3d.scatter(my_cm_x, my_cm_y, my_cm_z, color=color_array[0])
 
             # Add the stroke plane
-            plot_plane(ax_3d, plane_data[frame])
+            plot_plane(ax_3d, plane_data[analysis_frame])
 
             lables_xyz_body = ['Xb', 'Yb', 'Zb'] if labels else None
             labels_span_cord = ['Span', 'Chord'] if labels else None
-            add_quiver_axes(ax_3d, (my_cm_x, my_cm_y, my_cm_z), my_x_body[frame], my_y_body[frame], my_z_body[frame],
+            add_quiver_axes(ax_3d, (my_cm_x, my_cm_y, my_cm_z), my_x_body[analysis_frame], my_y_body[analysis_frame], my_z_body[analysis_frame],
                             color='r', labels=lables_xyz_body)
-            add_quiver_axes(ax_3d, my_left_wing_CM[frame], my_left_wing_span[frame], my_left_wing_chord[frame], None,
+            add_quiver_axes(ax_3d, my_left_wing_CM[analysis_frame], my_left_wing_span[analysis_frame], my_left_wing_chord[analysis_frame], None,
                             color='r', labels=labels_span_cord)
-            add_quiver_axes(ax_3d, my_right_wing_CM[frame], my_right_wing_span[frame], my_right_wing_chord[frame],
+            add_quiver_axes(ax_3d, my_right_wing_CM[analysis_frame], my_right_wing_span[analysis_frame], my_right_wing_chord[analysis_frame],
                             None, color='r', labels=labels_span_cord)
 
             try:
@@ -998,7 +1007,7 @@ class Visualizer:
                         point = points_2D[frame - save_frames[0], i, j, :]
                         point[0] += shift_yx[1]
                         point[1] += shift_yx[0]
-                        ax.scatter(point[0],  point[1], c=color_array[j])
+                        ax.scatter(point[0],  point[1], color=color_array[j])
                 # ax.scatter(cm[0] + shift_yx[1], cm[1] + shift_yx[0], c='blue')
                 ax.axis('off')
 
@@ -1014,7 +1023,8 @@ class Visualizer:
 
         dir_path = os.path.dirname(save_path)
         gif_clip = VideoFileClip(save_path)
-        save_path_mp4 = os.path.join(dir_path, 'analisys_mp4.mp4')
+        rotated = "rotated" if rotate else "not rotated"
+        save_path_mp4 = os.path.join(dir_path, f'analisys_mp4_{rotated}.mp4')
         gif_clip.write_videofile(save_path_mp4, codec="libx264")
         os.remove(save_path)
 
@@ -1054,6 +1064,15 @@ class Visualizer:
         # omega body
         omega_body = Visualizer.get_data_from_h5(h5_path_movie_path, 'omega_body')
         # points = points[:1000]
+
+        # plt.plot(my_x_body)
+        # time_ms = (np.arange(0, len(omega_body)) - 340)/16
+        # plt.plot(time_ms, omega_body[:, 0],  color='r', label='x')
+        # plt.plot(time_ms,omega_body[:, 1], color='b', label='y')
+        # plt.plot(time_ms, omega_body[:, 2], color='k', label='z')
+        # plt.plot(time_ms, np.linalg.norm(omega_body, axis=-1), color='g', label='norm')
+        # plt.legend()
+        # plt.show()
 
         # Calculate the limits of the plot
         x_min = np.nanmin(points[:, :, 0])
@@ -1133,10 +1152,12 @@ class Visualizer:
         plane_data = [compute_plane_data(my_CM[frame], my_stroke_planes[frame], my_y_body[frame]) for frame in
                       range(num_frames)]
 
-        def update(val, plot_all_my_points=True,):
+        def update(val, do_plot_plane=True, plot_wings=True):
             ax.cla()  # Clear current axes
             frame = int(slider.val)
-            if plot_all_my_points:
+            my_cm_x, my_cm_y, my_cm_z = my_CM[frame]
+
+            if plot_wings:
                 for i in range(num_points):
                     if i not in [7, 15]:
                         ax.scatter(points[frame, i, 0], points[frame, i, 1], points[frame, i, 2], c=color_array[i])
@@ -1144,29 +1165,30 @@ class Visualizer:
                     ax.plot(points[frame, [i, j], 0], points[frame, [i, j], 1], points[frame, [i, j], 2], c='k')
 
 
-            # Plot wing tips
-            ax.scatter(my_left_wing_tip[frame, 0], my_left_wing_tip[frame, 1], my_left_wing_tip[frame, 2],
-                       c=color_array[0])
-            ax.scatter(my_right_wing_tip[frame, 0], my_right_wing_tip[frame, 1], my_right_wing_tip[frame, 2],
-                       c=color_array[0])
+                # Plot wing tips
+                ax.scatter(my_left_wing_tip[frame, 0], my_left_wing_tip[frame, 1], my_left_wing_tip[frame, 2],
+                           c=color_array[0])
+                ax.scatter(my_right_wing_tip[frame, 0], my_right_wing_tip[frame, 1], my_right_wing_tip[frame, 2],
+                           c=color_array[0])
+
+                add_quiver_axes(ax, my_left_wing_CM[frame], my_left_wing_span[frame], my_left_wing_chord[frame], None,
+                                color='r', labels=['Span', 'Chord'])
+                add_quiver_axes(ax, my_right_wing_CM[frame], my_right_wing_span[frame], my_right_wing_chord[frame],
+                                None,
+                                color='r', labels=['Span', 'Chord'])
 
             # Plot the center of mass
-            my_cm_x, my_cm_y, my_cm_z = my_CM[frame]
             ax.scatter(my_cm_x, my_cm_y, my_cm_z, c=color_array[0])
-
-            # Add the stroke plane
-            plot_plane(ax, plane_data[frame])
+            if do_plot_plane:
+                # Add the stroke plane
+                plot_plane(ax, plane_data[frame])
 
             add_quiver_axes(ax, (my_cm_x, my_cm_y, my_cm_z), omega_body[frame] / 500, None, None,
                             color='b', labels=['omega body'])
 
             add_quiver_axes(ax, (my_cm_x, my_cm_y, my_cm_z), my_x_body[frame], my_y_body[frame], my_z_body[frame],
                             color='r', labels=['Xb', 'Yb', 'Zb'])
-            add_quiver_axes(ax, my_left_wing_CM[frame], my_left_wing_span[frame], my_left_wing_chord[frame], None,
-                            color='r', labels=['Span', 'Chord'])
-            add_quiver_axes(ax, my_right_wing_CM[frame], my_right_wing_span[frame], my_right_wing_chord[frame],
-                            None,
-                            color='r', labels=['Span', 'Chord'])
+
             try:
                 zoom_scale = 0.003
                 ax.set_xlim([my_cm_x - zoom_scale, my_cm_x + zoom_scale])
@@ -1203,50 +1225,77 @@ class Visualizer:
 
     @staticmethod
     def visualize_models_selection(all_models_combinations):
-        left_wing_models = all_models_combinations[0]
-        right_wing_models = all_models_combinations[1]
-        head_tail_models = all_models_combinations[2]
-        side_points_models = all_models_combinations[3]
+        model_names = ['left_wing_models', 'right_wing_models', 'head_tail_models', 'side_points_models']
+        model_data = [all_models_combinations[i][..., :6] for i in range(len(all_models_combinations))]
 
-        models = right_wing_models
-        M = left_wing_models.shape[1]
-        # Set up the scatter plot
-        fig, ax = plt.subplots(2, 1, figsize=(10, 12))
+        for model_name, models in zip(model_names, model_data):
+            num_frames, num_models, num_candidates = models.shape
 
-        # Define colors for each model
-        colors = plt.cm.get_cmap('tab10', M)
+            # Set up the figure
+            fig, ax = plt.subplots(5, 1, figsize=(16, 25))
 
-        # Plot scatter data
-        for model in range(M):
-            frames = np.where(models[:, model] == 1)[0]
-            ax[0].scatter(frames, np.full_like(frames, model), color=colors(model), label=f'Model {model + 1}',
-                          s=1)
+            # Colors for plotting
+            candidate_colors = plt.cm.get_cmap('tab10', num_candidates)
+            model_colors = plt.cm.get_cmap('tab10', num_models)
 
-        # Scatter plot labels and legend
-        ax[0].set_xlabel('Frames')
-        ax[0].set_ylabel('Models')
-        ax[0].set_title('Model Selection Visualization')
-        ax[0].set_yticks(np.arange(M))
-        ax[0].set_yticklabels([f'Model {i + 1}' for i in range(M)])
-        ax[0].legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+            # Plot Candidates per Frame
+            for candidate in range(num_candidates):
+                frames = np.where(np.any(models[:, :, candidate], axis=1))[0]
+                ax[0].scatter(frames, np.full_like(frames, candidate), color=candidate_colors(candidate),
+                              label=f'Candidate {candidate + 1}', s=1)
 
-        # Plot histogram data
-        model_usage = np.sum(models, axis=0)
-        ax[1].bar(np.arange(M), model_usage, color=[colors(i) for i in range(M)])
+            ax[0].set_xlabel('Frames')
+            ax[0].set_ylabel('Candidates')
+            ax[0].set_title('Candidates Chosen per Frame')
+            ax[0].set_yticks(np.arange(num_candidates))
+            ax[0].set_yticklabels([f'Candidate {i + 1}' for i in range(num_candidates)])
+            ax[0].legend(loc='upper right', bbox_to_anchor=(1.15, 1))
 
-        # Histogram labels
-        ax[1].set_xlabel('Models')
-        ax[1].set_ylabel('Usage Count')
-        ax[1].set_title('Model Usage Histogram')
-        ax[1].set_xticks(np.arange(M))
-        ax[1].set_xticklabels([f'Model {i + 1}' for i in range(M)])
+            # Plot Models per Frame
+            for model in range(num_models):
+                frames = np.where(np.any(models[:, model, :], axis=1))[0]
+                ax[1].scatter(frames, np.full_like(frames, model), color=model_colors(model),
+                              label=f'Model {model + 1}',
+                              s=1)
 
-        # Display plots
-        plt.tight_layout()
-        plt.show()
+            ax[1].set_xlabel('Frames')
+            ax[1].set_ylabel('Models')
+            ax[1].set_title('Models Chosen per Frame')
+            ax[1].set_yticks(np.arange(num_models))
+            ax[1].set_yticklabels([f'Model {i + 1}' for i in range(num_models)])
+            ax[1].legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+
+            # Plot number of candidates chosen per frame
+            candidates_per_frame = np.sum(np.any(models, axis=1), axis=1)
+            ax[2].scatter(np.arange(num_frames), candidates_per_frame, color='blue', s=1)
+            ax[2].set_xlabel('Frames')
+            ax[2].set_ylabel('Number of Candidates')
+            ax[2].set_title('Number of Candidates Chosen per Frame')
+
+            # Plot number of models chosen per frame
+            models_per_frame = np.sum(np.any(models, axis=2), axis=1)
+            ax[3].scatter(np.arange(num_frames), models_per_frame, color='green', s=1)
+            ax[3].set_xlabel('Frames')
+            ax[3].set_ylabel('Number of Models')
+            ax[3].set_title('Number of Models Chosen per Frame')
+
+            # Plot Model Usage Histogram
+            model_usage = np.sum(models, axis=(0, 2))
+            ax[4].bar(np.arange(num_models), model_usage, color=[model_colors(i) for i in range(num_models)])
+            ax[4].set_xlabel('Models')
+            ax[4].set_ylabel('Usage Count')
+            ax[4].set_title('Model Usage Histogram')
+            ax[4].set_xticks(np.arange(num_models))
+            ax[4].set_xticklabels([f'Model {i + 1}' for i in range(num_models)])
+
+            # Display plots
+            plt.tight_layout()
+            plt.savefig(f'visualizations/{model_name}_visualized_models_selection.png')
+            plt.close(fig)
+
 
     @staticmethod
-    def plot_psi_or_theta_vs_phi(h5_path_movie_path, wing_bits=[0, 1, 2], wing='left', other_angle='theta'):
+    def plot_psi_or_theta_vs_phi(h5_path_movie_path, wing_bits=[0, 1, 2, 3, 4, 5, 6, 7, 8], wing='left', other_angle='psi'):
         # other angle is psi or theta
         fig = go.Figure()
         # Plot Pitch Body Angle
@@ -1266,10 +1315,12 @@ class Visualizer:
             title=f'{wing} wing wingbits theta vs phi',
             xaxis_title='phi (degrees)',
             yaxis_title=f'{other_angle} (degrees)',
-            legend_title='Legend'
+            legend_title='Legend',
+            xaxis=dict(scaleanchor="y", scaleratio=1),  # Equal axis scaling
+            yaxis=dict(scaleanchor="x", scaleratio=1)  #
         )
         # Save the plot as an HTML file
-        html_file_name = f'{other_angle} vs phi.html'
+        html_file_name = f'{other_angle} {wing} vs phi.html'
         dir = os.path.dirname(h5_path_movie_path)
         path = os.path.join(dir, html_file_name)
         fig.write_html(path)
@@ -1433,7 +1484,15 @@ class Visualizer:
         fig.write_html(path)
 
     @staticmethod
+    def count_objects_in_group(h5_file_path, group_name):
+        with h5py.File(h5_file_path, 'r') as h5_file:
+            group = h5_file[group_name]
+            num_objects = len(group.keys())
+            return num_objects
+
+    @staticmethod
     def plot_all_body_data(h5_path_movie_path):
+        print(f"plot all body data for movie:\n{h5_path_movie_path}")
         # convert_to_ms = self.frame_rate / 1000
         yaw = Visualizer.get_data_from_h5(h5_path_movie_path, f'yaw_angle')
         pitch = Visualizer.get_data_from_h5(h5_path_movie_path, f'pitch_angle')
@@ -1456,26 +1515,31 @@ class Visualizer:
         theta_left = Visualizer.get_data_from_h5(h5_path_movie_path, f'wings_theta_left')
         theta_right = Visualizer.get_data_from_h5(h5_path_movie_path, f'wings_theta_right')
 
-        num_halfbits = 120
-        mid_left = np.zeros((num_halfbits, 2))
-        mid_right = np.zeros((num_halfbits, 2))
-        for wing_bit in range(num_halfbits):
-            data_name_left = f"left_half_wingbits/half_wingbit_{wing_bit}/avarage_value"
-            left_val = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_left)[()]
-            data_name_right = f"right_half_wingbits/half_wingbit_{wing_bit}/avarage_value"
-            right_val = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_right)[()]
+        # Example usage
+        group_name = 'left_half_wingbits'
+        num_left_half_wingbits = Visualizer.count_objects_in_group(h5_path_movie_path, group_name)
+        group_name = 'right_half_wingbits'
+        num_right_half_wingbits = Visualizer.count_objects_in_group(h5_path_movie_path, group_name)
 
-            data_name_left = f"left_half_wingbits/half_wingbit_{wing_bit}/frames"
-            left_frames = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_left)[:]
-            left_frame = left_frames[len(left_frames)//2]
-
-            data_name_right = f"right_half_wingbits/half_wingbit_{wing_bit}/frames"
-            right_frames = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_right)[:]
-            right_frame = right_frames[len(right_frames)//2]
-
-            mid_left[wing_bit, 0], mid_left[wing_bit, 1] = left_frame, left_val
-            mid_right[wing_bit, 0], mid_right[wing_bit, 1] = left_frame, right_val
-
+        # num_halfbits = min(num_left_half_wingbits, num_right_half_wingbits)
+        # mid_left = np.zeros((num_halfbits, 2))
+        # mid_right = np.zeros((num_halfbits, 2))
+        # for wing_bit in range(num_halfbits):
+        #     data_name_left = f"left_half_wingbits/half_wingbit_{wing_bit}/avarage_value"
+        #     left_val = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_left)[()]
+        #     data_name_right = f"right_half_wingbits/half_wingbit_{wing_bit}/avarage_value"
+        #     right_val = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_right)[()]
+        #
+        #     data_name_left = f"left_half_wingbits/half_wingbit_{wing_bit}/frames"
+        #     left_frames = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_left)[:]
+        #     left_frame = left_frames[len(left_frames)//2]
+        #
+        #     data_name_right = f"right_half_wingbits/half_wingbit_{wing_bit}/frames"
+        #     right_frames = Visualizer.get_data_from_h5(h5_path_movie_path, data_name_right)[:]
+        #     right_frame = right_frames[len(right_frames)//2]
+        #
+        #     mid_left[wing_bit, 0], mid_left[wing_bit, 1] = left_frame, left_val
+        #     mid_right[wing_bit, 0], mid_right[wing_bit, 1] = left_frame, right_val
 
 
         data = [yaw, pitch, roll,yaw_dot, pitch_dot, roll_dot, omega_body[:, 0], omega_body[:, 1], omega_body[:, 2],
@@ -1513,26 +1577,26 @@ class Visualizer:
             # line=dict(dash='dash')
         ))
 
-        fig.add_trace(go.Scatter(
-            x=left_amplitudes[:, 0],
-            y=left_amplitudes[:, 1] - right_amplitudes[:, 1],
-            mode='lines',
-            name=f'left minus right',
-        ))
+        # fig.add_trace(go.Scatter(
+        #     x=left_amplitudes[:, 0],
+        #     y=left_amplitudes[:, 1] - right_amplitudes[:, 1],
+        #     mode='lines',
+        #     name=f'left minus right',
+        # ))
 
-        fig.add_trace(go.Scatter(
-            x=mid_left[:, 0],
-            y=mid_left[:, 1],
-            mode='lines',
-            name=f'left middle frame',
-        ))
+        # fig.add_trace(go.Scatter(
+        #     x=mid_left[:, 0],
+        #     y=mid_left[:, 1],
+        #     mode='lines',
+        #     name=f'left middle frame',
+        # ))
 
-        fig.add_trace(go.Scatter(
-            x=mid_right[:, 0],
-            y=mid_right[:, 1],
-            mode='lines',
-            name=f'right middle frame',
-        ))
+        # fig.add_trace(go.Scatter(
+        #     x=mid_right[:, 0],
+        #     y=mid_right[:, 1],
+        #     mode='lines',
+        #     name=f'right middle frame',
+        # ))
 
         fig.update_layout(
             title=f'All body data',
@@ -1545,6 +1609,73 @@ class Visualizer:
         path = os.path.join(dir, save_name)
         fig.write_html(path)
 
+    @staticmethod
+    def visualize_rotating_frames(x_frames, y_frames, z_frames, omega=None):
+        def update(val):
+            frame = int(slider.val)
+            ax.cla()
+
+            # Plot quivers
+            if omega is not None:
+                ax.quiver(0, 0, 0, omega[frame, 0], omega[frame, 1], omega[frame, 2], color='b')
+            ax.quiver(0, 0, 0, x_frames[frame, 0], x_frames[frame, 1], x_frames[frame, 2], color='r')
+            ax.quiver(0, 0, 0, y_frames[frame, 0], y_frames[frame, 1], y_frames[frame, 2], color='g')
+            ax.quiver(0, 0, 0, z_frames[frame, 0], z_frames[frame, 1], z_frames[frame, 2], color='b')
+
+            # Add labels
+            if omega is not None:
+                ax.text(omega[frame, 0], omega[frame, 1], omega[frame, 2], 'omega', color='b')
+            ax.text(x_frames[frame, 0], x_frames[frame, 1], x_frames[frame, 2], 'x_body', color='r')
+            ax.text(y_frames[frame, 0], y_frames[frame, 1], y_frames[frame, 2], 'y_body', color='g')
+            ax.text(z_frames[frame, 0], z_frames[frame, 1], z_frames[frame, 2], 'z_body', color='b')
+
+            ax.set_xlim([-1, 1])
+            ax.set_ylim([-1, 1])
+            ax.set_zlim([-1, 1])
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            fig.canvas.draw_idle()
+
+        def on_key(event):
+            frame = slider.val
+            if event.key == 'left':
+                frame -= 1
+            elif event.key == 'right':
+                frame += 1
+            frame = np.clip(frame, 0, N - 1)
+            slider.set_val(frame)
+
+        N = len(x_frames)
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Initial plot
+        ax.quiver(0, 0, 0, x_frames[0, 0], x_frames[0, 1], x_frames[0, 2], color='r')
+        ax.quiver(0, 0, 0, y_frames[0, 0], y_frames[0, 1], y_frames[0, 2], color='g')
+        ax.quiver(0, 0, 0, z_frames[0, 0], z_frames[0, 1], z_frames[0, 2], color='b')
+
+        # Add labels
+        ax.text(x_frames[0, 0], x_frames[0, 1], x_frames[0, 2], 'x', color='r')
+        ax.text(y_frames[0, 0], y_frames[0, 1], y_frames[0, 2], 'y', color='g')
+        ax.text(z_frames[0, 0], z_frames[0, 1], z_frames[0, 2], 'z', color='b')
+
+        ax.set_xlim([-1, 1])
+        ax.set_ylim([-1, 1])
+        ax.set_zlim([-1, 1])
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+
+        # Slider setup
+        ax_slider = plt.axes([0.2, 0.02, 0.65, 0.03], facecolor='lightgoldenrodyellow')
+        slider = Slider(ax_slider, 'Frame', 0, N - 1, valinit=0, valstep=1)
+        slider.on_changed(update)
+
+        fig.canvas.mpl_connect('key_press_event', on_key)
+
+        plt.show()
+
 
 def create_gif_one_movie(base_path, mov_num, box_path):
     h5_path_movie_path = os.path.join(base_path, f'mov{mov_num}_analysis_smoothed.h5')
@@ -1556,40 +1687,84 @@ def create_gif_one_movie(base_path, mov_num, box_path):
                                 reprojected_points_path=reprojected_points_path,
                                 box_path=box_path, save_path=save_path_gif_rotated, rotate=True)
 
+def get_movie_h5(movie_dir_path):
+    # Get the list of files in the directory
+    files = os.listdir(movie_dir_path)
+
+    # Define the regex pattern
+    pattern = re.compile(r'^movie.*\.h5$')
+
+    # Search for the file
+    for file in files:
+        if pattern.match(file):
+            print("Found file:", file)
+            return os.path.join(movie_dir_path, file)
+    else:
+        print("No matching file found.")
+    return None
+
+
+def create_mp4_directory(base_path):
+    movies = [dir for dir in os.listdir(base_path) if dir.startswith('mov')]
+    for movie in movies:
+        movie_dir_path = os.path.join(base_path, movie)
+        match = re.search(r'\d+', movie)
+        mov_num = int(match.group())
+
+        started_file_path = os.path.join(movie_dir_path, 'started_mp4.txt')
+        if not os.path.exists(started_file_path):
+            with open(started_file_path, 'w') as file:
+                file.write('Processing started')
+        else:
+            print(f"Skipping {movie_dir_path}, processing already started.", flush=True)
+            continue
+
+        done_file_path = os.path.join(movie_dir_path, 'done_mp4.txt')
+        if os.path.exists(done_file_path):
+            print(f"Skipping {movie_dir_path}, already processed.")
+            continue
+
+        box_path = get_movie_h5(movie_dir_path)
+        try:
+            print(f"doing movie {mov_num}", flush=True)
+            create_gif_one_movie(movie_dir_path, mov_num, box_path)
+        except Exception as e:
+            print(f"movie {movie} returned this exception:")
+            print(e)
+
+
+def traverse_and_plot(directory_path):
+    for subdir in os.listdir(directory_path):
+        subdir_path = os.path.join(directory_path, subdir)
+        if os.path.isdir(subdir_path):
+            for root, _, files in os.walk(subdir_path):
+                for file in files:
+                    if file.endswith('analysis_smoothed.h5'):
+                        h5_file_path = os.path.join(root, file)
+                        try:
+                            Visualizer.plot_all_body_data(h5_file_path)
+                            print(f"finished movie {file}")
+                        except Exception as e:
+                            print(f"exception {e} occured during the opening og file {file}")
+
+
+
+
 
 if __name__ == '__main__':
-    # base_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/roni movies/mov78"
-    # mov_num = 78
-    # box_path = os.path.join(base_path, 'movie_78_10_4868_ds_3tc_7tj.h5')
-    # create_gif_one_movie(base_path, mov_num, box_path)
-    #
-    # base_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/roni movies/mov101"
-    # mov_num = 101
-    # box_path = os.path.join(base_path, 'movie_101_10_6117_ds_3tc_7tj.h5')
-    # create_gif_one_movie(base_path, mov_num, box_path)
-    #
-    # base_path = r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/roni movies/mov104"
-    # mov_num = 104
-    # box_path = os.path.join(base_path, 'movie_104_10_5048_ds_3tc_7tj.h5')
-    # create_gif_one_movie(base_path, mov_num, box_path)
+    # path_h5 = r"C:\Users\amita\OneDrive\Desktop\temp\movies\mov10\movie_10_300_3008_ds_3tc_7tj.h5"
+    # Visualizer.display_movie_from_path(path_h5)
+    # directory_path = fr"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies"
+    # traverse_and_plot(directory_path)
 
+    # # base_path = "free 24-1 movies"
+    # base_path = "dark 24-1 movies"
+    base_path = "example datasets"
+    # base_path = "roni dark 60ms"
+    create_mp4_directory(base_path)
 
-    # from gif to mp4
-    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov53\mov53_analysis_smoothed.h5"
-    # Visualizer.visualize_analisys_3D(h5_path)
-
-    # gif_paths = [r"/cs/labs/tsevi/amitaiovadia/pose_estimation_venv/predict/roni movies/mov78/movie 2D and 3D.gif"]
-    # for gif_path in gif_paths:
-    #     dir_path = os.path.dirname(gif_path)
-    #     gif_clip = VideoFileClip(gif_path)
-    #     save_path_mp4 = os.path.join(dir_path, 'analisys_mp4.mp4')
-    #     gif_clip.write_videofile(save_path_mp4, codec="libx264")
-
-
-
-    # input_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\all_movies_data.h5"
-    # Visualizer.plot_feature_with_plotly(input_hdf5_path)
-    # display movie
+    # input_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov20 y_body problem\mov20_analysis_smoothed.h5"
+    # Visualizer.plot_all_body_data(input_hdf5_path)
 
     # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov62\movie_62_160_1888_ds_3tc_7tj.h5"
     # Visualizer.display_movie_from_path(movie_path)
@@ -1599,7 +1774,13 @@ if __name__ == '__main__':
     # h5_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\mov{movie}_analysis_smoothed.h5"
     # reprojected_points_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\points_ensemble_smoothed_reprojected.npy"
     # box_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov78\movie_78_10_4868_ds_3tc_7tj.h5"
-    # Visualizer.create_gif_for_movie(h5_path,reprojected_points_path=reprojected_points_path, box_path=box_path, save_path='analysis.gif')
+
+    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov6"
+    # box_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov6\movie_6_100_498_ds_3tc_7tj.h5"
+    # mov_num = 6
+    # create_gif_one_movie(base_path=base_path,
+    #                      mov_num=mov_num,
+    #                      box_path=box_path)
 
     # display analysis
     # reprojected_points_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov53\points_ensemble_reprojected.npy"
@@ -1607,14 +1788,24 @@ if __name__ == '__main__':
     # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov53\mov53_analysis_smoothed.h5"
     # Visualizer.create_gif_for_movie(h5_path, reprojected_points_path=reprojected_points_path, box_path=box_path,
     #                                 save_path='analysis_reprojected_unsmoothed.gif')
+
+    # mov_num = 20
+    # h5_path = fr"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov63\mov63_analysis_smoothed.h5"
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov35\mov35_analysis_smoothed.h5"
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov46\mov46_analysis_smoothed.h5"
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov77\mov77_analysis_smoothed.h5"
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov3\mov3_analysis_smoothed.h5"
+
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov51 problem\mov51 problem_analysis_smoothed.h5"
     # Visualizer.visualize_analisys_3D(h5_path)
 
-    # movie = 101
-    # h5_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\mov{movie}_analysis_smoothed.h5"
+    movie = 101
+    h5_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\mov{movie}_analysis_smoothed.h5"
     # Visualizer.plot_all_body_data(h5_path)
     # Visualizer.visualize_analisys_3D(h5_path)
     # Visualizer.display_omega_body(h5_path)
-    # Visualizer.plot_psi_or_theta_vs_phi(h5_path)
+    # Visualizer.plot_psi_or_theta_vs_phi(h5_path, wing='right')
+    # Visualizer.plot_psi_or_theta_vs_phi(h5_path, wing='left')
     # Visualizer.show_left_vs_right_amplitude(h5_path)
     # Visualizer.compare_body_angles(h5_path)
     # Visualizer.plot_theta_vs_phi(h5_path, wing_bits=[1,2,3,4,5,6,7])
@@ -1624,9 +1815,16 @@ if __name__ == '__main__':
     # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\mov53\mov53_analysis_smoothed.h5"
     # Visualizer.visualize_analisys_3D(h5_path)
     # display 3D points
+    # path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov35\saved_box_dir\box.h5"
+    # box = h5py.File(path, "r")["/array"][..., [1, 3, 4]]
+    # Visualizer.display_movie_from_box(box)
 
-    # points_path = r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_ensemble_best_method.npy"
-    # points_3D = np.load(points_path)
+    # points_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov35\movie_35_130_1478_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jun 19\points_3D.npy"
+    # points_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov35\movie_35_130_1478_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jun 19_01\points_3D.npy"
+    # points_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov35\movie_35_130_1478_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Jun 19_06\points_3D.npy"
+
+    # points_path = r"C:\Users\amita\OneDrive\Desktop\temp\points_3D.npy"
+    # points_3D = np.load(points_path)[:300]
     # Visualizer.show_points_in_3D(points_3D)
 
     # display box and 2D predictions
@@ -1638,15 +1836,15 @@ if __name__ == '__main__':
     # Visualizer.show_predictions_all_cams(box, points_2D[start:end])
 
     # display box and 2D predictions
-    # points_path = r"C:\Users\amita\OneDrive\Desktop\temp\points_ensemble_reprojected.npy"
-    predicted_box_path = r"C:\Users\amita\OneDrive\Desktop\temp\predicted_points_and_box.h5"
-    box_path = r"C:\Users\amita\OneDrive\Desktop\temp\box.h5"
-    box = h5py.File(box_path, "r")["/array"][:100]
-    points_2D = h5py.File(predicted_box_path, "r")["/positions_pred"][:100]
-    # points_2D = np.load(points_path)
-    Visualizer.show_predictions_all_cams(box, points_2D)
+    # predicted_box_path = r"C:\Users\amita\OneDrive\Desktop\temp\predicted_points_and_box.h5"
+    # box_path = r"C:\Users\amita\OneDrive\Desktop\temp\box.h5"
+    # box = h5py.File(box_path, "r")["/array"][:500]
+    # points_2D = h5py.File(predicted_box_path, "r")["/positions_pred"][:500]
+    # Visualizer.show_predictions_all_cams(box, points_2D)
 
     # visualize model selection
+    # path = r"C:\Users\amita\OneDrive\Desktop\temp\all_models_combinations.npy"
+    # # path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\example datasets\mov53\all_models_combinations.npy"
     # path = r"C:\Users\amita\OneDrive\Desktop\temp\all_models_combinations.npy"
     # all_models_combinations = np.load(path)
     # Visualizer.visualize_models_selection(all_models_combinations)

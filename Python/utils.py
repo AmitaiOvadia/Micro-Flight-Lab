@@ -24,6 +24,28 @@ def get_start_frame(movie_dir_path):
     return start_frame
 
 
+def find_flip_in_files(movie_dir_path):
+    # Word to search for
+    word_to_search = "flip"
+
+    # Regular expression pattern to match filenames like README_mov{some number}.txt
+    pattern = re.compile(r"README_mov\d+\.txt")
+
+    try:
+        # List all files in the directory
+        for filename in os.listdir(movie_dir_path):
+            # Check if the filename matches the pattern
+            if pattern.match(filename):
+                file_path = os.path.join(movie_dir_path, filename)
+                # Open the file and search for the word
+                with open(file_path, 'r') as file:
+                    for line in file:
+                        if word_to_search in line:
+                            return True
+        return False
+    except FileNotFoundError:
+        # If the directory does not exist, return False
+        return False
 
 
 def get_movie_length(movie_dir_path):

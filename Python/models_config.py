@@ -305,3 +305,25 @@ def config_8_5(config):
     config["predict again 3D consistent"] = 1
     config["use reprojected masks"] = 1
     return config
+
+
+def config_9_5(config):
+    # 2 passes reprojected masks, all cameras model 2
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 16_01_not_reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/4 cameras/ALL_CAMS_ALL_POINTS_Jun 16/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "ALL_CAMS_ALL_POINTS"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config
+
+
+def config_10_5(config):
+    # 2 passes reprojected masks, all cameras model 2
+    config["wings pose estimation model path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 16_01_not_reprojected/best_model.h5"
+    config["wings pose estimation model path second path"] = r"models 5.0/per wing/MODEL_18_POINTS_PER_WING_Jun 16_01_not_reprojected/best_model.h5"
+    config["model type"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["model type second pass"] = "WINGS_AND_BODY_SAME_MODEL"
+    config["predict again 3D consistent"] = 1
+    config["use reprojected masks"] = 1
+    return config

@@ -318,22 +318,22 @@ class Triangulate:
 
 
                     # experiment
-                    K = self.Ks[cam]
-                    dx = x_crop
-                    dy = 800 + 1 - y_crop - 192
-                    K_prime = K.copy()
-                    K_prime[0, 2] -= dx  # adjust x-coordinate of the principal point
-                    K_prime[1, 2] -= dy  # adjust y-coordinate of the principal point
-                    R = self.Rs[cam]
-                    t = self.translations[cam]
-                    # M = K @ np.column_stack((R, t))
-                    # M /= M[-1,-1]
-                    M_prime = K_prime @ np.column_stack((R, t))
-                    M_prime /= M_prime[-1, -1]
-                    p2d_h = M_prime @ point_rot_h
-                    p2d = p2d_h[:-1] / p2d_h[-1]
-                    p2d[1] = 192 - p2d[1]
-                    print(f"{np.mean(np.abs(p2d - point_2D_cropped))}")
+                    # K = self.Ks[cam]
+                    # dx = x_crop
+                    # dy = 800 + 1 - y_crop - 192
+                    # K_prime = K.copy()
+                    # K_prime[0, 2] -= dx  # adjust x-coordinate of the principal point
+                    # K_prime[1, 2] -= dy  # adjust y-coordinate of the principal point
+                    # R = self.Rs[cam]
+                    # t = self.translations[cam]
+                    # # M = K @ np.column_stack((R, t))
+                    # # M /= M[-1,-1]
+                    # M_prime = K_prime @ np.column_stack((R, t))
+                    # M_prime /= M_prime[-1, -1]
+                    # p2d_h = M_prime @ point_rot_h
+                    # p2d = p2d_h[:-1] / p2d_h[-1]
+                    # p2d[1] = 192 - p2d[1]
+                    # print(f"{np.mean(np.abs(p2d - point_2D_cropped))}")
 
         # self.estimating_camera_experiment(num_frames, points_2D_reprojected, points_3D)
         return points_2D_reprojected
@@ -601,15 +601,28 @@ class Triangulate:
 if __name__ == '__main__':
     import json
     configuration_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\2D_to_3D_config.json"
-    point_2D_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov2\movie_2_10_978_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Apr 11\predicted_points_and_box.h5"
-    box_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov2\movie_2_10_978_ds_3tc_7tj.h5"
+    point_2D_path = r"C:\Users\amita\OneDrive\Desktop\temp\predicted_points_and_box.h5"
+    box_path = r"C:\Users\amita\OneDrive\Desktop\temp\movie_35_250_1108_ds_3tc_7tj.h5"
     with open(configuration_path) as C:
         config = json.load(C)
         tr = Triangulate(config)
-        points_2D = h5py.File(point_2D_path, 'r')['/positions_pred'][:-1]
+        points_2D = h5py.File(point_2D_path, 'r')['/positions_pred'][:100]
+
+        left_indices = [0, 1, 2, 3, 4, 5, 6, 7]
+        right_indices = [8, 9, 10, 11, 12, 13, 14, 15]
+
+        # cam = 1
+        # left = points_2D[:, cam, left_indices, :]
+        # right = points_2D[:, cam, right_indices, :]
+        # points_2D[:, cam, left_indices, :] = right
+        # points_2D[:, cam, right_indices, :] = left
+
         cropzone = h5py.File(box_path, 'r')['/cropzone'][:-1]
         points_3D_all_multiviews, reprojection_errors_multiviews = tr.triangulate_points_all_possible_views(points_2D, cropzone)
         points_3D_all, reprojection_errors, triangulation_errors = tr.triangulate_2D_to_3D_reprojection_optimization(points_2D, cropzone)
-        points_3D_all_rays_midpoint, reprojection_errors_rays_midpoint, triangulation_errors_rays_midpoint = tr.rays_midpoint_traingulation(points_2D, cropzone)
-        mean_reprojection_error = np.mean(reprojection_errors)
-        mean_3D_error = np.mean(triangulation_errors)
+        # points_3D_all_rays_midpoint, reprojection_errors_rays_midpoint, triangulation_errors_rays_midpoint = tr.rays_midpoint_traingulation(points_2D, cropzone)
+        mean_reprojection_error = np.mean(reprojection_errors, axis=(0, 1))
+        print(mean_reprojection_error)
+        mean_3D_error = np.mean(triangulation_errors, axis=(0, 1))
+        reprojection_errors_per_pair = np.reshape(reprojection_errors, [-1, 6])
+        pass

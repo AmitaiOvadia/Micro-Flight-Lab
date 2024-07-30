@@ -15,9 +15,18 @@ from visualize import Visualizer
 from scipy.signal import savgol_filter, find_peaks
 from numpy.polynomial.polynomial import Polynomial
 from utils import get_start_frame
+from utils import find_flip_in_files
 import pandas as pd
+import scipy.stats as stats
+from scipy.stats import pearsonr, spearmanr
+from scipy.spatial.transform import Rotation as R
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from matplotlib.widgets import Slider
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # matplotlib.use('TkAgg')
 
@@ -26,7 +35,7 @@ SAMPLING_RATE = 16000
 dt = 1 / 16000
 LEFT = 0
 RIGHT = 1
-NUM_TIPS_FOR_PLANE = 15
+NUM_TIPS_FOR_PLANE = 10
 WINGS_JOINTS_INDS = [7, 15]
 WING_TIP_IND = 2
 UPPER_PLANE_POINTS = [0, 1, 2, 3]
@@ -34,7 +43,7 @@ LOWER_PLANE_POINTS = [3, 4, 5, 6]
 
 
 class HalfWingbit:
-    def __init__(self, start, end, phi_vals, frames, start_peak_val, end_peak_val, avarage_value, strock_direction):
+    def __init__(self, start, end, phi_vals, frames, start_peak_val, end_peak_val, average_value, strock_direction):
         self.start = start
         self.end = end
         self.middle_frame = (end - start) / 2
@@ -42,7 +51,7 @@ class HalfWingbit:
         self.phi_vals = phi_vals
         self.start_peak_val = start_peak_val
         self.end_peak_val = end_peak_val
-        self.avarage_value = avarage_value
+        self.average_value = average_value
         self.strock_direction = strock_direction
         self.hign_peak_val = max(self.start_peak_val, self.end_peak_val)
         self.low_peak_val = min(self.start_peak_val, self.end_peak_val)
@@ -58,14 +67,135 @@ class FullWingBit:
         self.theta_vals = theta_vals,
         self.psi_vals = psi_vals
 
+class FullWingBitBody:
+    def __init__(self, start, end, frames,
+                 points_3D, CM_dot, CM_speed,
+                 yaw_angle, pitch_angle, roll_angle,
+                 roll_dot, pitch_dot, yaw_dot,
+                 roll_dot_dot, yaw_dot_dot, pitch_dot_dot,
+                 omega_body, angular_speed_body,
+                 omega_body_dot, angular_acceleration_body,
+                 p, q, r, left_amplitude, right_amplitude,
+                 left_phi_max, left_phi_min, right_phi_max,
+                 right_phi_min, phi_max_average, phi_min_average,
+                 phi_mid_frame_left, phi_mid_frame_right, phi_mid_frame_average,
+                 left_theta_mid_frame_dif,
+                 right_theta_mid_frame_dif,
+                 avarage_theta_mid_frame_dif,
+                 left_psi_mid_downstroke,
+                 left_psi_mid_upstroke,
+                 left_psi_diff,
+                 right_psi_mid_downstroke,
+                 right_psi_mid_upstroke,
+                 right_psi_diff,
+                 average_psi_mid_downstroke,
+                 average_psi_mid_upstroke,
+                 average_psi_diff,
+                 left_minus_right_psi_mid_downstroke,
+                 left_minus_right_psi_mid_upstroke,
+                 phi_frontstroke_left_minus_right,
+                 phi_upstroke_avarage
+                 ):
+        self.start = start
+        self.end = end
+        self.middle_frame = (end - start) / 2
+        self.frames = frames
+        self.points_3D = points_3D
+        self.CM_dot = CM_dot
+        self.CM_speed = CM_speed
+        self.yaw_angle = yaw_angle
+        self.pitch_angle = pitch_angle
+        self.roll_angle = roll_angle
+        self.roll_dot = roll_dot
+        self.pitch_dot = pitch_dot
+        self.yaw_dot = yaw_dot
+        self.roll_dot_dot = roll_dot_dot
+        self.pitch_dot_dot = pitch_dot_dot
+        self.yaw_dot_dot = yaw_dot_dot
+        self.omega_body_dot = omega_body_dot
+        self.angular_acceleration_body = angular_acceleration_body
+        self.omega_body = omega_body
+        self.wx, self.wy, self.wz = self.omega_body.T
+        self.wx_dot, self.wy_dot, self.wz_dot = self.omega_body_dot.T
+        self.angular_speed_body = angular_speed_body
+        self.p = p
+        self.q = q
+        self.r = r
+
+        # phi attributes
+        self.phi_amplitude_left_take = left_amplitude
+        self.phi_amplitude_right_take = right_amplitude
+        self.phi_amplitude_left_minus_right_take = left_amplitude - right_amplitude
+        self.phi_max_left_take = left_phi_max
+        self.phi_min_left_take = left_phi_min
+        self.phi_max_right_take = right_phi_max
+        self.phi_min_right_take = right_phi_min
+        self.phi_max_average_take = phi_max_average
+        self.phi_min_average_take = phi_min_average  # mean front stoke angle per wingbeat
+        self.phi_mid_frame_left_take = phi_mid_frame_left
+        self.phi_mid_frame_right_take = phi_mid_frame_right
+        self.phi_mid_frame_average_take = phi_mid_frame_average
+        self.phi_frontstroke_left_minus_right_take = phi_frontstroke_left_minus_right
+        self.phi_upstroke_avarage_take = phi_upstroke_avarage
+
+
+        # theta attribtes
+        self.theta_mid_frame_dif_left_take = left_theta_mid_frame_dif
+        self.theta_mid_frame_dif_right_take = right_theta_mid_frame_dif
+        self.theta_mid_frame_dif_avarage_take = avarage_theta_mid_frame_dif
+
+        # psi attributes
+        self.psi_mid_downstroke_left_take = left_psi_mid_downstroke
+        self.psi_mid_upstroke_left_take = left_psi_mid_upstroke
+        self.psi_diff_left_take = left_psi_diff
+        self.psi_mid_downstroke_right_take = right_psi_mid_downstroke
+        self.psi_mid_upstroke_right_take = right_psi_mid_upstroke
+        self.psi_diff_right_take = right_psi_diff
+        self.psi_mid_downstroke_average_take = average_psi_mid_downstroke
+        self.psi_mid_upstroke_average_take = average_psi_mid_upstroke
+        self.psi_diff_average_take = average_psi_diff
+        self.psi_mid_downstroke_left_minus_right_take=left_minus_right_psi_mid_downstroke
+        self.psi_mid_upstroke_left_minus_right_take=left_minus_right_psi_mid_upstroke
+
+        # body attributes
+        self.body_CM_speed_take = np.mean(self.CM_speed)
+        self.body_yaw_angle_take = np.mean(self.yaw_angle)
+        self.body_pitch_angle_take = np.mean(self.pitch_angle)
+        self.body_roll_angle_take = np.mean(self.roll_angle)
+        self.body_roll_dot_take = np.mean(self.roll_dot)
+        self.body_pitch_dot_take = np.mean(self.pitch_dot)
+        self.body_yaw_dot_take = np.mean(self.yaw_dot)
+        self.body_roll_dot_dot_take = np.mean(self.roll_dot_dot)
+        self.body_pitch_dot_dot_take = np.mean(self.pitch_dot_dot)
+        self.body_yaw_dot_dot_take = np.mean(self.yaw_dot_dot)
+        self.body_angular_speed_take = np.mean(self.angular_speed_body)
+        self.body_angular_acceleration_take = np.mean(self.angular_acceleration_body)
+        self.body_wx_take, self.body_wy_take, self.body_wz_take = self.wx.mean(), self.wy.mean(), self.wz.mean()
+        self.body_wx_dot_take, self.body_wy_dot_take, self.body_wz_dot_take = self.wx_dot.mean(), self.wy_dot.mean(), self.wz_dot.mean()
+
+        # doesnt take
+        self.body_CM_dot_mean = np.mean(self.CM_dot, axis=0)
+        self.body_p = np.mean(self.p)
+        self.body_q = np.mean(self.q)
+        self.body_r = np.mean(self.r)
+        self.body_omega_body = np.mean(self.omega_body, axis=0)
+
+
 
 class FlightAnalysis:
     def __init__(self, points_3D_path, find_auto_correlation=False,
                        create_html=False, show_phi=False):
 
-        # set attributes
         self.points_3D_path = points_3D_path
         self.points_3D = self.load_points()
+        self.first_analysed_frame = self.get_first_analysed_frame()
+        self.cut = self.find_cut_value()
+
+        if self.cut:
+            cut_frame = self.cut - self.first_analysed_frame
+            self.points_3D = self.points_3D[:cut_frame]
+
+        # set attributes
         self.num_joints = self.points_3D.shape[1]
         self.num_frames = self.points_3D.shape[0]
         self.num_wings_points = self.num_joints - 2
@@ -81,7 +211,7 @@ class FlightAnalysis:
 
         # calculate things
         self.points_3D = FlightAnalysis.enforce_3D_consistency(self.points_3D, self.right_inds, self.left_inds)
-        self.first_analysed_frame = self.get_first_analysed_frame()
+
         self.head_tail_points = self.get_head_tail_points(smooth=True)
         self.points_3D[:, self.head_tail_inds, :] = self.head_tail_points
         self.x_body = self.get_head_tail_vec()
@@ -108,16 +238,21 @@ class FlightAnalysis:
         self.y_body, self.first_y_body_frame, self.end_frame = self.get_roni_y_body()
         self.z_body = self.get_z_body()
 
+        # Visualizer.visualize_rotating_frames(self.x_body,
+        #                                      self.y_body,
+        #                                      self.z_body,
+        #                                      omega=None)
+
         self.yaw_angle = self.get_body_yaw(self.x_body)
         self.pitch_angle = self.get_body_pitch(self.x_body)
-        self.roll_angle = self.get_body_roll(phi = self.yaw_angle,
-                                            theta = self.pitch_angle,
-                                            x_body = self.x_body,
-                                            yaw = self.yaw_angle,
-                                            pitch = self.pitch_angle,
-                                            start = self.first_y_body_frame,
-                                            end = self.end_frame,
-                                            y_body = self.y_body,)
+        self.roll_angle = self.get_body_roll(phi=self.yaw_angle,
+                                            theta=self.pitch_angle,
+                                            x_body=self.x_body,
+                                            yaw=self.yaw_angle,
+                                            pitch=self.pitch_angle,
+                                            start=self.first_y_body_frame,
+                                            end=self.end_frame,
+                                            y_body=self.y_body,)
 
         self.yaw_dot = self.get_dot(self.yaw_angle, sampling_rate=SAMPLING_RATE)
         self.pitch_dot = self.get_dot(self.pitch_angle, sampling_rate=SAMPLING_RATE)
@@ -126,7 +261,7 @@ class FlightAnalysis:
         self.yaw_dot_dot = self.get_dot(self.yaw_dot, sampling_rate=SAMPLING_RATE)
         self.pitch_dot_dot = self.get_dot(self.pitch_dot, sampling_rate=SAMPLING_RATE)
         self.roll_dot_dot = self.get_roll_dot(self.roll_dot)
-        self.p, self.q, self.r, self.p_dot, self.q_dot, self.r_dot = self.get_pqr()
+        self.p, self.q, self.r = self.get_pqr()
 
         self.average_roll_angle = np.mean(self.roll_angle[self.first_y_body_frame:self.end_frame])
         self.average_roll_speed = np.nanmean(np.abs(self.roll_dot))
@@ -138,21 +273,31 @@ class FlightAnalysis:
         self.wings_theta_left, self.wings_theta_right = self.get_wings_theta()
         self.wings_psi_left, self.wings_psi_right = self.get_wings_psi()
 
-        self.left_amplitudes, self.right_amplitudes, self.left_half_wingbits, self.right_half_wingbits = self.get_half_wingbits_objects()
-
-        self.left_full_wingbits, self.right_full_wingbits = self.get_full_wingbits_objects()
-        self.left_wing_peaks, self.wingbit_frequencies_left, self.wingbit_average_frequency_left = self.get_waving_frequency(self.wings_phi_left)
-        self.left_wing_right, self.wingbit_frequencies_right, self.wingbit_average_frequency_right = self.get_waving_frequency(self.wings_phi_right)
+        # plt.plot(self.wings_phi_right, label="wings_phi_right")
+        # plt.plot(self.wings_phi_left, label="wings_phi_left")
+        # plt.legend()
+        # plt.show()
 
         self.omega_lab, self.omega_body, self.angular_speed_lab, self.angular_speed_body = self.get_angular_velocities(self.x_body, self.y_body,
                                                                                                    self.z_body, self.first_y_body_frame,
                                                                                                     self.end_frame)
+        self.omega_body_dot, self.angular_acceleration_body = self.get_omega_body_dot(self.omega_body)
+        try:
+            self.left_amplitudes, self.right_amplitudes, self.left_half_wingbits, self.right_half_wingbits = self.get_half_wingbits_objects()
+            self.left_full_wingbits, self.right_full_wingbits = self.get_full_wingbits_objects()
+        except:
+            self.left_amplitudes, self.right_amplitudes, self.left_half_wingbits, self.right_half_wingbits = nans_array = np.full((4, 1), np.nan)
+            self.left_full_wingbits, self.right_full_wingbits = nans_array = np.full((2, 1), np.nan)
+        self.left_wing_peaks, self.wingbit_frequencies_left, self.wingbit_average_frequency_left = self.get_waving_frequency(self.wings_phi_left)
+        self.left_wing_right, self.wingbit_frequencies_right, self.wingbit_average_frequency_right = self.get_waving_frequency(self.wings_phi_right)
 
-        # self.verify_omega()
-        # plt.plot(self.p, label='p')
-        # plt.plot(self.q, label='q')
-        # plt.plot(self.r, label='r')
-        # # plt.plot(self.omega_body)
+
+        # self.omega_body_dot = self.get_omega_body_dot(self.omega_body)
+
+        # plt.plot(self.p_dot, label='p')
+        # plt.plot(self.q_dot, label='q')
+        # plt.plot(self.r_dot, label='r')
+        # plt.plot(self.omega_body_dot * 100)
         # plt.legend()
         # plt.grid()
         # plt.show()
@@ -169,79 +314,211 @@ class FlightAnalysis:
                                          points_3D=self.points_3D,
                                          start_frame=self.first_y_body_frame, save_path=save_path_html)
         self.adjust_starting_frame()
+        self.full_body_wing_bits = self.get_FullWingBitBody_objects()
         pass
 
+    @staticmethod
+    def closest_index(array, value):
+        closest_index = np.argmin(np.abs(array - value))
+        return closest_index
 
-    def verify_omega(self):
-        # Get the number of samples (N)
-        import sympy as sp
-        # Define the symbols
-        # Define the time symbol and the angles as functions of time
-        t = sp.symbols('t')
-        alpha = sp.Function('alpha')(t)
-        beta = sp.Function('beta')(t)
-        gamma = sp.Function('gamma')(t)
+    @staticmethod
+    def find_middle_frame(stroke_phi):
+        start_val = stroke_phi[0]
+        end_val = stroke_phi[-1]
+        middle_val = (start_val + end_val) / 2
+        middle_frame = FlightAnalysis.closest_index(stroke_phi, middle_val)
+        return middle_frame
 
-        # Define the trigonometric functions
-        c_alpha = sp.cos(alpha)
-        c_beta = sp.cos(beta)
-        c_gamma = sp.cos(gamma)
-        s_alpha = sp.sin(alpha)
-        s_beta = sp.sin(beta)
-        s_gamma = sp.sin(gamma)
+    @staticmethod
+    def get_theta_mid_frame_diff(theta, phi):
+        """
+        finds the middle of the upper stroke and down stroke and caculates the theta differences in this locations
+        """
+        down_stroke, mid_down_stroke, mid_up_strock, up_stroke = FlightAnalysis.get_wingbit_key_frames(phi)
 
-        # Create the rotation matrix R
-        R = sp.Matrix([
-            [c_alpha * c_beta, c_alpha * s_beta * s_gamma - c_gamma * s_alpha,
-             s_alpha * s_gamma + c_gamma * c_alpha * s_beta],
-            [c_beta * s_alpha, c_alpha * c_gamma + s_alpha * s_beta * s_gamma,
-             c_gamma * s_alpha * s_beta - c_alpha * s_gamma],
-            [-s_beta, c_beta * s_gamma, c_beta * c_gamma]
-        ])
-        dRdt = R.diff(t)
-        R_T = R.transpose()
-        # Compute omega as dRdt * R_T
-        omega_matrix = dRdt * R_T
+        theta_mid_down_strock = theta[down_stroke[mid_down_stroke]]
+        theta_mid_up_stroke = theta[up_stroke[mid_up_strock]]
 
-        # Ensure omega_matrix is a SymPy matrix
-        omega_matrix = sp.Matrix(omega_matrix)
+        theta_diff = theta_mid_up_stroke - theta_mid_down_strock
+        return theta_diff
 
-        # Extract wx, wy, wz from the skew-symmetric matrix omega_matrix
-        omega_x = sp.simplify(omega_matrix[2, 1])
-        omega_y = sp.simplify(omega_matrix[0, 2])
-        omega_z = sp.simplify(omega_matrix[1, 0])
+    @staticmethod
+    def get_phi_frontstroke_diff(left_phi, right_phi):
+        """
 
-        N = len(self.roll_dot)
-        yaw_dot = np.radians(self.yaw_dot[self.first_y_body_frame:self.end_frame]) * SAMPLING_RATE
-        pitch_dot = np.radians(self.pitch_dot[self.first_y_body_frame:self.end_frame]) * SAMPLING_RATE
-        roll_dot = np.radians(self.roll_dot) * SAMPLING_RATE
+        """
+        phi_mean = (left_phi + right_phi)/2
+        down_stroke, mid_down_stroke, mid_up_strock, up_stroke = FlightAnalysis.get_wingbit_key_frames(phi_mean)
+        phi_upstroke_left = left_phi[up_stroke][-1]
+        phi_upstroke_right = right_phi[up_stroke][-1]
+        phi_upstroke_avarage = (phi_upstroke_left + phi_upstroke_right) / 2
+        phi_frontstroke_left_minus_right = phi_upstroke_left - phi_upstroke_right
+        return phi_frontstroke_left_minus_right, phi_upstroke_avarage
 
-        yaw = np.radians(self.yaw_angle[self.first_y_body_frame:self.end_frame])
-        pitch = np.radians(self.pitch_angle[self.first_y_body_frame:self.end_frame])
-        roll = np.radians(self.roll_angle[self.first_y_body_frame:self.end_frame])
+    @staticmethod
+    def get_wingbit_key_frames(phi):
+        phi_max_frame = np.argmax(phi)
+        down_stroke = np.arange(0, phi_max_frame)
+        mid_down_stroke = FlightAnalysis.find_middle_frame(phi[down_stroke])
+        up_stroke = np.arange(phi_max_frame, len(phi))
+        mid_up_strock = FlightAnalysis.find_middle_frame(phi[up_stroke])
+        return down_stroke, mid_down_stroke, mid_up_strock, up_stroke
 
-        # wx = roll_dot * cos(yaw)*cos(pitch) - pitch_dot * sin(yaw)
-        # wy = pitch_dot * cos(yaw) + roll_dot * sin(yaw) * cos(pitch)
-        # wz = yaw_dot - roll_dot * sin(pitch)
+    @staticmethod
+    def get_psi_attributes(psi, phi):
+        down_stroke, mid_down_stroke, mid_up_strock, up_stroke = FlightAnalysis.get_wingbit_key_frames(phi)
+        psi_mid_downstrock = psi[down_stroke[mid_down_stroke]]
+        psi_mid_upstroke = psi[up_stroke[mid_up_strock]]
+        psi_diff = psi_mid_upstroke - psi_mid_downstrock
+        return psi_mid_downstrock, psi_mid_upstroke, psi_diff
 
-        omega_verified = np.zeros((N, 3))
-        wx = roll_dot * np.cos(yaw)*np.cos(pitch) - pitch_dot * np.sin(yaw)
-        wy = pitch_dot * np.cos(yaw) + roll_dot * np.sin(yaw) * np.cos(pitch)
-        wz = yaw_dot - roll_dot * np.sin(pitch)
-        omega_verified = np.column_stack([wx, wy, wz])
 
-        # plt.plot(yaw, color='b')
-        # plt.plot(pitch, color='g')
-        # plt.plot(roll, color='r')
+    def get_FullWingBitBody_objects(self):
+        left_phi = self.wings_phi_left
+        right_phi = self.wings_phi_right
+        avg_phi = (left_phi + right_phi) / 2
+
+        # plt.plot(left_phi, label="left_phi")
+        # plt.plot(right_phi, label="right_phi")
+        # plt.plot(avg_phi, label="avg_phi")
+        # plt.legend()
         # plt.show()
-        #
-        # ax=0
-        # plt.plot(omega_verified[:, ax] / 300)
-        # plt.plot(self.omega_lab[self.first_y_body_frame:self.end_frame, ax])
-        # # plt.plot(self.omega_body[self.first_y_body_frame:self.end_frame, 0])
-        # plt.show()
-        pass
 
+        _, max_peaks_frames_left, _, min_peaks_frames_left = self.get_phi_peaks(left_phi)
+        _, max_peaks_frames_right, _, min_peaks_frames_right = self.get_phi_peaks(right_phi)
+
+        max_peak_values, max_peaks_inds, min_peak_values, min_peaks_inds = self.get_phi_peaks(avg_phi)
+
+        min_peaks_frames = np.round(min_peaks_inds).astype(int)
+        max_peaks_frames_left = np.round(max_peaks_frames_left).astype(int)
+        min_peaks_frames_left = np.round(min_peaks_frames_left).astype(int)
+        max_peaks_frames_right = np.round(max_peaks_frames_right).astype(int)
+        min_peaks_frames_right = np.round(min_peaks_frames_right).astype(int)
+
+        full_wingbits_objects = []
+
+        for i in range(len(min_peaks_frames) - 1):
+            # print(i)
+            start_frame = min_peaks_frames[i]
+            end_frame = min_peaks_frames[i + 1]
+            frames = np.arange(start_frame, end_frame + 1)
+
+            # Calculate left and right amplitudes
+            max_frame_left = \
+            max_peaks_frames_left[(max_peaks_frames_left > start_frame) & (max_peaks_frames_left < end_frame)][0]
+            max_frame_right = \
+            max_peaks_frames_right[(max_peaks_frames_right > start_frame) & (max_peaks_frames_right < end_frame)][0]
+
+            # phi
+            left_phi_max = left_phi[max_frame_left]
+            left_phi_min = left_phi[start_frame]
+            right_phi_max = right_phi[max_frame_right]
+            right_phi_min = right_phi[start_frame]
+            phi_max_average = (left_phi_max + right_phi_max) / 2
+            phi_min_average = (left_phi_min + right_phi_min) / 2
+            left_amplitude = left_phi[max_frame_left] - left_phi[start_frame]
+            right_amplitude = right_phi[max_frame_right] - right_phi[start_frame]
+            left_phi_middle = (left_phi_max + left_phi_min) / 2
+            right_phi_middle = (right_phi_max + right_phi_min) / 2
+            phi_middle_average = (left_phi_middle + right_phi_middle) / 2
+            phi_frontstroke_left_minus_right, phi_upstroke_avarage = FlightAnalysis.get_phi_frontstroke_diff(left_phi[frames], right_phi[frames])
+
+
+
+            # theta
+            left_theta_mid_frame_dif = FlightAnalysis.get_theta_mid_frame_diff(theta=self.wings_theta_left[frames],
+                                                                               phi=self.wings_phi_left[frames])
+            right_theta_mid_frame_dif = FlightAnalysis.get_theta_mid_frame_diff(theta=self.wings_theta_right[frames],
+                                                                               phi=self.wings_phi_right[frames])
+            avarage_theta_mid_frame_dif = (left_theta_mid_frame_dif + right_theta_mid_frame_dif) / 2
+
+            # psi for every wing mid upstroke, mid downsroke, difference,
+            left_psi = self.wings_psi_left[frames]
+            right_psi = self.wings_psi_right[frames]
+            left_psi_mid_downstroke, left_psi_mid_upstroke, left_psi_diff = FlightAnalysis.get_psi_attributes(psi=self.wings_psi_left[frames],
+                                                                                                              phi=self.wings_phi_left[frames])
+            right_psi_mid_downstroke, right_psi_mid_upstroke, right_psi_diff = FlightAnalysis.get_psi_attributes(psi=self.wings_psi_right[frames],
+                                                                                                              phi=self.wings_phi_right[frames])
+            left_minus_right_psi_mid_downstroke = left_psi_mid_downstroke - right_psi_mid_downstroke
+            left_minus_right_psi_mid_upstroke = left_psi_mid_upstroke - right_psi_mid_upstroke
+
+            average_psi_mid_downstroke = (left_psi_mid_downstroke + right_psi_mid_downstroke) / 2
+            average_psi_mid_upstroke = (right_psi_mid_downstroke + right_psi_mid_upstroke) / 2
+            average_psi_diff = (left_psi_diff + right_psi_diff) / 2
+
+            full_wingbit_body = FullWingBitBody(
+                start=np.round(start_frame).astype(int),
+                end=np.round(end_frame).astype(int),
+                frames=frames,
+                points_3D=self.points_3D[frames],
+                CM_dot=self.CM_dot[frames],
+                CM_speed=self.CM_speed[frames],
+                yaw_angle=self.yaw_angle[frames],
+                pitch_angle=self.pitch_angle[frames],
+                roll_angle=self.roll_angle[frames],
+                roll_dot=self.roll_dot[frames],
+                pitch_dot=self.pitch_dot[frames],
+                yaw_dot=self.yaw_dot[frames],
+                omega_body=self.omega_body[frames],
+                angular_speed_body=self.angular_speed_body[frames],
+                p=self.p[frames],
+                q=self.q[frames],
+                r=self.r[frames],
+
+                # phi attributes
+                left_amplitude=left_amplitude,
+                right_amplitude=right_amplitude,
+                left_phi_max=left_phi_max,
+                left_phi_min=left_phi_min,
+                right_phi_max=right_phi_max,
+                right_phi_min=right_phi_min,
+                phi_max_average=phi_max_average,
+                phi_min_average=phi_min_average,
+                phi_mid_frame_left=left_phi_middle,
+                phi_mid_frame_right=right_phi_middle,
+                phi_mid_frame_average=phi_middle_average,
+                phi_frontstroke_left_minus_right=phi_frontstroke_left_minus_right,
+                phi_upstroke_avarage=phi_upstroke_avarage,
+
+                # theta attributrs
+                left_theta_mid_frame_dif=left_theta_mid_frame_dif,
+                right_theta_mid_frame_dif=right_theta_mid_frame_dif,
+                avarage_theta_mid_frame_dif=avarage_theta_mid_frame_dif,
+
+                # psi attribues
+                left_psi_mid_downstroke=left_psi_mid_downstroke,
+                left_psi_mid_upstroke=left_psi_mid_upstroke,
+                left_psi_diff=left_psi_diff,
+                right_psi_mid_downstroke=right_psi_mid_downstroke,
+                right_psi_mid_upstroke=right_psi_mid_upstroke,
+                right_psi_diff=right_psi_diff,
+                average_psi_mid_downstroke=average_psi_mid_downstroke,
+                average_psi_mid_upstroke=average_psi_mid_upstroke,
+                average_psi_diff=average_psi_diff,
+                left_minus_right_psi_mid_downstroke=left_minus_right_psi_mid_downstroke,
+                left_minus_right_psi_mid_upstroke=left_minus_right_psi_mid_upstroke,
+
+                roll_dot_dot=self.roll_dot_dot[frames],
+                yaw_dot_dot=self.yaw_dot_dot[frames],
+                pitch_dot_dot=self.pitch_dot_dot[frames],
+                omega_body_dot=self.omega_body_dot[frames],
+                angular_acceleration_body=self.angular_acceleration_body[frames],
+            )
+            full_wingbits_objects.append(full_wingbit_body)
+
+        return full_wingbits_objects
+
+
+    def get_omega_body_dot(self, omega_body):
+        omega_body_dot = np.full(omega_body.shape, np.nan)
+        N, axis = omega_body.shape
+        for ax in range(axis):
+            ax_dot = self.get_dot(data=omega_body[self.first_y_body_frame:self.end_frame, ax], sampling_rate=SAMPLING_RATE)
+            omega_body_dot[self.first_y_body_frame:self.end_frame, ax] = ax_dot
+        angular_acceleration_body = np.linalg.norm(omega_body_dot, axis=-1)
+        return omega_body_dot, angular_acceleration_body
+       
     def get_pqr(self):
         # calculate the body angular acceleratrion and velocity: pqr and pqr_dot
         roll, roll_dot, roll_dot_dot = np.zeros(self.num_frames), np.zeros(self.num_frames), np.zeros(self.num_frames)
@@ -256,19 +533,23 @@ class FlightAnalysis:
         roll_dot_dot[self.first_y_body_frame:self.end_frame] = self.roll_dot_dot
 
         p, q, r = self.get_pqr_calculation(pitch, pitch_dot, roll, roll_dot, yaw_dot)
+        p, q, r = np.degrees(p), np.degrees(q), np.degrees(r)
 
-        p_dot = roll_dot_dot - yaw_dot_dot * np.sin(np.radians(pitch)) - yaw_dot * pitch_dot * np.cos(
-            np.radians(pitch));
-        q_dot = (pitch_dot_dot * np.cos(np.radians(roll)) - pitch_dot * np.sin(np.radians(roll)) * roll_dot
-                 + yaw_dot_dot * np.sin(np.radians(roll) * np.cos(pitch) +
-                                        +yaw_dot * np.cos(np.radians(roll)) * np.cos(np.radians(pitch)) * roll_dot
-                                        - yaw_dot * np.sin(np.radians(roll)) * np.sin(np.radians(pitch)) * pitch_dot))
+        # p,q,r dot
 
-        r_dot = (-pitch_dot_dot * np.sin(np.radians(roll)) - pitch_dot * np.cos(np.radians(roll)) * roll_dot
-                 + yaw_dot_dot * np.cos(np.radians(roll)) * np.cos(np.radians(pitch))
-                 - yaw_dot * np.sin(np.radians(roll)) * np.cos(np.radians(pitch)) * roll_dot
-                 - yaw_dot * np.cos(np.radians(roll)) * np.sin(np.radians(pitch)) * pitch_dot)
-        return p, q, r, p_dot, q_dot, r_dot
+        # p_dot = roll_dot_dot - yaw_dot_dot * np.sin(np.radians(pitch)) - yaw_dot * pitch_dot * np.cos(
+        #     np.radians(pitch));
+        # q_dot = (pitch_dot_dot * np.cos(np.radians(roll)) - pitch_dot * np.sin(np.radians(roll)) * roll_dot
+        #          + yaw_dot_dot * np.sin(np.radians(roll) * np.cos(pitch) +
+        #                                 +yaw_dot * np.cos(np.radians(roll)) * np.cos(np.radians(pitch)) * roll_dot
+        #                                 - yaw_dot * np.sin(np.radians(roll)) * np.sin(np.radians(pitch)) * pitch_dot))
+        #
+        # r_dot = (-pitch_dot_dot * np.sin(np.radians(roll)) - pitch_dot * np.cos(np.radians(roll)) * roll_dot
+        #          + yaw_dot_dot * np.cos(np.radians(roll)) * np.cos(np.radians(pitch))
+        #          - yaw_dot * np.sin(np.radians(roll)) * np.cos(np.radians(pitch)) * roll_dot
+        #          - yaw_dot * np.cos(np.radians(roll)) * np.sin(np.radians(pitch)) * pitch_dot)
+
+        return p, q, r, # p_dot, q_dot, r_dot
 
     @staticmethod
     def get_pqr_calculation(pitch, pitch_dot, roll, roll_dot, yaw_dot):
@@ -329,6 +610,7 @@ class FlightAnalysis:
 
         left_full_wingbits, right_full_wingbits = full_wingbits_objects
         return left_full_wingbits, right_full_wingbits
+
     def get_half_wingbits_objects(self):
         phi_wings = [self.wings_phi_left, self.wings_phi_right]
         half_wingbits = [[],[]]
@@ -350,7 +632,7 @@ class FlightAnalysis:
                 next_peak_ind = cur_peak_ind + 1
                 cur_peak_val = all_peaks[cur_peak_ind, 1]
                 next_peak_val = all_peaks[next_peak_ind, 1]
-                avarage_val = (cur_peak_val + next_peak_val)/2
+                average_val = (cur_peak_val + next_peak_val)/2
                 half_bit_start = np.round(all_peaks[cur_peak_ind, 0]).astype(int)
                 half_bit_end = np.round(all_peaks[next_peak_ind, 0]).astype(int)
                 halfbit_frames = np.arange(half_bit_start, half_bit_end)
@@ -364,7 +646,7 @@ class FlightAnalysis:
                                           phi_vals=phi[halfbit_frames],
                                           start_peak_val=cur_peak_val,
                                           end_peak_val=next_peak_val,
-                                          avarage_value=avarage_val,
+                                          average_value=average_val,
                                           strock_direction=strock_direction)
                 except Exception as e:
                      print(f"Unexpected error: {e}")
@@ -392,17 +674,27 @@ class FlightAnalysis:
         indices = np.concatenate((np.arange(0, self.first_y_body_frame), np.arange(self.end_frame, self.num_frames - 1)))
 
         # fix roll angle and roll dot
-        roll_angle, roll_dot = np.zeros(self.num_frames), np.zeros(self.num_frames)
+        roll_angle, roll_dot, roll_dot_dot = np.zeros((3, self.num_frames))
         roll_angle[self.first_y_body_frame:self.end_frame] = self.roll_angle
         roll_dot[self.first_y_body_frame:self.end_frame] = self.roll_dot
+        roll_dot_dot[self.first_y_body_frame:self.end_frame] = self.roll_dot_dot
         self.roll_angle = roll_angle
         self.roll_dot = roll_dot
+        self.roll_dot_dot = roll_dot_dot
 
+        self.p = FlightAnalysis.fill_with_nans(self.p, indices)
+        self.q = FlightAnalysis.fill_with_nans(self.q, indices)
+        self.r = FlightAnalysis.fill_with_nans(self.r, indices)
         self.roll_angle = FlightAnalysis.fill_with_nans(self.roll_angle, indices)
         self.roll_dot = FlightAnalysis.fill_with_nans(self.roll_dot, indices)
+        self.roll_dot_dot = FlightAnalysis.fill_with_nans(self.roll_dot_dot, indices)
         self.y_body = FlightAnalysis.fill_with_nans(self.y_body, indices)
         self.z_body = FlightAnalysis.fill_with_nans(self.z_body, indices)
         self.omega_lab = FlightAnalysis.fill_with_nans(self.omega_lab, indices)
+        self.omega_body = FlightAnalysis.fill_with_nans(self.omega_body, indices)
+        self.omega_body_dot = FlightAnalysis.fill_with_nans(self.omega_body_dot, indices)
+        self.angular_acceleration_body = FlightAnalysis.fill_with_nans(self.angular_acceleration_body, indices)
+        self.angular_speed_body = FlightAnalysis.fill_with_nans(self.angular_speed_body, indices)
         self.stroke_planes = FlightAnalysis.fill_with_nans(self.stroke_planes, indices)
         self.wings_phi_left = FlightAnalysis.fill_with_nans(self.wings_phi_left, indices)
         self.wings_phi_right = FlightAnalysis.fill_with_nans(self.wings_phi_right, indices)
@@ -419,10 +711,11 @@ class FlightAnalysis:
             "left_wing_span", "right_wing_span", "left_wing_chord", "right_wing_chord",
             "all_2_planes", "all_upper_planes", "all_lower_planes", "wings_span_vecs",
             "wings_joints_vec", "wings_joints_vec_smoothed", "yaw_angle", "pitch_angle", "roll_angle",
-            "roll_dot", "pitch_dot", "yaw_dot", "stroke_planes", "center_of_mass", "body_speed",
+            "roll_dot", "pitch_dot", "yaw_dot", "roll_dot_dot", "pitch_dot_dot", "yaw_dot_dot"
+            ,"stroke_planes", "center_of_mass", "body_speed",
             "wing_tips_speed", "wings_phi_left", "wings_phi_right", "wings_theta_left", "wings_theta_right",
             "wings_psi_left", "wings_psi_right",
-             "omega_lab", "omega_body", "angular_speed_lab", "angular_speed_body"
+             "omega_lab", "omega_body", "omega_body_dot",  "angular_speed_lab", "angular_speed_body", "angular_acceleration_body", "p", "q", "r"
         ]
 
         for attr in attributes:
@@ -433,11 +726,30 @@ class FlightAnalysis:
                     # Call the add_nan_frames method and update the attribute
                     updated_data = FlightAnalysis.add_nan_frames(data, self.first_analysed_frame)
                     setattr(self, attr, updated_data)
+        pass
+
+    def find_cut_value(self):
+        cut_pattern = re.compile(r'cut:\s*(\d+)')
+        movie_dir_path = os.path.dirname(self.points_3D_path)
+        for filename in os.listdir(movie_dir_path):
+            if filename.startswith("README_mov"):
+                readme_file = os.path.join(movie_dir_path, filename)
+                with open(readme_file, 'r') as file:
+                    for line in file:
+                        match = cut_pattern.search(line)
+                        if match:
+                            return int(match.group(1))
+        return None
 
     def get_first_analysed_frame(self):
         directory_path = os.path.dirname(os.path.realpath(self.points_3D_path))
         start_frame = get_start_frame(directory_path)
         return int(start_frame)
+
+    def find_if_flip(self):
+        directory_path = os.path.dirname(os.path.realpath(self.points_3D_path))
+        flip = find_flip_in_files(directory_path)
+        return flip
 
     @staticmethod
     def low_pass_filter(data, cutoff, fs):
@@ -489,14 +801,25 @@ class FlightAnalysis:
             points_smoothed[:, pnt, :] = points
         return points_smoothed
 
+    def get_estimated_chords(self):
+        cord_estimates = []
+        for wing in range(2):
+            leading_edge_point = (self.points_3D[:, 0 + wing * self.num_points_per_wing, :] +
+                                  self.points_3D[:, 1 + wing * self.num_points_per_wing, :]) / 2
+            center_of_wing_point = (self.points_3D[:, 6 + wing * self.num_points_per_wing, :] +
+                                    self.points_3D[:, 2 + wing * self.num_points_per_wing, :]) / 2
+            chord_estimate = leading_edge_point - center_of_wing_point
+            chord_estimate /= np.linalg.norm(chord_estimate, axis=1)[:, np.newaxis]
+            cord_estimates.append(chord_estimate)
+        chord_estimate_left, chord_estimate_right = cord_estimates
+        return chord_estimate_left, chord_estimate_right
+
+
     def get_wings_cords(self):
         wings_spans = np.concatenate((self.left_wing_span[:, np.newaxis, :],
                                       self.right_wing_span[:, np.newaxis, :]), axis=1)
         wing_reference_points = [[4, 1], [12, 9]]
-        estimated_chords_left = normalize(self.points_3D[:, wing_reference_points[LEFT][1]] -
-                                          self.points_3D[:, wing_reference_points[LEFT][0]])
-        estimated_chords_right = normalize(self.points_3D[:, wing_reference_points[RIGHT][1]] -
-                                           self.points_3D[:, wing_reference_points[RIGHT][0]])
+        estimated_chords_left, estimated_chords_right = self.get_estimated_chords()
         estimated_chords = [estimated_chords_left, estimated_chords_right]
         wings_chords = np.zeros_like(wings_spans)
         for frame in range(self.num_frames):
@@ -553,18 +876,31 @@ class FlightAnalysis:
 
         # Split into left and right wing psi
         left_wing_psi, right_wing_psi = all_psi_deg
+
+        left_wing_psi = 180 + left_wing_psi
+
+        left_wing_psi = medfilt(left_wing_psi)
+        right_wing_psi = medfilt(right_wing_psi)
+
+        # plt.plot(left_wing_psi)
+        # plt.plot(right_wing_psi)
+        # plt.show()
         return left_wing_psi, right_wing_psi
 
     def get_head_tail_points(self, smooth=True):
         head_tail_points = self.points_3D[:, self.head_tail_inds, :]
         if smooth:
-            window_length = min(73 * 3, self.num_frames)
+            window_length = min(73*3, self.num_frames)
             window_length = window_length - 1 if window_length % 2 == 0 else window_length
-            median_kernel = min(41, self.num_frames)
+            median_kernel = min(11, self.num_frames)
             median_kernel = median_kernel - 1 if median_kernel % 2 == 0 else median_kernel
-            head_tail_smoothed = FlightAnalysis.savgol_smoothing(head_tail_points, lam=100, polyorder=1,
+            head_tail_smoothed = FlightAnalysis.savgol_smoothing(head_tail_points, lam=100, polyorder=2,
                                                                  window_length=window_length,
                                                                  median_kernel=median_kernel)
+
+            # plt.plot(np.mean(head_tail_points, axis=1))
+            # plt.plot(np.mean(head_tail_smoothed, axis=1))
+            # plt.show()
             head_tail_points = head_tail_smoothed
         return head_tail_points
 
@@ -609,7 +945,7 @@ class FlightAnalysis:
         T = np.arange(len(points_3d))
         derivative_3D = np.zeros((len(points_3d), 3))
         for axis in range(3):
-            derivative_3D[:, axis] = FlightAnalysis.get_dot(points_3d[:, axis])
+            derivative_3D[:, axis] = FlightAnalysis.get_dot(points_3d[:, axis], sampling_rate=SAMPLING_RATE)
         speed = np.linalg.norm(derivative_3D, axis=1)
         return speed, derivative_3D
 
@@ -637,20 +973,29 @@ class FlightAnalysis:
         return z_body
 
     def set_right_left(self):
-        wing_CM_left = np.mean(self.points_3D[0, self.left_inds[:-1], :], axis=0)
-        wing_CM_right = np.mean(self.points_3D[0, self.right_inds[:-1], :], axis=0)
+        wing_CM_left = np.mean(self.points_3D[:, self.left_inds[:-1], :], axis=1)
+        wing_CM_right = np.mean(self.points_3D[:, self.right_inds[:-1], :], axis=1)
         wings_vec = wing_CM_right - wing_CM_left
-        wings_vec = wings_vec / np.linalg.norm(wings_vec)
-        cross = np.cross(wings_vec, self.x_body[0])
+        wings_vec = wings_vec / np.linalg.norm(wings_vec, axis=-1)[:, np.newaxis]
+        cross = np.cross(wings_vec, self.x_body, axis=-1)
         z = 2
+        z_component = cross[:, z]
+        mean_z_component = np.mean(z_component)
         need_flip = False
-        if cross[z] < 0:
+        if mean_z_component < 0:
             need_flip = True
         if need_flip:
-            left = self.points_3D[:, self.left_inds, :]
-            right = self.points_3D[:, self.right_inds, :]
-            self.points_3D[:, self.left_inds, :] = right
-            self.points_3D[:, self.right_inds, :] = left
+            self.flip_right_left_points()
+
+        to_flip = self.find_if_flip()
+        if to_flip:
+            self.flip_right_left_points()
+
+    def flip_right_left_points(self):
+        left = self.points_3D[:, self.left_inds, :]
+        right = self.points_3D[:, self.right_inds, :]
+        self.points_3D[:, self.left_inds, :] = right
+        self.points_3D[:, self.right_inds, :] = left
 
     def load_points(self):
         return np.load(self.points_3D_path)
@@ -766,25 +1111,25 @@ class FlightAnalysis:
         proj_xbody = FlightAnalysis.project_vector_to_plane(self.x_body, self.stroke_planes)
 
         projected_wings = np.array([proj_left, proj_right])
-        thetas = []
+        phis = []
         for wing_num in range(2):
             proj = projected_wings[wing_num]
             stroke_plane_normal = self.stroke_planes[:, :-1]
             if wing_num == 1:
                 stroke_plane_normal = -stroke_plane_normal
-            theta = FlightAnalysis.consistent_angle(proj, proj_xbody, stroke_plane_normal)
-            theta = 360 - theta
-            theta[:self.first_y_body_frame] = 0
-            theta[self.end_frame:] = 0
-            thetas.append(theta)
+            phi = FlightAnalysis.consistent_angle(proj, proj_xbody, stroke_plane_normal)
+            phi = 360 - phi
+            # phi[:self.first_y_body_frame] = 0
+            # phi[self.end_frame:] = 0
+            phis.append(phi)
 
-        theta_left, theta_right = thetas
+        phi_left, phi_right = phis
 
-        # plt.plot(theta_left[self.start_frame:self.end_frame])
-        # plt.plot(theta_right[self.start_frame:self.end_frame])
+        # plt.plot(phi_left[self.start_frame:self.end_frame])
+        # plt.plot(phi_right[self.start_frame:self.end_frame])
         # plt.show()
 
-        return theta_left, theta_right
+        return phi_left, phi_right
 
 
     def get_waving_frequency(self, data):
@@ -858,16 +1203,17 @@ class FlightAnalysis:
         V_on_plane = Vs - proj_N_V
         # check if indeed on the plane:
         # check = FlightAnalysis.row_wize_dot(V_on_plane, stroke_normals)
-        V_on_plane = normalize(V_on_plane, norm='l2')
+        V_on_plane = V_on_plane / np.linalg.norm(V_on_plane, axis=1)[:, np.newaxis]
         return V_on_plane
 
     def get_stroke_planes(self):
+        stroke_planes = np.full((self.num_frames, 4), np.nan)
         theta = np.pi / 4
-        stroke_normal = self.rodrigues_rot(self.x_body, self.y_body, -theta)
+        stroke_normal = self.rodrigues_rot(self.x_body[self.first_y_body_frame:self.end_frame], self.y_body[self.first_y_body_frame:self.end_frame], -theta)
         stroke_normal = normalize(stroke_normal, norm='l2')
-        body_center = np.mean(self.head_tail_points, axis=1)
+        body_center = np.mean(self.head_tail_points[self.first_y_body_frame:self.end_frame], axis=1)
         d = - np.sum(np.multiply(stroke_normal, body_center), axis=1)
-        stroke_planes = np.column_stack((stroke_normal, d))
+        stroke_planes[self.first_y_body_frame:self.end_frame] = np.column_stack((stroke_normal, d))
         return stroke_planes
 
     @staticmethod
@@ -1138,8 +1484,11 @@ class FlightAnalysis:
 
         # plt.plot(idx4StrkPln, y_bodies)
         # plt.plot(y_bodies_corrected)
+        # plt.plot(self.wings_joints_vec)
         # plt.show()
-
+        y_bodies_corrected = self.wings_joints_vec
+        first_y_body_frame = 0
+        end = self.num_frames - 1
         return y_bodies_corrected, first_y_body_frame, end
 
     def choose_span(self):
@@ -1531,9 +1880,9 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
         return
 
     # Filter out directories not starting with 'mov'
-    movies = [dir for dir in os.listdir(base_path) if dir.startswith('mov')]
+    movies = [dir for dir in os.listdir(base_path) if dir.startswith('mov') if dir != 'mov3']
     # movies = sorted(movies, key=lambda x: int(x.replace('mov', '')))
-    # movies = ["mov101"]
+    # movies = ['mov66']
     if one_h5_for_all:
         # Create or open the single HDF5 file
         with h5py.File(output_hdf5_path, 'w') as hdf:
@@ -1542,7 +1891,7 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
                 points_3D_path = os.path.join(movie_dir, 'points_3D_smoothed_ensemble_best_method.npy') if smooth else os.path.join(movie_dir, 'points_3D_ensemble_best_method.npy')
 
                 if os.path.isfile(points_3D_path):
-                    try:
+                    # try:
                         FA = FlightAnalysis(points_3D_path, create_html=True)  # Assuming FlightAnalysis is properly defined
 
                         # Create a group for this movie
@@ -1557,7 +1906,7 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
                                 group.create_dataset(attr_name, data=attr_value)
 
                         print(f"Data saved for {movie}")
-                    except Exception as e:
+                    # except Exception as e:
                         print(f"Exception occurred while processing {movie}: {e}")
                 else:
                     print(f"Missing data for {movie}")
@@ -1565,7 +1914,7 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
         # Create an HDF5 file for each movie
         # movies = ['mov26']
         for movie in movies:
-            print(f"now proccessing {movie}")
+            print(f"now proccessing {movie}", flush=True)
             movie_dir = os.path.join(base_path, movie)
             points_3D_path = os.path.join(movie_dir,
                                           'points_3D_smoothed_ensemble_best_method.npy') if smooth else os.path.join(movie_dir,
@@ -1575,9 +1924,9 @@ def save_movies_data_to_hdf5(base_path, output_hdf5_path, smooth=True, one_h5_fo
                 try:
                     create_movie_analysis_h5(movie, movie_dir, points_3D_path, smooth)
                 except Exception as e:
-                    print(f"Exception occurred while processing {movie}: {e}")
+                    print(f"Exception occurred while processing {movie}: {e}", flush=True)
             else:
-                print(f"Missing data for {movie}")
+                print(f"Missing data for {movie}", flush=True)
 
     print(f"All data saved to {output_hdf5_path}" if one_h5_for_all else "All data saved to individual movie HDF5 files")
 
@@ -1598,9 +1947,22 @@ def create_movie_analysis_h5(movie, movie_dir, points_3D_path, smooth):
                 group = hdf.create_group(attr_name)  # Create a group for half_wingbits
                 for i, obj in enumerate(wing_bit_part):
                     obj_group = group.create_group(f'{kind}_wingbit_{i}')
-                    for sub_attr_name, sub_attr_value in obj.__dict__.items():
-                        # Create a dataset inside the group for each attribute of the object
-                        obj_group.create_dataset(sub_attr_name, data=sub_attr_value)
+                    try:
+                        for sub_attr_name, sub_attr_value in obj.__dict__.items():
+                            # Create a dataset inside the group for each attribute of the object
+                            obj_group.create_dataset(sub_attr_name, data=sub_attr_value)
+                    except:
+                        print(f'{kind}_wingbit_{i} does not exsist')
+            elif attr_name in ["full_body_wing_bits"]:
+                group = hdf.create_group(attr_name)
+                for i, obj in enumerate(attr_value):
+                    obj_group = group.create_group(f'full_body_wingbit_{i}')
+                    try:
+                        for sub_attr_name, sub_attr_value in obj.__dict__.items():
+                            # Create a dataset inside the group for each attribute of the object
+                            obj_group.create_dataset(sub_attr_name, data=sub_attr_value)
+                    except:
+                        print(f'full_body_wingbit_{i} does not exsist')
             else:
                 if hasattr(attr_value, '__len__'):
                     # print(attr_name) # Check for array-like objects or lists
@@ -1609,7 +1971,8 @@ def create_movie_analysis_h5(movie, movie_dir, points_3D_path, smooth):
                     # Check for int or float attributes
                     hdf.create_dataset(attr_name, data=attr_value)
     print(f"Data saved for {movie} in {movie_hdf5_path}")
-    return movie_hdf5_path
+    Visualizer.plot_all_body_data(movie_hdf5_path)
+    return movie_hdf5_path, FA
 
 
 def add_nans(original_array, num_of_nans):
@@ -1670,10 +2033,13 @@ def compare_autocorrelations_before_and_after_dark(input_hdf5_path, T=20):
 
 
 def create_one_movie_analisys():
-    num = 78
-    movie = f"mov{num}"
-    movie_dir = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{num}"
-    points_3D_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{num}\points_3D_smoothed_ensemble_best_method.npy"
+    # num = 78
+    # movie = f"mov{num}"
+    # movie_dir = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{num}"
+    # points_3D_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{num}\points_3D_smoothed_ensemble_best_method.npy"
+    movie = "mov6"
+    movie_dir = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov6"
+    points_3D_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov6\points_3D_smoothed_ensemble_best_method.npy"
     smooth = True
     create_movie_analysis_h5(movie, movie_dir, points_3D_path, smooth)
 
@@ -1775,8 +2141,6 @@ def create_rotating_frames_yaw_pitch_roll(N, yaw_angles, pitch_angles, roll_angl
         z_frames[i] = R @ z_body
 
     return x_frames, y_frames, z_frames
-
-
 
 
 # Example usage
@@ -1896,25 +2260,997 @@ def experiment_2(what_to_enter):
     pass
 
 
+def traverse_and_search(base_path):
+    # Walk through all subdirectories and files
+    for root, dirs, files in os.walk(base_path):
+        for file in files:
+            # Check if file name starts with 'README_mov' and is of type '.txt'
+            if file.startswith('README_mov') and file.endswith('.txt'):
+                file_path = os.path.join(root, file)
+                # Open and read the file
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                    # Check if 'flip' is in the content
+                    if 'flip' in content:
+                        print(file_path)
+
+def collect_full_body_wingbits(base_dir, dir_label):
+    full_body_wingbits = {}
+
+    for root, _, files in os.walk(base_dir):
+        for file in files:
+            if file.startswith("mov") and file.endswith("_analysis_smoothed.h5"):
+                print(f"file: {file} dir: {dir_label}")
+                file_path = os.path.join(root, file)
+                with h5py.File(file_path, 'r') as h5_file:
+                    if "full_body_wing_bits" in h5_file:
+                        wing_bits_group = h5_file["full_body_wing_bits"]
+                        for wingbit_key in wing_bits_group:
+                            wingbit_group = wing_bits_group[wingbit_key]
+                            unique_group_name = f"{dir_label}_{file}_{wingbit_key}"
+                            if unique_group_name not in full_body_wingbits:
+                                full_body_wingbits[unique_group_name] = {}
+                            for dataset_key in wingbit_group:
+                                full_body_wingbits[unique_group_name][dataset_key] = wingbit_group[dataset_key][...]
+
+    return full_body_wingbits
+
+def combine_wingbits_and_save(output_file, *directories):
+    combined_wingbits = {}
+
+    # Collect data from each directory
+    for i, directory in enumerate(directories):
+        full_body_wingbits = collect_full_body_wingbits(directory, f'dir{i+1}')
+        combined_wingbits.update(full_body_wingbits)
+
+    print(f"saving data to {output_file}")
+    with h5py.File(output_file, 'w') as h5_output_file:
+        full_body_wing_bits_grp = h5_output_file.create_group("full_body_wing_bits")
+        for group_name, datasets in combined_wingbits.items():
+            wingbit_grp = full_body_wing_bits_grp.create_group(group_name)
+            for dataset_key, data in datasets.items():
+                wingbit_grp.create_dataset(dataset_key, data=data)
+
+def extract_numbers(input_string):
+    # The regex pattern
+    pattern = r"dir(\d+)_mov(\d+)_.*_wingbit_(\d+)"
+
+    # Perform the regex search
+    match = re.search(pattern, input_string)
+
+    if match:
+        dir_number = match.group(1)
+        mov_number = match.group(2)
+        wingbit_number = match.group(3)
+        return dir_number, mov_number, wingbit_number
+    else:
+        return None, None, None
+
+def read_h5_file_and_collect_take_attributes(file_path):
+    collected_data = []
+    with h5py.File(file_path, 'r') as h5_file:
+        full_body_wing_bits_grp = h5_file['full_body_wing_bits']
+        for i, wingbit_key in enumerate(full_body_wing_bits_grp):
+            print(f"{wingbit_key}")
+            wingbit_grp = full_body_wing_bits_grp[wingbit_key]
+            dir_number, mov_number, wingbit_number = extract_numbers(input_string=wingbit_key)
+            row_data = {'wingbit': f"dir{dir_number}_mov{mov_number}_wingbit_{wingbit_number}"}
+            for dataset_key in wingbit_grp:
+                if 'take' in dataset_key :
+                    data = wingbit_grp[dataset_key][()]
+                    row_data[dataset_key] = data
+            collected_data.append(row_data)
+    return collected_data
+
+def create_dataframe(collected_data):
+    return pd.DataFrame(collected_data)
+
+
+def visualize_dataframe(df):
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(df.set_index('wingbit').transpose(), annot=True, cmap='coolwarm', cbar=True)
+    plt.title('Mean Attributes for Each Wingbit')
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.show()
+
+
+def save_dataframe_as_csv(df, file_path):
+    df.to_csv(file_path, index=False)
+
+
+def load_dataframe_from_csv(file_path):
+    df = pd.read_csv(file_path)
+    return df
+
+
+def sort_wingbits_by_movie(file_path):
+    # Load the CSV file
+    df = pd.read_csv(file_path)
+
+    # Extract the wingbit number from the wingbit column
+    df['wingbit_num'] = df['wingbit'].str.extract(r'(\d+)$').astype(int)
+
+    # Extract the movie identifier from the wingbit column
+    df['movie'] = df['wingbit'].str.extract(r'^(.*)_wingbit_\d+$')
+
+    # Sort the dataframe by movie and wingbit_num
+    df_sorted = df.sort_values(by=['movie', 'wingbit_num'])
+
+    # Drop the temporary columns
+    df_sorted = df_sorted.drop(columns=['wingbit_num', 'movie'])
+
+    # Save the sorted dataframe back to the same file
+    df_sorted.to_csv(file_path, index=False)
+
+def create_dataframe_from_h5(h5_file_path, file_name="all_wingbits_attributes.csv"):
+    # Check if file exists
+    print(f"the file is {h5_file_path}", flush=True)
+    if not os.path.exists(h5_file_path):
+        print(f"File not found: {h5_file_path}")
+        return
+
+    # Collect data from the HDF5 file
+    collected_data = read_h5_file_and_collect_take_attributes(h5_file_path)
+
+    # Create a DataFrame from the collected data
+    df = create_dataframe(collected_data)
+    print(f"the data frame is {df}", flush=True)
+    dir_path = os.path.dirname(h5_file_path)
+    # dir_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data"
+    csv_path = os.path.join(dir_path, file_name)
+    save_dataframe_as_csv(df, csv_path)
+    sort_wingbits_by_movie(csv_path)
+    return df
+
+
+def confidence_interval(r, n, alpha=0.05):
+    # Fisher Z-transformation
+    Z = np.arctanh(r)
+
+    # Standard error
+    SE_Z = 1 / np.sqrt(n - 3)
+
+    # Confidence interval in Z-space
+    Z_critical = stats.norm.ppf(1 - alpha / 2)
+    Z_lower = Z - Z_critical * SE_Z
+    Z_upper = Z + Z_critical * SE_Z
+
+    # Inverse Fisher Z-transformation
+    r_lower = np.tanh(Z_lower)
+    r_upper = np.tanh(Z_upper)
+
+    return r_lower, r_upper
+
+
+def compute_correlations(csv_path, save_name="correlations.html"):
+    print(f"computes correlations\n{csv_path}")
+    df = pd.read_csv(csv_path)  # Assume load_dataframe_from_csv is equivalent to pd.read_csv
+
+    # Get the size of the data
+    num_rows, num_cols = df.shape
+
+    # Drop the first column which is the string column and the specified columns p, q, r
+    df_numeric = df.drop(columns=['wingbit'])
+    # df_numeric = df
+
+    # Compute Pearson Correlation
+    print(df_numeric.dtypes)
+    pearson_corr = df_numeric.corr(method='pearson')
+
+    # Compute Spearman Correlation
+    spearman_corr = df_numeric.corr(method='spearman')
+
+    # Calculate mean and std for the numerical columns, rounded to 2 significant digits
+    stats_df = df_numeric.describe().loc[['mean', 'std']].T.reset_index()
+    stats_df['mean'] = stats_df['mean'].round(2)
+    stats_df['std'] = stats_df['std'].round(2)
+    stats_df.columns = ['Variable', 'Mean', 'Standard Deviation']
+
+    # Remove 'mean' and 'meen' from variable names for display
+    display_columns = [col.replace('_take', '').strip() for col in df_numeric.columns]
+
+    # Compute confidence intervals for Pearson and Spearman correlations
+    pearson_confidence_intervals = np.zeros((len(pearson_corr), len(pearson_corr), 2))
+    spearman_confidence_intervals = np.zeros((len(spearman_corr), len(spearman_corr), 2))
+    for i in range(len(pearson_corr)):
+        for j in range(len(pearson_corr)):
+            r_pearson = pearson_corr.iloc[i, j]
+            r_spearman = spearman_corr.iloc[i, j]
+            pearson_confidence_intervals[i, j] = confidence_interval(r_pearson, num_rows)
+            spearman_confidence_intervals[i, j] = confidence_interval(r_spearman, num_rows)
+
+    # Create a subplot figure with Plotly
+    fig = make_subplots(
+        rows=3, cols=1,
+        subplot_titles=('Pearson Correlation', 'Spearman Correlation', 'Statistics'),
+        specs=[[{"type": "heatmap"}], [{"type": "heatmap"}], [{"type": "table"}]]
+    )
+
+    # Format hover text for Pearson correlation
+    pearson_hover_text = [[
+                              (f"<b>{display_columns[i]}</b> vs <b>{display_columns[j]}</b><br>Correlation: "
+                               f"{pearson_corr.iloc[i, j]:.2f}<br>95% CI: [{pearson_confidence_intervals[i, j, 0]:.2f}, "
+                               f"{pearson_confidence_intervals[i, j, 1]:.2f}]")
+                              for j in range(len(pearson_corr))] for i in range(len(pearson_corr))]
+
+    # Pearson Correlation Heatmap
+    fig.add_trace(
+        go.Heatmap(
+            z=pearson_corr.values,
+            x=display_columns,
+            y=display_columns,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=pearson_hover_text,
+            hoverinfo='text',
+            showscale=True
+        ),
+        row=1, col=1
+    )
+
+    # Format hover text for Spearman correlation
+    spearman_hover_text = [[
+                               f"<b>{display_columns[i]}</b> vs <b>{display_columns[j]}</b><br>Correlation: {spearman_corr.iloc[i, j]:.2f}<br>95% CI: [{spearman_confidence_intervals[i, j, 0]:.2f}, {spearman_confidence_intervals[i, j, 1]:.2f}]"
+                               for j in range(len(spearman_corr))] for i in range(len(spearman_corr))]
+
+    # Spearman Correlation Heatmap
+    fig.add_trace(
+        go.Heatmap(
+            z=spearman_corr.values,
+            x=display_columns,
+            y=display_columns,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=spearman_hover_text,
+            hoverinfo='text',
+            showscale=True
+        ),
+        row=2, col=1
+    )
+
+    # Adding the statistics table
+    fig.add_trace(
+        go.Table(
+            header=dict(values=list(stats_df.columns),
+                        fill_color='paleturquoise',
+                        align='left'),
+            cells=dict(values=[stats_df[col] for col in stats_df.columns],
+                       fill_color='lavender',
+                       align='left')
+        ),
+        row=3, col=1
+    )
+
+    fig.update_layout(height=1500, width=1000,
+                      title_text=f'{save_name[:-5]} (number of wingbits: {num_rows}, {num_cols} attributes)')
+    save_path = os.path.join(os.path.dirname(csv_path), save_name)
+    fig.write_html(save_path)
+
+    print(f'Correlation heatmaps and statistics table saved to {save_path}')
+
+def create_histograms(csv_path, save_name="histograms.html"):
+    print(f"Creating histograms\n{csv_path}")
+    df = pd.read_csv(csv_path)
+
+    # Drop the first column which is the string column and the specified columns p, q, r
+    df_numeric = df.drop(columns=['wingbit'])
+
+    # Calculate mean and std for the numerical columns, rounded to 2 significant digits
+    stats = df_numeric.describe().loc[['mean', 'std']].T.reset_index()
+    stats['mean'] = stats['mean'].round(2)
+    stats['std'] = stats['std'].round(2)
+    stats.columns = ['Variable', 'Mean', 'Standard Deviation']
+
+    # Create a subplot figure with Plotly
+    fig = make_subplots(rows=len(df_numeric.columns), cols=1,
+                        subplot_titles=[f"{col} (Mean: {stats.loc[stats['Variable'] == col, 'Mean'].values[0] if not stats.loc[stats['Variable'] == col, 'Mean'].empty else 'N/A'}, "
+                                        f"Std: {stats.loc[stats['Variable'] == col, 'Standard Deviation'].values[0] if not stats.loc[stats['Variable'] == col, 'Standard Deviation'].empty else 'N/A'})"
+                                        for col in df_numeric.columns])
+
+    # Adding histograms
+    for i, col in enumerate(df_numeric.columns):
+        if df_numeric[col].nunique() <= 1 or df_numeric[col].isnull().all():
+            fig.add_trace(
+                go.Histogram(
+                    x=[],
+                    nbinsx=50,
+                    marker=dict(color='blue', line=dict(color='black', width=1)),
+                    opacity=0.75
+                ),
+                row=i+1, col=1
+            )
+        else:
+            fig.add_trace(
+                go.Histogram(
+                    x=df_numeric[col],
+                    nbinsx=50,
+                    marker=dict(color='blue', line=dict(color='black', width=1)),
+                    opacity=0.75
+                ),
+                row=i+1, col=1
+            )
+
+    fig.update_layout(height=300*len(df_numeric.columns), width=1000,
+                      title_text='Histograms of Data Variables')
+    save_path = os.path.join(os.path.dirname(csv_path), save_name)
+    fig.write_html(save_path)
+
+    print(f'Histograms saved to {save_path}')
+
+def compute_correlations_from_df(df):
+    # Drop non-numeric columns and specified columns
+    df_numeric = df.drop(columns=['wingbit', 'mean_p', 'mean_q', 'mean_r', 'mean_body_speed'])
+    df_numeric.columns = [col.replace('mean_', '').strip() for col in df_numeric.columns]
+
+    # Compute Pearson and Spearman Correlations
+    pearson_corr = df_numeric.corr(method='pearson')
+    spearman_corr = df_numeric.corr(method='spearman')
+
+    # Calculate mean and std for the numerical columns, rounded to 2 significant digits
+    stats = df_numeric.describe().loc[['mean', 'std']].T.reset_index()
+    stats['mean'] = stats['mean'].round(2)
+    stats['std'] = stats['std'].round(2)
+    stats.columns = ['Variable', 'Mean', 'Standard Deviation']
+
+    display_columns = df_numeric.columns
+
+    return pearson_corr, spearman_corr, stats, display_columns, df_numeric
+
+def display_differences(csv_path1, csv_path2, output_file):
+    df1 = load_dataframe_from_csv(csv_path1)
+    df2 = load_dataframe_from_csv(csv_path2)
+    pearson_corr1, spearman_corr1, stats1, display_columns1, df_numeric1 = compute_correlations_from_df(df1)
+    pearson_corr2, spearman_corr2, stats2, display_columns2, df_numeric2 = compute_correlations_from_df(df2)
+
+    # Print columns for debugging
+    print("Columns in experiment 1:", display_columns1)
+    print("Columns in experiment 2:", display_columns2)
+
+    # Compute the differences
+    pearson_diff = pearson_corr2 - pearson_corr1
+    spearman_diff = spearman_corr2 - spearman_corr1
+
+    print("Pearson Correlation 1:\n", pearson_corr1)
+    print("Pearson Correlation 2:\n", pearson_corr2)
+    print("Pearson Correlation Difference:\n", pearson_diff)
+
+    print("Spearman Correlation 1:\n", spearman_corr1)
+    print("Spearman Correlation 2:\n", spearman_corr2)
+    print("Spearman Correlation Difference:\n", spearman_diff)
+
+    # Get dataset sizes
+    size1 = df1.shape
+    size2 = df2.shape
+
+    # Create a subplot figure with Plotly
+    num_histograms = len(display_columns1)
+    fig = make_subplots(
+        rows=4 + num_histograms, cols=2,
+        subplot_titles=(f'Pearson Correlation (Severed Haltere - {size1[0]} rows, {size1[1]} columns)',
+                        f'Pearson Correlation (Good Haltere - {size2[0]} rows, {size2[1]} columns)',
+                        f'Spearman Correlation (Severed Haltere - {size1[0]} rows, {size1[1]} columns)',
+                        f'Spearman Correlation (Good Haltere - {size2[0]} rows, {size2[1]} columns)',
+                        'Pearson Correlation Difference',
+                        'Spearman Correlation Difference',
+                        'Statistics (Severed Haltere)',
+                        'Statistics (Good Haltere)'),
+        specs=[[{"type": "heatmap"}, {"type": "heatmap"}],
+               [{"type": "heatmap"}, {"type": "heatmap"}],
+               [{"type": "heatmap"}, {"type": "heatmap"}],
+               [{"type": "table"}, {"type": "table"}]] + [
+                  [{"type": "histogram"}, {"type": "histogram"}] for _ in range(num_histograms)],
+        column_widths=[0.5, 0.5],
+        row_heights=[0.2, 0.2, 0.2, 0.15] + [0.1] * num_histograms
+    )
+
+    # Pearson Correlation Heatmap for Severed Haltere
+    fig.add_trace(
+        go.Heatmap(
+            z=pearson_corr1.values,
+            x=display_columns1,
+            y=display_columns1,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=pearson_corr1.round(2).values,
+            hoverinfo='text',
+            hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.2f}<extra></extra>',
+            showscale=True
+        ),
+        row=1, col=1
+    )
+
+    # Pearson Correlation Heatmap for Good Haltere
+    fig.add_trace(
+        go.Heatmap(
+            z=pearson_corr2.values,
+            x=display_columns2,
+            y=display_columns2,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=pearson_corr2.round(2).values,
+            hoverinfo='text',
+            hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.2f}<extra></extra>',
+            showscale=True
+        ),
+        row=1, col=2
+    )
+
+    # Spearman Correlation Heatmap for Severed Haltere
+    fig.add_trace(
+        go.Heatmap(
+            z=spearman_corr1.values,
+            x=display_columns1,
+            y=display_columns1,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=spearman_corr1.round(2).values,
+            hoverinfo='text',
+            hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.2f}<extra></extra>',
+            showscale=True
+        ),
+        row=2, col=1
+    )
+
+    # Spearman Correlation Heatmap for Good Haltere
+    fig.add_trace(
+        go.Heatmap(
+            z=spearman_corr2.values,
+            x=display_columns2,
+            y=display_columns2,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=spearman_corr2.round(2).values,
+            hoverinfo='text',
+            hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.2f}<extra></extra>',
+            showscale=True
+        ),
+        row=2, col=2
+    )
+
+    # Pearson Correlation Difference
+    fig.add_trace(
+        go.Heatmap(
+            z=pearson_diff.values,
+            x=display_columns1,
+            y=display_columns1,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=pearson_diff.round(2).values,
+            hoverinfo='text',
+            hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Difference: %{z:.2f}<extra></extra>',
+            showscale=True
+        ),
+        row=3, col=1
+    )
+
+    # Spearman Correlation Difference
+    fig.add_trace(
+        go.Heatmap(
+            z=spearman_diff.values,
+            x=display_columns1,
+            y=display_columns1,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=spearman_diff.round(2).values,
+            hoverinfo='text',
+            hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Difference: %{z:.2f}<extra></extra>',
+            showscale=True
+        ),
+        row=3, col=2
+    )
+
+    # Statistics table for Severed Haltere
+    fig.add_trace(
+        go.Table(
+            header=dict(values=['Variable', 'Mean', 'Standard Deviation'],
+                        fill_color='paleturquoise',
+                        align='left'),
+            cells=dict(values=[stats1[col] for col in ['Variable', 'Mean', 'Standard Deviation']],
+                       fill_color='lavender',
+                       align='left')
+        ),
+        row=4, col=1
+    )
+
+    # Statistics table for Good Haltere
+    fig.add_trace(
+        go.Table(
+            header=dict(values=['Variable', 'Mean', 'Standard Deviation'],
+                        fill_color='paleturquoise',
+                        align='left'),
+            cells=dict(values=[stats2[col] for col in ['Variable', 'Mean', 'Standard Deviation']],
+                       fill_color='lavender',
+                       align='left')
+        ),
+        row=4, col=2
+    )
+
+    # Histograms for Severed and Good Haltere
+    for idx, col in enumerate(display_columns1):
+        fig.add_trace(
+            go.Histogram(
+                x=df_numeric1[col],
+                name=col,
+                opacity=0.75,
+                hoverinfo='text',
+                hovertemplate=f'<b>{col} (Severed Haltere)</b><br>Value: {{x}}<br>Count: {{y}}<extra></extra>'
+            ),
+            row=5 + idx, col=1
+        )
+        fig.add_trace(
+            go.Histogram(
+                x=df_numeric2[col],
+                name=col,
+                opacity=0.75,
+                hoverinfo='text',
+                hovertemplate=f'<b>{col} (Good Haltere)</b><br>Value: {{x}}<br>Count: {{y}}<extra></extra>'
+            ),
+            row=5 + idx, col=2
+        )
+
+        fig.update_xaxes(title_text=col, row=5 + idx, col=1)
+        fig.update_xaxes(title_text=col, row=5 + idx, col=2)
+
+    fig.update_layout(height=2500 + 200 * num_histograms, width=2000, title_text='Comparison of Experiments')
+    fig.update_xaxes(tickangle=45)
+    fig.update_yaxes(tickangle=0)
+
+    fig.write_html(output_file)
+    print(f'Comparison heatmaps, statistics tables, and histograms saved to {output_file}')
+
+
+def compute_correlations_consecutive_wingbits(csv_path, save_name="correlations_consecutive_wingbits.html"):
+    def confidence_interval(r, n, alpha=0.05):
+        # Fisher Z-transformation
+        Z = np.arctanh(r)
+
+        # Standard error
+        SE_Z = 1 / np.sqrt(n - 3)
+
+        # Confidence interval in Z-space
+        Z_critical = stats.norm.ppf(1 - alpha / 2)
+        Z_lower = Z - Z_critical * SE_Z
+        Z_upper = Z + Z_critical * SE_Z
+
+        # Inverse Fisher Z-transformation
+        r_lower = np.tanh(Z_lower)
+        r_upper = np.tanh(Z_upper)
+
+        return r_lower, r_upper
+
+    print(f"Computes correlations for consecutive wingbits\n{csv_path}")
+    df = pd.read_csv(csv_path)
+
+    # Extract movie identifiers and wingbit numbers
+    df['movie'] = df['wingbit'].str.extract(r'(dir\d+_mov\d+)')
+    df['wingbit_num'] = df['wingbit'].str.extract(r'(\d+)$').astype(int)
+
+    # Create empty dataframes to store combined correlations
+    body_columns = [col for col in df.columns if col.startswith('body')]
+    angle_columns = [col for col in df.columns if col.startswith(('theta', 'phi', 'psi'))]
+    pearson_corr_combined = pd.DataFrame(0.0, index=body_columns, columns=angle_columns)
+    spearman_corr_combined = pd.DataFrame(0.0, index=body_columns, columns=angle_columns)
+    count = pd.DataFrame(0, index=body_columns, columns=angle_columns)
+
+    # Process each movie separately and store individual statistics
+    movie_stats = {}
+    for movie in df['movie'].unique():
+        df_movie = df[df['movie'] == movie].sort_values(by='wingbit_num')
+
+        # Lists to accumulate pairs of values
+        pearson_values = {body_col: {angle_col: [] for angle_col in angle_columns} for body_col in body_columns}
+        spearman_values = {body_col: {angle_col: [] for angle_col in angle_columns} for body_col in body_columns}
+
+        for i in range(len(df_movie) - 1):
+            current_row = df_movie.iloc[i]
+            next_row = df_movie.iloc[i + 1]
+
+            for body_col in body_columns:
+                for angle_col in angle_columns:
+                    try:
+                        current_val = float(current_row[body_col])
+                        next_val = float(next_row[angle_col])
+                    except ValueError:
+                        continue
+                    if not np.isnan(current_val) and not np.isnan(next_val):
+                        pearson_values[body_col][angle_col].append((current_val, next_val))
+                        spearman_values[body_col][angle_col].append((current_val, next_val))
+
+        # Compute correlations for each combination of columns
+        pearson_corr_movie = pd.DataFrame(index=body_columns, columns=angle_columns)
+        spearman_corr_movie = pd.DataFrame(index=body_columns, columns=angle_columns)
+        count_movie = pd.DataFrame(0, index=body_columns, columns=angle_columns)
+
+        for body_col in body_columns:
+            for angle_col in angle_columns:
+                if pearson_values[body_col][angle_col]:
+                    current_vals, next_vals = zip(*pearson_values[body_col][angle_col])
+                    r_pearson = np.corrcoef(current_vals, next_vals)[0, 1]
+                    r_spearman, _ = stats.spearmanr(current_vals, next_vals)
+
+                    pearson_corr_movie.loc[body_col, angle_col] = r_pearson
+                    spearman_corr_movie.loc[body_col, angle_col] = r_spearman
+                    count_movie.loc[body_col, angle_col] = len(current_vals)
+
+        # Combine the movie correlations
+        pearson_corr_combined += pearson_corr_movie.fillna(0)
+        spearman_corr_combined += spearman_corr_movie.fillna(0)
+        count += count_movie
+
+        # Store the statistics for the movie
+        stats_df_movie = df_movie.describe().loc[['mean', 'std']].T.reset_index()
+        stats_df_movie['mean'] = stats_df_movie['mean'].round(2)
+        stats_df_movie['std'] = stats_df_movie['std'].round(2)
+        stats_df_movie.columns = ['Variable', 'Mean', 'Standard Deviation']
+        movie_stats[movie] = stats_df_movie
+
+    # Average the combined correlations
+    pearson_corr_combined /= count
+    spearman_corr_combined /= count
+
+    # Calculate mean and std for the numerical columns, rounded to 2 significant digits
+    stats_df_combined = df.describe().loc[['mean', 'std']].T.reset_index()
+    stats_df_combined['mean'] = stats_df_combined['mean'].round(2)
+    stats_df_combined['std'] = stats_df_combined['std'].round(2)
+    stats_df_combined.columns = ['Variable', 'Mean', 'Standard Deviation']
+
+    # Compute confidence intervals for Pearson and Spearman correlations
+    num_rows = count.max().max()  # Use the maximum count for confidence interval calculation
+    pearson_confidence_intervals = np.zeros((len(body_columns), len(angle_columns), 2))
+    spearman_confidence_intervals = np.zeros((len(body_columns), len(angle_columns), 2))
+
+    for i, body_col in enumerate(body_columns):
+        for j, angle_col in enumerate(angle_columns):
+            r_pearson = pearson_corr_combined.loc[body_col, angle_col]
+            r_spearman = spearman_corr_combined.loc[body_col, angle_col]
+            pearson_confidence_intervals[i, j] = confidence_interval(r_pearson, num_rows)
+            spearman_confidence_intervals[i, j] = confidence_interval(r_spearman, num_rows)
+
+    # Create a subplot figure with Plotly
+    fig = make_subplots(
+        rows=len(movie_stats) + 3, cols=1,
+        subplot_titles=(['Pearson Correlation', 'Spearman Correlation'] + [f'Statistics for {movie}' for movie in
+                                                                           movie_stats.keys()] + [
+                            'Combined Statistics']),
+        specs=[[{"type": "heatmap"}], [{"type": "heatmap"}]] + [[{"type": "table"}]] * len(movie_stats) + [
+            [{"type": "table"}]]
+    )
+
+    # Format hover text for Pearson correlation
+    pearson_hover_text = [[
+        (f"<b>{body_columns[i]}</b> vs <b>{angle_columns[j]}</b><br>Correlation: "
+         f"{pearson_corr_combined.iloc[i, j]:.2f}<br>95% CI: [{pearson_confidence_intervals[i, j, 0]:.2f}, "
+         f"{pearson_confidence_intervals[i, j, 1]:.2f}]")
+        for j in range(len(angle_columns))] for i in range(len(body_columns))]
+
+    # Pearson Correlation Heatmap
+    fig.add_trace(
+        go.Heatmap(
+            z=pearson_corr_combined.values,
+            x=angle_columns,
+            y=body_columns,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=pearson_hover_text,
+            hoverinfo='text',
+            showscale=True
+        ),
+        row=1, col=1
+    )
+
+    # Format hover text for Spearman correlation
+    spearman_hover_text = [[
+        f"<b>{body_columns[i]}</b> vs <b>{angle_columns[j]}</b><br>Correlation: {spearman_corr_combined.iloc[i, j]:.2f}<br>95% CI: [{spearman_confidence_intervals[i, j, 0]:.2f}, {spearman_confidence_intervals[i, j, 1]:.2f}]"
+        for j in range(len(angle_columns))] for i in range(len(body_columns))]
+
+    # Spearman Correlation Heatmap
+    fig.add_trace(
+        go.Heatmap(
+            z=spearman_corr_combined.values,
+            x=angle_columns,
+            y=body_columns,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=spearman_hover_text,
+            hoverinfo='text',
+            showscale=True
+        ),
+        row=2, col=1
+    )
+
+    # Add statistics tables for each movie
+    current_row = 3
+    for movie, stats_df_movie in movie_stats.items():
+        fig.add_trace(
+            go.Table(
+                header=dict(values=list(stats_df_movie.columns),
+                            fill_color='paleturquoise',
+                            align='left'),
+                cells=dict(values=[stats_df_movie[col] for col in stats_df_movie.columns],
+                           fill_color='lavender',
+                           align='left')
+            ),
+            row=current_row, col=1
+        )
+        current_row += 1
+
+    # Adding the combined statistics table
+    fig.add_trace(
+        go.Table(
+            header=dict(values=list(stats_df_combined.columns),
+                        fill_color='paleturquoise',
+                        align='left'),
+            cells=dict(values=[stats_df_combined[col] for col in stats_df_combined.columns],
+                       fill_color='lavender',
+                       align='left')
+        ),
+        row=current_row, col=1
+    )
+
+    fig.update_layout(height=1500 + 300 * len(movie_stats), width=1000,
+                      title_text=f'Correlation Heatmaps and Statistics (Data size: {num_rows} rows, {len(df.columns)} columns)')
+    save_path = os.path.join(os.path.dirname(csv_path), save_name)
+    fig.write_html(save_path)
+
+    print(f'Correlation heatmaps and statistics table saved to {save_path}')
+
+
+def compute_shifted_correlations(file_path, save_name="correlations.html"):
+    # Load the CSV file
+    df = pd.read_csv(file_path)
+
+    # remove the word 'take' from the attributes names
+    df.rename(columns=lambda x: x.replace('_take', ''), inplace=True)
+
+    # Extract the wingbit number and movie identifier
+    df['wingbit_num'] = df['wingbit'].str.extract(r'(\d+)$').astype(int)
+    df['movie'] = df['wingbit'].str.extract(r'^(.*)_wingbit_\d+$')
+
+    # Sort the dataframe by movie and wingbit_num to ensure proper shifting
+    df = df.sort_values(by=['movie', 'wingbit_num'])
+
+    # Shift the dataframe up by one row
+    shifted_df = df.shift(-1)
+
+    # Identify rows where the next row is from a different movie
+    mask = (df['movie'] == shifted_df['movie'])
+
+    # Apply the mask to filter out invalid correlations
+    valid_df = df[mask]
+    valid_shifted_df = shifted_df[mask]
+
+    # Select columns of interest for correlation
+    valid_columns = [col for col in valid_df.columns if col.startswith(('psi', 'phi', 'theta'))]
+    shifted_columns = [col for col in valid_shifted_df.columns if col.startswith('body')]
+
+    # Convert columns to numeric and fill NaN values
+    valid_df[valid_columns] = valid_df[valid_columns].apply(pd.to_numeric, errors='coerce').fillna(0)
+    valid_shifted_df[shifted_columns] = valid_shifted_df[shifted_columns].apply(pd.to_numeric, errors='coerce').fillna(0)
+
+    # Initialize DataFrames to store the Pearson and Spearman correlation results
+    pearson_correlation_matrix = pd.DataFrame(index=valid_columns, columns=shifted_columns)
+    spearman_correlation_matrix = pd.DataFrame(index=valid_columns, columns=shifted_columns)
+
+    # Initialize arrays for confidence intervals
+    pearson_confidence_intervals = np.zeros((len(valid_columns), len(shifted_columns), 2))
+    spearman_confidence_intervals = np.zeros((len(valid_columns), len(shifted_columns), 2))
+
+    # Compute the Pearson and Spearman correlations for each attribute pair
+    for i, column1 in enumerate(valid_columns):
+        for j, column2 in enumerate(shifted_columns):
+            col1 = valid_df[column1].values
+            col2 = valid_shifted_df[column2].values
+
+            pearson_corr, _ = pearsonr(col1, col2)
+            spearman_corr, _ = spearmanr(col1, col2)
+
+            pearson_correlation_matrix.loc[column1, column2] = pearson_corr
+            spearman_correlation_matrix.loc[column1, column2] = spearman_corr
+
+            pearson_confidence_intervals[i, j] = confidence_interval(pearson_corr, len(col1))
+            spearman_confidence_intervals[i, j] = confidence_interval(spearman_corr, len(col1))
+
+    # Create a subplot figure with Plotly
+    fig = make_subplots(
+        rows=3, cols=1,
+        subplot_titles=('Pearson Correlation', 'Spearman Correlation', 'Statistics'),
+        specs=[[{"type": "heatmap"}], [{"type": "heatmap"}], [{"type": "table"}]]
+    )
+
+    # Format hover text for Pearson correlation
+    pearson_hover_text = [[
+        (f"<b>{valid_columns[i]}</b> vs <b>{shifted_columns[j]}</b><br>Correlation: "
+         f"{pearson_correlation_matrix.iloc[i, j]:.2f}<br>95% CI: [{pearson_confidence_intervals[i, j, 0]:.2f}, "
+         f"{pearson_confidence_intervals[i, j, 1]:.2f}]")
+        for j in range(len(shifted_columns))] for i in range(len(valid_columns))]
+
+    # Pearson Correlation Heatmap
+    fig.add_trace(
+        go.Heatmap(
+            z=pearson_correlation_matrix.values.astype(float),
+            x=shifted_columns,
+            y=valid_columns,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=pearson_hover_text,
+            hoverinfo='text',
+            showscale=True
+        ),
+        row=1, col=1
+    )
+
+    # Format hover text for Spearman correlation
+    spearman_hover_text = [[
+        (f"<b>{valid_columns[i]}</b> vs <b>{shifted_columns[j]}</b><br>Correlation: "
+         f"{spearman_correlation_matrix.iloc[i, j]:.2f}<br>95% CI: [{spearman_confidence_intervals[i, j, 0]:.2f}, "
+         f"{spearman_confidence_intervals[i, j, 1]:.2f}]")
+        for j in range(len(shifted_columns))] for i in range(len(valid_columns))]
+
+    # Spearman Correlation Heatmap
+    fig.add_trace(
+        go.Heatmap(
+            z=spearman_correlation_matrix.values.astype(float),
+            x=shifted_columns,
+            y=valid_columns,
+            colorscale='RdBu',
+            zmin=-1, zmax=1,
+            text=spearman_hover_text,
+            hoverinfo='text',
+            showscale=True
+        ),
+        row=2, col=1
+    )
+
+    # Compute statistics
+    stats_df = valid_df[valid_columns].describe().loc[['mean', 'std']].T.reset_index()
+    stats_df['mean'] = stats_df['mean'].round(2)
+    stats_df['std'] = stats_df['std'].round(2)
+    stats_df.columns = ['Variable', 'Mean', 'Standard Deviation']
+
+    # Adding the statistics table
+    fig.add_trace(
+        go.Table(
+            header=dict(values=list(stats_df.columns),
+                        fill_color='paleturquoise',
+                        align='left'),
+            cells=dict(values=[stats_df[col] for col in stats_df.columns],
+                       fill_color='lavender',
+                       align='left')
+        ),
+        row=3, col=1
+    )
+
+    fig.update_layout(height=1500, width=1000,
+                      title_text=save_name[:-5])
+
+    # Save the results to new CSV files in the same directory as the input file
+    output_dir = os.path.dirname(file_path)
+    save_path = os.path.join(output_dir, save_name)
+    fig.write_html(save_path)
+
+    print(f'Correlation heatmaps and statistics table saved to {save_path}')
+
+
+
+def create_correlations_cluster():
+    base_path = "roni dark 60ms"
+    save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+    output_file = os.path.join(base_path, "combined_wingbits.h5")
+    combine_wingbits_and_save(output_file, base_path)
+    csv_file = os.path.join(base_path, "all_wingbits_attributes_good_haltere.csv")
+    create_dataframe_from_h5(output_file, "all_wingbits_attributes_good_haltere.csv")
+    csv_path_good_haltere = os.path.join(base_path, "all_wingbits_attributes_good_haltere.csv")
+    compute_correlations(csv_path_good_haltere, "corretaions_good_Haltere.html")
+    create_histograms(csv_path_good_haltere, "Histograms_good_Haltere.html")
+    compute_shifted_correlations(csv_path_good_haltere, "correlations between consecutive wingbits good haltere.html")
+
+
+def create_correlations_from_drive(only_correlations=False):
+    if not only_correlations:
+        base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies"
+        save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+        base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies"
+        save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+        dir1 = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies"
+        dir2 = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies"
+        output_file = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\combined_wingbits.h5"
+        # Combine and save the wingbits
+        combine_wingbits_and_save(output_file, dir1, dir2)
+        create_dataframe_from_h5(output_file, "all_wingbits_attributes_severed_haltere.csv")
+    base_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data"
+    csv_path_severed_haltere = os.path.join(base_path, "all_wingbits_attributes_severed_haltere.csv")
+    compute_shifted_correlations(csv_path_severed_haltere, "correlations between consecutive wingbits bad haltere.html")
+    compute_correlations(csv_path_severed_haltere, "corretaions_severed_Haltere.html")
+    create_histograms(csv_path_severed_haltere, "Histograms_severed_Haltere.html")
+
+
+
+
+def load_csv(good_haltere, bad_haltere):
+    omega_good, wx_good, wy_good, wz_good = get_omegas(good_haltere)
+    omega_bad, wx_bad, wy_bad, wz_bad = get_omegas(bad_haltere)
+    pca = PCA(n_components=3)
+    pca.fit(omega_good)
+    first_component = pca.components_[0]
+    # mean = pca.mean_
+    p1 = mean + 10000 * first_component
+    # p2 = mean - 10000 * first_component
+    fig = plt.figure(figsize=(20, 20))  # Adjust the figure size here
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(wx_good, wy_good, wz_good, s=1, color='red')
+    ax.scatter(wx_bad, wy_bad, wz_bad, s=1, color='blue')
+    ax.set_box_aspect([1, 1, 1])
+    ax.set_xlabel("wx")
+    ax.set_ylabel("wy")
+    ax.set_zlabel("wz")
+    # plt.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color='red')
+    plt.show()
+    a=0
+
+
+def display_2_omegas(csv_file):
+    no_dark, with_dark = get_omegas(csv_file)
+    omega_dark, wx_dark, wy_dark, wz_dark = with_dark
+    omega_light, wx_light, wy_light, wz_light = no_dark
+
+    # pca = PCA(n_components=3)
+    # pca.fit(omega_good)
+    # first_component = pca.components_[0]
+    # mean = pca.mean_
+    # p1 = mean + 10000 * first_component
+    # p2 = mean - 10000 * first_component
+
+    r = R.from_euler('y', -45, degrees=True)
+    Rot = np.array(r.as_matrix())
+    rotated_dark = (Rot @ omega_dark.T).T
+    rotated_light = (Rot @ omega_light.T).T
+
+    fig = plt.figure(figsize=(20, 20))  # Adjust the figure size here
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(rotated_dark[:, 0], rotated_dark[:, 1], rotated_dark[:, 2], s=1, color='red')
+    ax.scatter(rotated_light[:, 0], rotated_light[:, 1], rotated_light[:, 2], s=1, color='blue')
+
+    ax.set_xlabel("wx")
+    ax.set_ylabel("wy")
+    ax.set_zlabel("wz")
+    p1 = 5000*np.array([1, 0, 1])
+    p2 = 5000*np.array([-1, 0, -1])
+    plt.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color='black')
+    # ax.set_box_aspect([1, 1, 1])
+    ax.set_aspect('equal')
+    plt.show()
+
+def get_omegas(csv_path):
+    df = pd.read_csv(csv_path)
+    df_dir1 = df[df['wingbit'].str.startswith('dir1')]
+    df_dir2 = df[df['wingbit'].str.startswith('dir2')]
+    no_dark = get_omega_from_df(df_dir1)
+    with_dark = get_omega_from_df(df_dir2)
+    return no_dark, with_dark
+
+
+def get_omega_from_df(df):
+    wx = df["body_wx_take"].values
+    wx = wx[~np.isnan(wx)]
+    wy = df["body_wy_take"].values
+    wy = wy[~np.isnan(wy)]
+    wz = df["body_wz_take"].values
+    wz = wz[~np.isnan(wz)]
+    omega = np.column_stack((wx, wy, wz))
+    return omega, wx, wy, wz
+
 
 if __name__ == '__main__':
-    experiment_2(what_to_enter='omega')
-    # create_one_movie_analisys()
-    # movie = 104
-    # points_path = rf"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\mov{movie}\points_3D_smoothed_ensemble_best.npy"
-    # FlightAnalysis(points_path, create_html=False, find_auto_correlation=False, show_phi=False)
-    # calculate_auto_correlation_roni_movies()
-    # plot_auto_correlations()
+    bad_haltere = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\all_wingbits_attributes_severed_haltere.csv"
+    good_haltere = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\all_wingbits_attributes_good_haltere.csv"
+    # load_csv(good_haltere, bad_haltere)
+    display_2_omegas(bad_haltere)
 
+    # create_correlations_from_drive(only_correlations=False)
+    # create_correlations_cluster()
 
-    # output_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\all_movies_data.h5"
-    # # compare_autocorrelations_before_and_after_dark(output_hdf5_path)
-    #
-    # # plot_movie_html(1)
-    # # plot_movie_html(2)    # plot_movie_html(3)
-    # # plot_movie_html(4)
+    # points_3D_path = r"C:\Users\amita\OneDrive\Desktop\temp\movie 7\points_3D_smoothed_ensemble_best_method.npy"
+    # FA = FlightAnalysis(points_3D_path)
 
-    # base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\arranged movies"
-    # output_hdf5_path = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\roni data\roni movies\my analisys\all_movies_data_not_smoothed.h5"
-    # save_movies_data_to_hdf5(base_path, output_hdf5_path=output_hdf5_path, smooth=True, one_h5_for_all=False)
 

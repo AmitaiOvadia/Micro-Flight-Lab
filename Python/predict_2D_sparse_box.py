@@ -189,14 +189,13 @@ class Predictor2D:
         self.enforce_3D_consistency()
         print("done")
 
-        # box = self.box_sparse.retrieve_dense_box()
-        # points_2D = self.preds_2D
-        # from visualize import Visualizer
-        # Visualizer.show_predictions_all_cams(box, points_2D)
+        box = self.box_sparse.retrieve_dense_box()
+        points_2D = self.preds_2D
+        from visualize import Visualizer
+        Visualizer.show_predictions_all_cams(box, points_2D)
 
         print("predicting 3D points", flush=True)
-        self.points_3D_all, self.reprojection_errors = self.get_all_3D_pnts_all_cameras_combinations(self.preds_2D,
-                                                                                                     self.cropzone)
+        self.points_3D_all, self.reprojection_errors, self.triangulation_errors = self.get_all_3D_pnts_pairs(self.preds_2D, self.cropzone)
 
         print("saving", flush=True)
         self.save_predictions_to_h5()
@@ -1366,11 +1365,11 @@ class Predictor2D:
 
 
 if __name__ == '__main__':
-    points_3D_all = np.load(r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_all.npy")
-    Predictor2D.find_3D_points_optimize_neighbors([points_3D_all])
-    # config_file = 'predict_2D_config.json'
-    # predictor = Predictor2D(config_file)
-    # predictor.run_predict_2D()
+    # points_3D_all = np.load(r"C:\Users\amita\OneDrive\Desktop\temp\points_3D_all.npy")
+    # Predictor2D.find_3D_points_optimize_neighbors([points_3D_all])
+    config_file = 'predict_2D_config.json'
+    predictor = Predictor2D(config_file)
+    predictor.run_predict_2D()
 
 
 

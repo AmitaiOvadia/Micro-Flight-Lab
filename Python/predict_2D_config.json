@@ -3,9 +3,9 @@
 {
  "software": "tensorflow",
 
- "box path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\example datasets\\mov10_u\\movie_10_130_1666_ds_3tc_7tj.h5",
+ "box path" : "C:\\Users\\amita\\OneDrive\\Desktop\\temp\\next_batch_movies\\mov1\\movie_1_10_4410_ds_3tc_7tj.h5",
 "wings detection model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\utils\\wings_segmentation\\YOLO models\\yolo_weights_6_1_24.pt",
-"wings pose estimation model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\models 2.0\\4 cams all points\\ALL_CAMS_ALL_POINTS_May 24_04\\best_model.h5",
+"wings pose estimation model path" : "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\models 5.0\\per wing\\MODEL_18_POINTS_PER_WING_Jun not reprojected 9.0 score\\best_model.h5",
 "wings pose estimation model path second path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\models 2.0\\4 cams all points\\ALL_CAMS_ALL_POINTS_May 24_04\\best_model.h5",
  "head tail pose estimation model path": "",
  "base output path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\example datasets\\mov10_u",
@@ -13,7 +13,7 @@
 
 "number of cameras": 4,
 "number of time channels": 3,
-"model type": "ALL_CAMS_ALL_POINTS",
+"model type": "WINGS_AND_BODY_SAME_MODEL",
 "model type second pass": "ALL_CAMS_ALL_POINTS",
 "mask increase initial": 1,
 "mask increase reprojected": 1,
@@ -21,10 +21,10 @@
 "batch size": 8,
 "body parts to predict": "WINGS_AND_BODY",
 "number of joints": 18,
-"predict again 3D consistent": 1,
+"predict again 3D consistent": 0,
 "use reprojected masks": 0,
 "2D to 3D config path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\2D_to_3D_config.json",
-"calibration data path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\2D to 3D code\\example datasets\\mov10_u\\calibration file.h5",
+"calibration data path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\roni data\\roni movies\\my analisys\\calibration file.h5",
 "align right left": 0,
 "IMAGE_HEIGHT": 800,
 "IMAGE_WIDTH": 1280
