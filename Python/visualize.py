@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation as R
 import os
 from scipy.optimize import curve_fit
 from scipy.linalg import svd
-import imageio
+import pandas as pd
 
 from scipy.interpolate import griddata
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -1061,18 +1061,22 @@ class Visualizer:
         my_left_wing_CM = Visualizer.get_data_from_h5(h5_path_movie_path, 'left_wing_CM')
         my_right_wing_CM = Visualizer.get_data_from_h5(h5_path_movie_path, 'right_wing_CM')
 
+        # clculated force lab
+        force_left_wing = Visualizer.get_data_from_h5(h5_path_movie_path, 'force_left_wing')
+        force_right_wing = Visualizer.get_data_from_h5(h5_path_movie_path, 'force_right_wing')
+
+        torque_body_left = Visualizer.get_data_from_h5(h5_path_movie_path, 'torque_body_left')
+        torque_body_right = Visualizer.get_data_from_h5(h5_path_movie_path, 'torque_body_right')
+
+        total_torque = torque_body_left + torque_body_right
+
+        df = pd.DataFrame(total_torque, columns=['x', 'y', 'z'])
+        torque_running_average = df.rolling(window=10, min_periods=1, center=True).mean()
+        torque_running_average = torque_running_average.to_numpy()
+
         # omega body
         omega_body = Visualizer.get_data_from_h5(h5_path_movie_path, 'omega_body')
         # points = points[:1000]
-
-        # plt.plot(my_x_body)
-        # time_ms = (np.arange(0, len(omega_body)) - 340)/16
-        # plt.plot(time_ms, omega_body[:, 0],  color='r', label='x')
-        # plt.plot(time_ms,omega_body[:, 1], color='b', label='y')
-        # plt.plot(time_ms, omega_body[:, 2], color='k', label='z')
-        # plt.plot(time_ms, np.linalg.norm(omega_body, axis=-1), color='g', label='norm')
-        # plt.legend()
-        # plt.show()
 
         # Calculate the limits of the plot
         x_min = np.nanmin(points[:, :, 0])
@@ -1171,11 +1175,26 @@ class Visualizer:
                 ax.scatter(my_right_wing_tip[frame, 0], my_right_wing_tip[frame, 1], my_right_wing_tip[frame, 2],
                            c=color_array[0])
 
-                add_quiver_axes(ax, my_left_wing_CM[frame], my_left_wing_span[frame], my_left_wing_chord[frame], None,
-                                color='r', labels=['Span', 'Chord'])
+                add_quiver_axes(ax, my_left_wing_CM[frame], my_left_wing_span[frame], my_left_wing_chord[frame],
+                                None, color='r', labels=['Span', 'Chord'])
                 add_quiver_axes(ax, my_right_wing_CM[frame], my_right_wing_span[frame], my_right_wing_chord[frame],
-                                None,
-                                color='r', labels=['Span', 'Chord'])
+                                None, color='r', labels=['Span', 'Chord'])
+
+                # add forces
+                amplify = 5e5
+                add_quiver_axes(ax, my_left_wing_CM[frame], x_vec=None, y_vec=None, z_vec=force_left_wing[frame] * amplify,
+                                color='orange', labels=['', '', 'force left'])
+                add_quiver_axes(ax, my_right_wing_CM[frame], x_vec=None, y_vec=None, z_vec=force_right_wing[frame] * amplify,
+                                color='orange', labels=['', '', 'force right'])
+
+                # add torque
+                amplify = 5e7
+                # torque = torque_body_left[frame] + torque_body_right[frame]
+                torque = total_torque[frame]
+                add_quiver_axes(ax, (my_cm_x, my_cm_y, my_cm_z), x_vec=None, y_vec=None,
+                                z_vec=torque * amplify,
+                                color='green', labels=['', '', 'torque'])
+
 
             # Plot the center of mass
             ax.scatter(my_cm_x, my_cm_y, my_cm_z, c=color_array[0])
@@ -1205,7 +1224,7 @@ class Visualizer:
                 ax.set_zlim(mid_z - max_range / 2, mid_z + max_range / 2)
 
             ax.set_box_aspect([1, 1, 1])
-
+            ax.set_aspect('equal')
             fig.canvas.draw_idle()
 
         slider.on_changed(update)
@@ -1754,6 +1773,7 @@ def traverse_and_plot(directory_path):
 if __name__ == '__main__':
     # path_h5 = r"C:\Users\amita\OneDrive\Desktop\temp\movies\mov10\movie_10_300_3008_ds_3tc_7tj.h5"
     # Visualizer.display_movie_from_path(path_h5)
+
     # directory_path = fr"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies"
     # traverse_and_plot(directory_path)
 
@@ -1761,10 +1781,13 @@ if __name__ == '__main__':
     # base_path = "dark 24-1 movies"
     base_path = "example datasets"
     # base_path = "roni dark 60ms"
-    create_mp4_directory(base_path)
+    # create_mp4_directory(base_path)
 
-    # input_hdf5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov20 y_body problem\mov20_analysis_smoothed.h5"
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov24\mov24_analysis_smoothed.h5"
+    # h5_path = r"C:\Users\amita\OneDrive\Desktop\temp\mov24_analysis_smoothed.h5"
+    h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov21\mov21_analysis_smoothed.h5"
     # Visualizer.plot_all_body_data(input_hdf5_path)
+    Visualizer.visualize_analisys_3D(h5_path)
 
     # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov62\movie_62_160_1888_ds_3tc_7tj.h5"
     # Visualizer.display_movie_from_path(movie_path)
