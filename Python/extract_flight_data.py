@@ -72,6 +72,7 @@ class FullWingBit:
 
 class FullWingBitBody:
     def __init__(self, start, end, frames,
+                 torque,avarage_torque_body,
                  points_3D, CM_dot, CM_speed,
                  yaw_angle, pitch_angle, roll_angle,
                  roll_dot, pitch_dot, yaw_dot,
@@ -130,6 +131,7 @@ class FullWingBitBody:
         self.p = p
         self.q = q
         self.r = r
+        self.torque = torque
 
         # wings dot attributes
         self.wings_phi_left_dot = wings_phi_left_dot
@@ -174,6 +176,9 @@ class FullWingBitBody:
         self.psi_mid_upstroke_left_minus_right_take = left_minus_right_psi_mid_upstroke
 
         # body attributes
+        self.torque_body_x_take = avarage_torque_body[0]
+        self.torque_body_y_take = avarage_torque_body[1]
+        self.torque_body_z_take = avarage_torque_body[2]
         self.body_CM_speed_take = np.mean(self.CM_speed)
         self.body_yaw_angle_take = np.mean(self.yaw_angle)
         self.body_pitch_angle_take = np.mean(self.pitch_angle)
@@ -198,17 +203,21 @@ class FullWingBitBody:
 
 
 class FlightAnalysis:
-    def __init__(self, points_3D_path, find_auto_correlation=False,
-                 create_html=False, show_phi=False):
+    def __init__(self, points_3D_path="", find_auto_correlation=False,
+                       create_html=False, show_phi=False, validation=False, points_3D=None):
+        if not validation:
+            self.points_3D_path = points_3D_path
+            self.points_3D = self.load_points()
+            self.first_analysed_frame = self.get_first_analysed_frame()
+            self.cut = self.find_cut_value()
 
-        self.points_3D_path = points_3D_path
-        self.points_3D = self.load_points()
-        self.first_analysed_frame = self.get_first_analysed_frame()
-        self.cut = self.find_cut_value()
-
-        if self.cut:
-            cut_frame = self.cut - self.first_analysed_frame
-            self.points_3D = self.points_3D[:cut_frame]
+            if self.cut:
+                cut_frame = self.cut - self.first_analysed_frame
+                self.points_3D = self.points_3D[:cut_frame]
+        else:
+            assert type(points_3D) == np.ndarray, "point_3D should contain an array of points"
+            self.points_3D = points_3D
+            self.first_analysed_frame = 0
 
         # set attributes
         self.num_joints = self.points_3D.shape[1]
@@ -230,7 +239,8 @@ class FlightAnalysis:
         self.head_tail_points = self.get_head_tail_points(smooth=True)
         self.points_3D[:, self.head_tail_inds, :] = self.head_tail_points
         self.x_body = self.get_head_tail_vec()
-        self.set_right_left()
+        if not validation:
+            self.set_right_left()
         self.wings_tips_left, self.wings_tips_right = self.get_wing_tips()
         self.wings_joints_points = self.get_wings_joints(smooth=True)
         self.wings_joints_vec = self.get_wings_joints_vec()
@@ -332,42 +342,28 @@ class FlightAnalysis:
         # plt.legend()
         # plt.grid()
         # plt.show()
-        if find_auto_correlation:
-            self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body,
-                                                                                    self.z_body,
-                                                                                    self.first_y_body_frame,
-                                                                                    self.end_frame)
-            self.auto_correlation_x_body = self.get_auto_correlation_x_body(self.x_body)
+        if not validation:
+            if find_auto_correlation:
+                self.auto_correlation_axis_angle = self.get_auto_correlation_axis_angle(self.x_body, self.y_body,
+                                                                                        self.z_body,
+                                                                                        self.first_y_body_frame,
+                                                                                        self.end_frame)
+                self.auto_correlation_x_body = self.get_auto_correlation_x_body(self.x_body)
 
-        if create_html:
-            dir = os.path.dirname(self.points_3D_path)
-            save_path_html = os.path.join(dir, 'movie_html.html')
-            Visualizer.create_movie_plot(com=self.center_of_mass, x_body=self.x_body, y_body=self.y_body,
-                                         points_3D=self.points_3D,
-                                         start_frame=self.first_y_body_frame, save_path=save_path_html)
+            if create_html:
+                dir = os.path.dirname(self.points_3D_path)
+                save_path_html = os.path.join(dir, 'movie_html.html')
+                Visualizer.create_movie_plot(com=self.center_of_mass, x_body=self.x_body, y_body=self.y_body,
+                                             points_3D=self.points_3D,
+                                             start_frame=self.first_y_body_frame, save_path=save_path_html)
         self.adjust_starting_frame()
+        if not validation:
+            force_body, force_lab, torque_body =  self.get_wings_forces()
+            self.force_left_wing, self.force_right_wing = force_body[:, LEFT, :], force_body[:, RIGHT, :]
+            self.torque_body_left, self.torque_body_right = torque_body[:, LEFT, :], torque_body[:, RIGHT, :]
+            self.torque_body_total = self.force_left_wing + self.force_right_wing
 
-        force_body, force_lab, torque_body =  self.get_wings_forces()
-        self.force_left_wing, self.force_right_wing = force_body[:, 0, :], force_body[:, 1, :]
-        self.torque_body_left, self.torque_body_right = torque_body[:, 0, :], torque_body[:, 1, :]
-
-        #%%%%%
-        # wx_dot = self.get_dot(self.omega_body[:, 0])
-        # wy_dot = self.get_dot(self.omega_body[:, 1])
-        # wz_dot = self.get_dot(self.omega_body[:, 2])
-        # omega_body_dot = np.column_stack((wx_dot, wy_dot, wz_dot))
-        # omega_dot_dir = omega_body_dot / np.linalg.norm(omega_body_dot, axis=1)[:, np.newaxis]
-        #
-        # general_torque = self.torque_body_left + self.torque_body_right
-        # wings_torque_direction = general_torque / np.linalg.norm(general_torque, axis=1)[:, np.newaxis]
-        #
-        # plt.plot(np.abs(omega_dot_dir))
-        # plt.plot(np.abs(wings_torque_direction))
-        # plt.show()
-        #%%%%%
-
-        self.full_body_wing_bits = self.get_FullWingBitBody_objects()
-        pass
+            self.full_body_wing_bits = self.get_FullWingBitBody_objects()
 
     @staticmethod
     def closest_index(array, value):
@@ -427,7 +423,7 @@ class FlightAnalysis:
         wings_psi_dot = [self.wings_psi_left_dot, -self.wings_psi_right_dot]
 
         roll_all = self.roll_angle
-        pitch_all = self.pitch_angle
+        pitch_all = -self.pitch_angle  # minus here
         yaw_all = self.yaw_angle
         start = np.where(~np.isnan(self.wings_theta_right_dot))[0][0]
         end = np.where(~np.isnan(self.wings_theta_right_dot))[0][-1]
@@ -441,7 +437,7 @@ class FlightAnalysis:
                 psi, theta, phi = wings_psi[wing][frame], wings_theta[wing][frame], wings_phi[wing][frame]
                 psi_dot, theta_dot, phi_dot = wings_psi_dot[wing][frame], wings_theta_dot[wing][frame], wings_phi_dot[wing][frame]
                 roll, pitch, yaw = roll_all[frame], pitch_all[frame], yaw_all[frame]
-                f_body_aero, f_lab_aero, t_body, _, _, _ = FlightAnalysis.exctract_forces(phi, phi_dot,
+                f_body_aero, f_lab_aero, t_body, r_wing2sp, r_sp2body, r_body2lab = FlightAnalysis.exctract_forces(phi, phi_dot,
                                                                                  pitch, psi,
                                                                                  psi_dot,
                                                                                  roll, theta,
@@ -453,7 +449,11 @@ class FlightAnalysis:
                 force_body[frame, wing, :] = f_body_aero
                 force_lab[frame, wing, :] = f_lab_aero
                 torque_body[frame, wing, :] = t_body
-
+                if wing == LEFT:
+                    Rot_mat_wing2labL = r_body2lab @ r_sp2body @ r_wing2sp
+                else:
+                    Rot_mat_wing2labR = r_body2lab @ r_sp2body @ r_wing2sp
+            # dispaly_coordinate_systems(Rot_mat_wing2labL, Rot_mat_wing2labR, r_body2lab)
         return force_body, force_lab, torque_body
 
     @staticmethod
@@ -635,6 +635,9 @@ class FlightAnalysis:
             average_psi_mid_upstroke = (right_psi_mid_downstroke + right_psi_mid_upstroke) / 2
             average_psi_diff = (left_psi_diff + right_psi_diff) / 2
 
+            # torque
+            avarage_torque_body = np.mean(self.torque_body_total[frames], axis=0)
+
             full_wingbit_body = FullWingBitBody(
                 start=np.round(start_frame).astype(int),
                 end=np.round(end_frame).astype(int),
@@ -653,6 +656,9 @@ class FlightAnalysis:
                 p=self.p[frames],
                 q=self.q[frames],
                 r=self.r[frames],
+                torque=self.torque_body_total[frames],
+
+                avarage_torque_body=avarage_torque_body,
 
                 # phi attributes
                 left_amplitude=left_amplitude,
@@ -1226,7 +1232,7 @@ class FlightAnalysis:
     def get_body_yaw(x_body):
         only_xy = normalize(x_body[:, :-1], axis=1, norm='l2')
         yaw = np.rad2deg(np.arctan2(only_xy[:, 1], only_xy[:, 0]))
-        yaw = np.unwrap(yaw + 180, period=360) - 180
+        yaw = np.abs(np.unwrap(yaw + 180, period=360) - 180)
         return yaw
 
     @staticmethod
@@ -1671,13 +1677,16 @@ class FlightAnalysis:
         first_y_body_frame = np.min(idx4StrkPln)
         end = np.max(idx4StrkPln)
         x = np.arange(first_y_body_frame, end)
-        f1 = interp1d(idx4StrkPln, y_bodies[:, 0], kind='quadratic')
-        f2 = interp1d(idx4StrkPln, y_bodies[:, 1], kind='quadratic')
-        f3 = interp1d(idx4StrkPln, y_bodies[:, 2], kind='quadratic')
+        kind = 'linear' if len(idx4StrkPln) == 2 else 'quadratic'
+        assert len(idx4StrkPln) >= 2, "there must be more then 2 indices for the y body calculation"
+        f1 = interp1d(idx4StrkPln, y_bodies[:, 0], kind=kind)
+        f2 = interp1d(idx4StrkPln, y_bodies[:, 1], kind=kind)
+        f3 = interp1d(idx4StrkPln, y_bodies[:, 2], kind=kind)
         Ybody_inter = np.vstack((f1(x), f2(x), f3(x))).T
 
+        window_length = min(73 * 2, len(Ybody_inter))
         Ybody_inter = FlightAnalysis.savgol_smoothing(Ybody_inter[:, np.newaxis, :], lam=1, polyorder=1,
-                                                      window_length=73 * 2, median_kernel=1)
+                                                      window_length=window_length, median_kernel=1)
         Ybody_inter = np.squeeze(Ybody_inter)
         Ybody_inter = normalize(Ybody_inter, axis=1, norm='l2')
         all_y_bodies[first_y_body_frame:end, :] = Ybody_inter
@@ -1707,6 +1716,8 @@ class FlightAnalysis:
             np.arccos(np.clip(self.row_wize_dot(self.right_wing_span, self.x_body), -1.0, 1.0)))
 
         mean_strks = np.mean([dotspanAx_wing1, dotspanAx_wing2], axis=0)
+        mean_strks = savgol_filter(mean_strks, window_length=5, polyorder=2)
+
         changeSgn = np.vstack((mean_strks < 0, mean_strks >= 0))
 
         FrbckStrk = self.find_up_down_strk(changeSgn, mean_strks, 0)
@@ -3340,7 +3351,8 @@ def compute_shifted_correlations(file_path, save_name="correlations.html"):
 
 
 def create_correlations_cluster():
-    base_path = "roni dark 60ms"
+    # base_path = "roni dark 60ms"
+    base_path = r"G:\My Drive\Amitai\one halter experiments\roni dark 60ms"
     save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
     output_file = os.path.join(base_path, "combined_wingbits.h5")
     combine_wingbits_and_save(output_file, base_path)
@@ -3383,8 +3395,8 @@ def compute_yaw_pitch(vec_bad):
 
 
 def display_good_vs_bad_haltere(good_haltere, bad_haltere):
-    omega_good, wx_good, wy_good, wz_good = get_omega_from_df(pd.read_csv(good_haltere))
-    omega_bad, wx_bad, wy_bad, wz_bad = get_omega_from_df(pd.read_csv(bad_haltere))
+    omega_good, wx_good, wy_good, wz_good = get_3D_attribute_from_df(pd.read_csv(good_haltere))
+    omega_bad, wx_bad, wy_bad, wz_bad = get_3D_attribute_from_df(pd.read_csv(bad_haltere))
 
     mahal_dist_bad = calculate_mahalanobis_distance(omega_bad)
     # omega_bad = omega_bad[mahal_dist_bad < 4]
@@ -3534,11 +3546,11 @@ def display_omegas_dark_vs_light(csv_file):
     plt.show()
 
 
-def check_roll_pitch_correlations_high_omegas(csv_file):
+def check_high_blind_axis_omegas(csv_file):
     df = pd.read_csv(csv_file)
     df = df.dropna(subset=["body_wx_take", "body_wy_take", "body_wz_take"])
     # Extract omega values for Mahalanobis filtering
-    omega, _, _, _ = get_omega_from_df(df)
+    omega, _, _, _ = get_3D_attribute_from_df(df)
 
     # Compute the mean and covariance matrix of omega
     mean = np.mean(omega, axis=0)
@@ -3553,7 +3565,7 @@ def check_roll_pitch_correlations_high_omegas(csv_file):
 
     # Filter the dataframe based on Mahalanobis distance
     filtered_df = df.iloc[filtered_indices]
-    filtered_omega, _, _, _ = get_omega_from_df(filtered_df)
+    filtered_omega, _, _, _ = get_3D_attribute_from_df(filtered_df)
     vec_all, yaw_all, pitch_all, yaw_std_all, pitch_std_all = get_pca_points(filtered_omega)
 
     # Project omega vectors onto vec_all and calculate the distance from the origin
@@ -3566,10 +3578,21 @@ def check_roll_pitch_correlations_high_omegas(csv_file):
 
     # Filter rows where the projection distance is within the threshold
     final_filtered_indices = [i for i, distance in enumerate(distances) if distance >= threshold_distance]
+    all_indices_filtered_df = np.arange(len(distances))
+    remaining_indices = list(set(all_indices_filtered_df) - set(final_filtered_indices))
 
     # Get the corresponding original indices
     final_filtered_df = filtered_df.iloc[final_filtered_indices]
-    omega, _, _, _ = get_omega_from_df(final_filtered_df)
+    non_filtered_df = filtered_df.iloc[remaining_indices]
+
+    high_omegas, _, _, _ = get_3D_attribute_from_df(final_filtered_df)
+    rest_of_omegas , _, _, _ = get_3D_attribute_from_df(non_filtered_df)
+    high_omegas_torques, _, _, _ =  get_3D_attribute_from_df(final_filtered_df, attirbutes=["torque_body_x_take",
+                                                                               "torque_body_y_take",
+                                                                               "torque_body_z_take"])
+    rest_of_torques, _, _, _ = get_3D_attribute_from_df(non_filtered_df, attirbutes=["torque_body_x_take",
+                                                                               "torque_body_y_take",
+                                                                               "torque_body_z_take"])
 
     dir = os.path.dirname(csv_file)
     output_file_path = os.path.join(dir, 'high 20 percent omegas.csv')
@@ -3579,16 +3602,20 @@ def check_roll_pitch_correlations_high_omegas(csv_file):
     # Plotting
     fig = plt.figure(figsize=(20, 20))  # Adjust the figure size here
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(omega[:, 0], omega[:, 1], omega[:, 2], s=1, color='blue')
+    # ax.scatter(high_omegas[:, 0], high_omegas[:, 1], high_omegas[:, 2], s=1, color='blue', label='top 20')
+    # ax.scatter(rest_of_omegas[:, 0], rest_of_omegas[:, 1], rest_of_omegas[:, 2], s=1, color='red', label='rest')
+    ax.scatter(torque[:, 0], torque[:, 1], torque[:, 2], s=5, color='blue', label='top 20')
+    ax.scatter(rest_of_torques[:, 0], rest_of_torques[:, 1], rest_of_torques[:, 2], s=5, color='red' , label='rest')
     ax.set_aspect('equal')
+    plt.legend()
     plt.show()
 
 
 def get_omegas(csv_path):
     df = pd.read_csv(csv_path)
     df_dir1, df_dir2 = filter_between_light_dark(df)
-    no_dark = get_omega_from_df(df_dir1)
-    with_dark = get_omega_from_df(df_dir2)
+    no_dark = get_3D_attribute_from_df(df_dir1)
+    with_dark = get_3D_attribute_from_df(df_dir2)
     return no_dark, with_dark
 
 
@@ -3598,12 +3625,12 @@ def filter_between_light_dark(df):
     return df_dir1, df_dir2
 
 
-def get_omega_from_df(df):
-    wx = df["body_wx_take"].values
+def get_3D_attribute_from_df(df, attirbutes=["body_wx_take", "body_wy_take", "body_wz_take"]):
+    wx = df[attirbutes[0]].values
     wx = wx[~np.isnan(wx)]
-    wy = df["body_wy_take"].values
+    wy = df[attirbutes[1]].values
     wy = wy[~np.isnan(wy)]
-    wz = df["body_wz_take"].values
+    wz = df[attirbutes[2]].values
     wz = wz[~np.isnan(wz)]
     omega = np.column_stack((wx, wy, wz))
     return omega, wx, wy, wz
@@ -3667,29 +3694,29 @@ def scratch():
     yaw_degrees, pitch_degrees = extract_yaw_pitch(vector)
 
 def test_forces():
-    phi = 40
-    theta = 80
-    psi = 120
+    phi = 90
+    theta = 0
+    psi = 0
     phi_dot = 40
     theta_dot = 80
     psi_dot = 120
-    yaw = 100
+    yaw = 0
     pitch = 45
-    roll = 45
+    roll = 0
     cm_dot = np.array([1, -1, 10])
     omega_body = np.array([1000, -1000, 2000])
 
     angles_dot = np.radians([psi_dot, -theta_dot, phi_dot])
     # left
     f_body_aero_left, f_lab_aero_left, t_body_left, r_wing2sp_left, r_sp2body_left, r_body2lab_left = FlightAnalysis.exctract_forces(
-        phi=phi, phi_dot=phi_dot, pitch=pitch, psi=psi, psi_dot=psi_dot, roll=roll, theta=-theta, theta_dot=-theta_dot,
+        phi=phi, phi_dot=phi_dot, pitch=-pitch, psi=psi, psi_dot=psi_dot, roll=roll, theta=-theta, theta_dot=-theta_dot,
         yaw=yaw, center_mass_dot=cm_dot, omega_body=omega_body)
 
     Rot_mat_wing2labL = r_body2lab_left @ r_sp2body_left @ r_wing2sp_left
 
     # right
     f_body_aero_right, f_lab_aero_right, t_body_right, r_wing2sp_right, r_sp2body_right, r_body2lab_right = FlightAnalysis.exctract_forces(
-                                                                     -phi, -phi_dot, pitch,180 - psi, -psi_dot, roll, -theta,
+                                                                     -phi, -phi_dot, -pitch, 180 - psi, -psi_dot, roll, -theta,
                                                                      -theta_dot, yaw , cm_dot, omega_body)
     Rot_mat_wing2labR = r_body2lab_right @ r_sp2body_right @ r_wing2sp_right
 
@@ -3699,7 +3726,7 @@ def test_forces():
     force_body_total = (f_body_aero_left + f_body_aero_right) / np.linalg.norm(f_body_aero_left + f_body_aero_right)
 
 
-def dispaly_coordinate_systems(Rot_mat_wing2labL, Rot_mat_wing2labR, r_body2lab_left):
+def dispaly_coordinate_systems(Rot_mat_wing2labL, Rot_mat_wing2labR, r_body2lab_left, ax=None):
     # Wing axes
     wing_Xax = np.dot(Rot_mat_wing2labL, np.array([1, 0, 0]))
     wing_Yax = np.dot(Rot_mat_wing2labL, np.array([0, 1, 0]))
@@ -3713,8 +3740,9 @@ def dispaly_coordinate_systems(Rot_mat_wing2labL, Rot_mat_wing2labR, r_body2lab_
     body_Yax = np.dot(r_body2lab_left, np.array([0, 1, 0]))
     body_Zax = np.dot(r_body2lab_left, np.array([0, 0, 1]))
     # Plotting
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    if ax is not None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
     wing_ax = r_body2lab_left @ np.array([0, 1, 0])
     # Quivers for wing axes
     ax.quiver(wing_ax[0], wing_ax[1], wing_ax[2], wing_Xax[0], wing_Xax[1], wing_Xax[2], color='k')
@@ -3738,16 +3766,53 @@ def dispaly_coordinate_systems(Rot_mat_wing2labL, Rot_mat_wing2labR, r_body2lab_
     plt.show()
 
 
+def analyze_torque():
+    csv_path_severed = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\all_wingbits_attributes_severed_haltere.csv"
+    csv_path_intact = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\all_wingbits_attributes_good_haltere.csv"
+    df_severed = pd.read_csv(csv_path_severed)
+    df_intact = pd.read_csv(csv_path_intact)
+    omegas_severed, _, _, _ = get_3D_attribute_from_df(df_severed)
+    torques_severed, _, _, _ = get_3D_attribute_from_df(df_severed, attirbutes=["torque_body_x_take", "torque_body_y_take", "torque_body_z_take"])
+    omegas_intact, _, _, _ = get_3D_attribute_from_df(df_intact)
+    torques_intact, _, _, _ = get_3D_attribute_from_df(df_intact, attirbutes=["torque_body_x_take", "torque_body_y_take", "torque_body_z_take"])
+    # omegas_norm = omegas_severed / np.linalg.norm(omegas_severed, axis=1)[:, np.newaxis]
+    # torques_norm = torques_severed / np.linalg.norm(torques_severed, axis=1)[:, np.newaxis]
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    # ax.scatter(omegas_severed[:, 0], omegas_severed[:, 1], omegas_severed[:, 2], s=2, c="blue")
+    torques_severed *= 1000000000
+    ax.scatter(torques_severed[:, 0], torques_severed[:, 1], torques_severed[:, 2], s=2, c="red")
+
+
+    torques_intact *= 1000000000
+    ax.scatter(torques_intact[:, 0], torques_intact[:, 1], torques_intact[:, 2], s=2, c="blue")
+
+    ax.set_aspect('equal')
+    plt.show()
+    pass
+
+def analize_all_movies():
+    base_path = r"G:\My Drive\Amitai\one halter experiments\roni dark 60ms"
+    save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+    base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies"
+    save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+    base_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies"
+    save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+
 if __name__ == '__main__':
-    test_forces()
+    # analyze_torque()
+    # analize_all_movies()
+    # test_forces()
+    base_path = r"G:\My Drive\Amitai\one halter experiments\roni dark 60ms"
+    # save_movies_data_to_hdf5(base_path, output_hdf5_path="", smooth=True, one_h5_for_all=False)
+
     path = r"G:\My Drive\Amitai\one halter experiments\roni dark 60ms\mov1\points_3D_smoothed_ensemble_best_method.npy"
     # FlightAnalysis(path)
     bad_haltere = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\all_wingbits_attributes_severed_haltere.csv"
     good_haltere = r"C:\Users\amita\PycharmProjects\pythonProject\vision\train_nn_project\2D to 3D\2D to 3D code\wingbits data\all_wingbits_attributes_good_haltere.csv"
     # display_good_vs_bad_haltere(good_haltere, bad_haltere)
     # display_omegas_dark_vs_light(bad_haltere)
-    # check_roll_pitch_correlations_high_omegas(bad_haltere)
-
+    check_high_blind_axis_omegas(bad_haltere)
     # create_correlations_from_drive(only_correlations=False)
     # create_correlations_cluster()
     # create_one_movie_analisys()

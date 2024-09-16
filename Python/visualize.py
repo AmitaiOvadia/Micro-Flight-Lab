@@ -21,6 +21,9 @@ import matplotlib.animation as animation
 from moviepy.editor import VideoFileClip
 import re
 
+SAVE = "SAVE"
+DISPLAY = "DISPLAY"
+
 
 class Visualizer:
     @staticmethod
@@ -993,7 +996,7 @@ class Visualizer:
             ax_3d.xaxis.set_major_formatter(FuncFormatter(mm_formatter))
             ax_3d.yaxis.set_major_formatter(FuncFormatter(mm_formatter))
             ax_3d.zaxis.set_major_formatter(FuncFormatter(mm_formatter))
-
+            ax_3d.set_aspect('equal') # added this
             for i, ax in enumerate(ax_2d):
                 ax.cla()
                 image = box[frame - save_frames[0], i].T
@@ -1029,8 +1032,8 @@ class Visualizer:
         os.remove(save_path)
 
     @staticmethod
-    def visualize_analisys_3D(h5_path_movie_path):
-        zoom_factor = 0.8  # Adjust as needed
+    def visualize_analisys_3D(h5_path_movie_path, ACTION=DISPLAY):
+        zoom_factor = 1  # Adjust as needed
 
         # Assuming points is your (N, M, 3) array
         points = Visualizer.get_data_from_h5(h5_path_movie_path, 'points_3D')
@@ -1071,7 +1074,7 @@ class Visualizer:
         total_torque = torque_body_left + torque_body_right
 
         df = pd.DataFrame(total_torque, columns=['x', 'y', 'z'])
-        torque_running_average = df.rolling(window=10, min_periods=1, center=True).mean()
+        torque_running_average = df.rolling(window=70, min_periods=1, center=True).mean()
         torque_running_average = torque_running_average.to_numpy()
 
         # omega body
@@ -1110,7 +1113,7 @@ class Visualizer:
         axframe = plt.axes([0.2, 0.02, 0.65, 0.03], facecolor='lightgoldenrodyellow')
         slider = Slider(axframe, 'Frame', 0, len(points) - 1, valinit=0, valstep=1)
 
-        def add_quiver_axes(ax, origin, x_vec, y_vec, z_vec, scale=0.001, labels=None, color='r'):
+        def add_quiver_axes(ax, origin, x_vec, y_vec, z_vec, scale=0.001, labels=None, color='r', fontsize=14):
             x, y, z = origin
             if x_vec is not None:
                 ax.quiver(x, y, z, x_vec[0], x_vec[1], x_vec[2], length=scale, color=color)
@@ -1122,11 +1125,11 @@ class Visualizer:
             # Add optional labels if provided
             if labels:
                 if x_vec is not None:
-                    ax.text(x + x_vec[0] * scale, y + x_vec[1] * scale, z + x_vec[2] * scale, labels[0], color=color)
+                    ax.text(x + x_vec[0] * scale, y + x_vec[1] * scale, z + x_vec[2] * scale, labels[0], color=color, fontsize=fontsize)
                 if y_vec is not None:
-                    ax.text(x + y_vec[0] * scale, y + y_vec[1] * scale, z + y_vec[2] * scale, labels[1], color=color)
+                    ax.text(x + y_vec[0] * scale, y + y_vec[1] * scale, z + y_vec[2] * scale, labels[1], color=color, fontsize=fontsize)
                 if z_vec is not None:
-                    ax.text(x + z_vec[0] * scale, y + z_vec[1] * scale, z + z_vec[2] * scale, labels[2], color=color)
+                    ax.text(x + z_vec[0] * scale, y + z_vec[1] * scale, z + z_vec[2] * scale, labels[2], color=color, fontsize=fontsize)
 
         def plot_plane(ax, corners, color='g', alpha=0.5):
             vertices = [corners]
@@ -1158,7 +1161,10 @@ class Visualizer:
 
         def update(val, do_plot_plane=True, plot_wings=True):
             ax.cla()  # Clear current axes
-            frame = int(slider.val)
+            if val != -1:
+                frame = val
+            else:
+                frame = int(slider.val)
             my_cm_x, my_cm_y, my_cm_z = my_CM[frame]
 
             if plot_wings:
@@ -1181,7 +1187,7 @@ class Visualizer:
                                 None, color='r', labels=['Span', 'Chord'])
 
                 # add forces
-                amplify = 5e5
+                amplify = 1e5
                 add_quiver_axes(ax, my_left_wing_CM[frame], x_vec=None, y_vec=None, z_vec=force_left_wing[frame] * amplify,
                                 color='orange', labels=['', '', 'force left'])
                 add_quiver_axes(ax, my_right_wing_CM[frame], x_vec=None, y_vec=None, z_vec=force_right_wing[frame] * amplify,
@@ -1191,6 +1197,7 @@ class Visualizer:
                 amplify = 5e7
                 # torque = torque_body_left[frame] + torque_body_right[frame]
                 torque = total_torque[frame]
+                # torque = torque_running_average[frame]
                 add_quiver_axes(ax, (my_cm_x, my_cm_y, my_cm_z), x_vec=None, y_vec=None,
                                 z_vec=torque * amplify,
                                 color='green', labels=['', '', 'torque'])
@@ -1200,7 +1207,7 @@ class Visualizer:
             ax.scatter(my_cm_x, my_cm_y, my_cm_z, c=color_array[0])
             if do_plot_plane:
                 # Add the stroke plane
-                plot_plane(ax, plane_data[frame])
+                plot_plane(ax, plane_data[frame], alpha=0.2)
 
             add_quiver_axes(ax, (my_cm_x, my_cm_y, my_cm_z), omega_body[frame] / 500, None, None,
                             color='b', labels=['omega body'])
@@ -1227,20 +1234,33 @@ class Visualizer:
             ax.set_aspect('equal')
             fig.canvas.draw_idle()
 
-        slider.on_changed(update)
+        if ACTION == DISPLAY:
+            slider.on_changed(update)
+            # Function to handle keyboard events
+            def handle_key_event(event):
+                if event.key == 'right':
+                    slider.set_val(min(slider.val + 1, slider.valmax))
+                elif event.key == 'left':
+                    slider.set_val(max(slider.val - 1, slider.valmin))
 
-        # Function to handle keyboard events
-        def handle_key_event(event):
-            if event.key == 'right':
-                slider.set_val(min(slider.val + 1, slider.valmax))
-            elif event.key == 'left':
-                slider.set_val(max(slider.val - 1, slider.valmin))
-
-        fig.canvas.mpl_connect('key_press_event', handle_key_event)
-
-        # Initial plot
-        update(0)
-        plt.show()
+            fig.canvas.mpl_connect('key_press_event', handle_key_event)
+            # Initial plot
+            update(-1)
+            plt.show()
+        else:
+            # Create the animation
+            save_frames = np.arange(1000, 1500)
+            ani = animation.FuncAnimation(fig, update, frames=save_frames, interval=100)  # Adjust interval as needed
+            dir_name = os.path.dirname(h5_path_movie_path)
+            save_path = os.path.join(dir_name, "temp.gif")
+            writer = animation.PillowWriter(fps=5)
+            # writer = FFMpegWriter(fps=30, metadata=dict(artist='Me'), bitrate=1800)
+            ani.save(save_path, writer=writer)
+            dir_path = os.path.dirname(save_path)
+            gif_clip = VideoFileClip(save_path)
+            save_path_mp4 = os.path.join(dir_path, f'analisys_temp_mp4.mp4')
+            gif_clip.write_videofile(save_path_mp4, codec="libx264")
+            os.remove(save_path)
 
     @staticmethod
     def visualize_models_selection(all_models_combinations):
@@ -1785,9 +1805,9 @@ if __name__ == '__main__':
 
     # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov24\mov24_analysis_smoothed.h5"
     # h5_path = r"C:\Users\amita\OneDrive\Desktop\temp\mov24_analysis_smoothed.h5"
-    h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 undisturbed\moved from cluster\free 24-1 movies\mov21\mov21_analysis_smoothed.h5"
-    # Visualizer.plot_all_body_data(input_hdf5_path)
-    Visualizer.visualize_analisys_3D(h5_path)
+    h5_path = r"G:\My Drive\Amitai\one halter experiments\roni dark 60ms\mov24\mov24_analysis_smoothed.h5"
+    # h5_path = r"G:\My Drive\Amitai\one halter experiments\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\from cluster\dark 24-1 movies\mov62\mov62_analysis_smoothed.h5"
+    Visualizer.visualize_analisys_3D(h5_path, ACTION=DISPLAY)
 
     # movie_path = r"G:\My Drive\Amitai\one halter experiments 23-24.1.2024\experiment 24-1-2024 dark disturbance\arranged movies\mov62\movie_62_160_1888_ds_3tc_7tj.h5"
     # Visualizer.display_movie_from_path(movie_path)

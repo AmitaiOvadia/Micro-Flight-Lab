@@ -3,7 +3,7 @@
   "2D predictions path":"C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\code on cluster\\selected_movies\\mov10_u\\movie_10_130_1666_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 17\\predicted_points_and_box.h5",
   "out path": "G:\\My Drive\\Amitai\\one halter experiments 23-24.1.2024\\experiment 24-1-2024 undisturbed\\arranged movies\\mov1\\movie_1_201_1035_ds_3tc_7tj_WINGS_AND_BODY_SAME_MODEL_Feb 11",
   "number of cameras": 4,
-  "calibration data path": "C:\\Users\\amita\\PycharmProjects\\pythonProject\\vision\\train_nn_project\\2D to 3D\\code on cluster\\calibration file.h5",
+  "calibration data path":"C:\\Users\\amita\\OneDrive\\Desktop\\temp\\calibration file.h5",
   "align right left": 0,
   "IMAGE_HEIGHT": 800,
   "IMAGE_WIDTH": 1280

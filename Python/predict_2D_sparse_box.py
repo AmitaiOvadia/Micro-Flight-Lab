@@ -59,7 +59,6 @@ ALL_COUPLES = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]
 LEFT = 0
 RIGHT = 1
 
-
 class Predictor2D:
     def __init__(self, configuration_path, load_box_from_sparse=False):
         self.points_3D_smoothed = None
@@ -474,7 +473,7 @@ class Predictor2D:
     def enforce_3D_left_right_consistency(self):
         self.points_3D_all, self.reprojection_errors, self.triangulation_errors = (
             self.get_all_3D_pnts_pairs(self.preds_2D, self.cropzone))
-        _, points_3D, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
+        _, points_3D, _, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
         right_points = np.zeros((self.num_frames, len(self.right_inds), 3))
         left_points = np.zeros((self.num_frames, len(self.left_inds), 3))
 
@@ -750,7 +749,7 @@ class Predictor2D:
         # points_3D = self.get_points_3D(alpha=None)
         print("predicting 3D points by checking all triangulation combinations")
         # try:
-        _, self.points_3D, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
+        _, self.points_3D, _, _ = Predictor2D.find_3D_points_optimize_neighbors([self.points_3D_all])
         # except Exception as e:
         #     print(f"the points 3D selection has caused an exception\n{e}")
         #     self.points_3D = self.get_points_3D(alpha=None)
@@ -1231,22 +1230,41 @@ class Predictor2D:
         models_candidates = list(range(len(all_points_list)))
         num_points_candidates = all_points_list[0].shape[2]
         points_candidates = np.arange(0, num_points_candidates)
-        all_models_combinations_list = Predictor2D.all_possible_combinations(models_candidates, fraq=0.2)
+        all_models_combinations_list = Predictor2D.all_possible_combinations(models_candidates, fraq=0.1)
         all_camera_pairs_list = Predictor2D.all_possible_combinations(points_candidates, fraq=0.01)
         best_score = float('inf')
         best_combination = None
         best_points_3D = None
+        half_window = len(all_points_list[0]) // 2
+
+        scores_dataset = []
+
         for combination in all_models_combinations_list:
+            best_score_for_comb = float('inf')
+            best_points_for_comb = None
+
             for cams_pairs_comb in all_camera_pairs_list:
                 all_comb_points = [all_points_list[i][:, :, cams_pairs_comb, :] for i in combination]
                 result = np.concatenate(all_comb_points, axis=2)
                 points_3D = Predictor2D.get_3D_points_median(result)
                 score = score_function(points_3D)
+
                 if score < best_score:
                     best_score = score
                     best_combination = (combination, cams_pairs_comb)
                     best_points_3D = points_3D
-        return best_combination, best_points_3D, best_score
+
+                if score < best_score_for_comb:
+                    best_score_for_comb = score
+                    best_points_for_comb = points_3D
+
+            scores_dataset.append({
+                'model_combination': combination,
+                'score': best_score_for_comb,
+                'points_3D': best_points_for_comb[half_window]
+            })
+
+        return best_combination, best_points_3D, best_score, scores_dataset
 
     @staticmethod
     def get_window(extended_data, window_size, window_start):
@@ -1280,11 +1298,11 @@ class Predictor2D:
     @staticmethod
     def process_frame(args):
         window_data, score_function, frame, half_window = args
-        best_combination_w, best_points_3D_w, score = Predictor2D.get_best_ensemble_combination(
+        best_combination_w, best_points_3D_w, score, scores_dataset = Predictor2D.get_best_ensemble_combination(
             window_data,
             score_function=score_function)
         chosen_point = best_points_3D_w[half_window]
-        return frame, chosen_point, best_combination_w
+        return frame, chosen_point, best_combination_w, scores_dataset
 
     @staticmethod
     def get_best_points_per_point_multiprocessing(all_points_list, points_inds, window_size=31,
@@ -1309,12 +1327,14 @@ class Predictor2D:
         final_array = np.zeros((num_frames, num_points, 3))
         number_of_models = len(all_points_list)
         models_combinations = np.zeros((num_frames, number_of_models, num_candidates))
-        for frame, chosen_point, best_combination_window in results:
+        all_frames_scores = []
+        for frame, chosen_point, best_combination_window, scores_dataset in results:
             for i in range(len(best_combination_window[1])):
                 models_combinations[frame, best_combination_window[0], best_combination_window[1][i]] = 1
             final_array[frame] = chosen_point
+            all_frames_scores.append(scores_dataset)
 
-        return final_array, models_combinations
+        return final_array, models_combinations, all_frames_scores
 
     @staticmethod
     def find_3D_points_optimize_neighbors(all_points_list):
@@ -1325,42 +1345,44 @@ class Predictor2D:
         num_frames = all_points_list[0].shape[0]
         final_points_3D = np.zeros((num_frames, 18, 3))
 
-        best_left_points, model_combinations_left_points = Predictor2D.get_best_points_per_point_multiprocessing(
+        best_left_points, model_combinations_left_points, all_frames_scores_left_points = Predictor2D.get_best_points_per_point_multiprocessing(
             all_points_list, points_inds=left_wing_inds,
             score_function=Predictor2D.find_std_of_wings_points_dists)
         score = Predictor2D.find_std_of_wings_points_dists(best_left_points)
         final_points_3D[:, left_wing_inds, :] = best_left_points
-        print(f"best_left_points, score: {score}")
+        print(f"best_left_points, score: {score}", flush=True)
 
-        best_right_points, model_combinations_right_points = Predictor2D.get_best_points_per_point_multiprocessing(
+        best_right_points, model_combinations_right_points, all_frames_scores_right_points = Predictor2D.get_best_points_per_point_multiprocessing(
             all_points_list, points_inds=right_wing_inds,
             score_function=Predictor2D.find_std_of_wings_points_dists)
         score = Predictor2D.find_std_of_wings_points_dists(best_right_points)
         final_points_3D[:, right_wing_inds, :] = best_right_points
-        print(f"best_right_points, score: {score}")
+        print(f"best_right_points, score: {score}", flush=True)
 
-        best_head_tail_points, model_combinations_head_tail_points = Predictor2D.get_best_points_per_point_multiprocessing(
+        best_head_tail_points, model_combinations_head_tail_points, all_frames_scores_head_tail_points = Predictor2D.get_best_points_per_point_multiprocessing(
             all_points_list, points_inds=head_tail_inds, window_size=min(73, num_frames),
             score_function=Predictor2D.find_std_of_2_points_dists)
         final_points_3D[:, head_tail_inds, :] = best_head_tail_points
         score = Predictor2D.find_std_of_2_points_dists(best_head_tail_points)
-        print(f"head tail points score: {score}")
+        print(f"head tail points score: {score}", flush=True)
 
-        best_side_points, model_combinations_side_points = Predictor2D.get_best_points_per_point_multiprocessing(
+        best_side_points, model_combinations_side_points, all_frames_scores_side_points = Predictor2D.get_best_points_per_point_multiprocessing(
             all_points_list, points_inds=side_wing_inds, window_size=min(73*3, num_frames),
             score_function=Predictor2D.find_std_of_2_points_dists)
         final_points_3D[:, side_wing_inds, :] = best_side_points
         score = Predictor2D.find_std_of_2_points_dists(best_side_points)
-        print(f"side points score: {score}")
+        print(f"side points score: {score}", flush=True)
 
         final_score = From2Dto3D.get_validation_score(final_points_3D)
-        print(f"Final score: {final_score}")
+        print(f"Final score: {final_score}", flush=True)
 
         all_models_combinations = np.array([model_combinations_left_points, model_combinations_right_points,
                                             model_combinations_head_tail_points, model_combinations_side_points])
-        return final_score, final_points_3D, all_models_combinations
-
-
+        all_frames_scores = [all_frames_scores_left_points,
+                             all_frames_scores_right_points,
+                             all_frames_scores_head_tail_points,
+                             all_frames_scores_side_points]
+        return final_score, final_points_3D, all_models_combinations, all_frames_scores
 
 
 
